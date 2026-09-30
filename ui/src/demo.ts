@@ -200,7 +200,8 @@ export class Demo {
 
   constructor(
     private emitir: Emitir,
-    private opcoes: { autoConfirmarMs?: number; repetir?: boolean } = {},
+    // Função, e não número: no app, a ponte do pywebview só aparece depois de a página montar.
+    private opcoes: { autoConfirmarMs?: () => number; repetir?: boolean } = {},
   ) {}
 
   iniciar(): void {
@@ -254,7 +255,7 @@ export class Demo {
         this.esperando = passo.aguardaConfirmacao;
         if (this.opcoes.autoConfirmarMs) {
           const id = passo.aguardaConfirmacao;
-          this.automatico = setTimeout(() => this.responder(id, true), this.opcoes.autoConfirmarMs);
+          this.automatico = setTimeout(() => this.responder(id, true), this.opcoes.autoConfirmarMs());
         }
         return;
       }

@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import { AGENDA_EXEMPLO, eventosAte, PASSOS } from "./demo";
-import { inicial, reduzir } from "./estado";
+import { inicial, LIMITE_CONVERSA, reduzir } from "./estado";
 import type { Evento } from "./tipos";
 
 const aplicar = (eventos: Evento[]) => eventos.reduce(reduzir, inicial);
@@ -59,12 +59,24 @@ describe("redutor", () => {
     expect(s.estrela).toBeGreaterThan(0);
   });
 
-  it("ficar ocioso zera os níveis do orbe", () => {
-    const s = aplicar([
-      { tipo: "nivel", fonte: "mic", valor: 0.8 },
-      { tipo: "estado", valor: "ocioso" },
-    ]);
-    expect(s.nivelMic).toBe(0);
+  it("o volume não entra no estado da tela (vai direto para os shaders)", () => {
+    const antes = aplicar([{ tipo: "estado", valor: "ouvindo" }]);
+    expect(reduzir(antes, { tipo: "nivel", fonte: "mic", valor: 0.8 })).toBe(antes);
+  });
+
+  it("a conversa tem limite e reiniciar limpa tudo menos o nome", () => {
+    const falas: Evento[] = Array.from({ length: LIMITE_CONVERSA + 30 }, (_, i) => ({
+      tipo: "fala_usuario",
+      texto: `fala ${i}`,
+      canal: "texto",
+    }));
+    const s = aplicar([{ tipo: "painel", nome: "Nova", agenda: AGENDA_EXEMPLO }, ...falas]);
+    expect(s.conversa).toHaveLength(LIMITE_CONVERSA);
+    expect(s.conversa.at(-1)?.texto).toBe(`fala ${LIMITE_CONVERSA + 29}`);
+    const limpo = reduzir(s, { tipo: "reiniciar" });
+    expect(limpo.conversa).toEqual([]);
+    expect(limpo.agenda).toEqual([]);
+    expect(limpo.nome).toBe("Nova");
   });
 });
 

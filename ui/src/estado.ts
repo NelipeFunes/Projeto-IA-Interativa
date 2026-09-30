@@ -9,11 +9,15 @@ export interface Mensagem {
   ferramentas?: string[];
 }
 
+/** Quantas mensagens a tela guarda (o app fica ligado dias: a conversa não pode crescer sem limite). */
+export const LIMITE_CONVERSA = 50;
+
+/** Eventos do núcleo + ações só da tela. */
+export type Acao = Evento | { tipo: "reiniciar" };
+
 export interface EstadoUI {
   nome: string;
   estado: Estado;
-  nivelMic: number;
-  nivelVoz: number;
   conversa: Mensagem[];
   agenda: EventoAgenda[];
   memorias: Memoria[];
@@ -29,8 +33,6 @@ export interface EstadoUI {
 export const inicial: EstadoUI = {
   nome: "Jarvis",
   estado: "ocioso",
-  nivelMic: 0,
-  nivelVoz: 0,
   conversa: [],
   agenda: [],
   memorias: [],
@@ -54,21 +56,27 @@ function ultimaDoAssistente(conversa: Mensagem[]): Mensagem | undefined {
   return ultima?.autor === "assistente" && ultima.parcial ? ultima : undefined;
 }
 
-export function reduzir(s: EstadoUI, ev: Evento): EstadoUI {
+const aparar = (conversa: Mensagem[]) =>
+  conversa.length > LIMITE_CONVERSA ? conversa.slice(conversa.length - LIMITE_CONVERSA) : conversa;
+
+export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
   const seq = s.seq + 1;
   switch (ev.tipo) {
+    case "reiniciar":
+      return { ...inicial, nome: s.nome, seq };
+
     case "estado":
-      return { ...s, seq, estado: ev.valor, ...(ev.valor === "ocioso" ? { nivelMic: 0, nivelVoz: 0 } : {}) };
+      return { ...s, seq, estado: ev.valor };
 
     case "nivel":
-      return ev.fonte === "mic" ? { ...s, nivelMic: ev.valor } : { ...s, nivelVoz: ev.valor };
+      return s; // o volume vai para niveis.ts, não para o estado da tela
 
     case "fala_usuario":
       return {
         ...s,
         seq,
         ferramentasTurno: [],
-        conversa: [...s.conversa, { id: seq, autor: "voce", texto: ev.texto }],
+        conversa: aparar([...s.conversa, { id: seq, autor: "voce", texto: ev.texto }]),
       };
 
     case "resposta_parcial": {
@@ -80,7 +88,11 @@ export function reduzir(s: EstadoUI, ev: Evento): EstadoUI {
           conversa: s.conversa.map((m) => (m === aberta ? { ...m, texto: m.texto + ev.texto } : m)),
         };
       }
-      return { ...s, seq, conversa: [...s.conversa, { id: seq, autor: "assistente", texto: ev.texto, parcial: true }] };
+      return {
+        ...s,
+        seq,
+        conversa: aparar([...s.conversa, { id: seq, autor: "assistente", texto: ev.texto, parcial: true }]),
+      };
     }
 
     case "resposta": {
@@ -92,7 +104,7 @@ export function reduzir(s: EstadoUI, ev: Evento): EstadoUI {
       const aberta = ultimaDoAssistente(s.conversa);
       const conversa = aberta
         ? s.conversa.map((m) => (m === aberta ? { ...final, id: m.id } : m))
-        : [...s.conversa, { ...final, id: seq }];
+        : aparar([...s.conversa, { ...final, id: seq }]);
       return { ...s, seq, conversa };
     }
 

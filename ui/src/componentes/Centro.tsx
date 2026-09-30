@@ -9,17 +9,15 @@ import { Orbe } from "./Orbe";
 
 export const Centro = forwardRef<HTMLDivElement, {
   estado: Estado;
-  nivelMic: number;
-  nivelVoz: number;
   ultimaFala?: string;
   pendente: Pendente | null;
   aoResponder: (id: string, sim: boolean) => void;
-}>(function Centro({ estado, nivelMic, nivelVoz, ultimaFala, pendente, aoResponder }, refOrbe) {
+}>(function Centro({ estado, ultimaFala, pendente, aoResponder }, refOrbe) {
   const voa = pendente?.evento && (pendente.ferramenta === "agenda_criar" || pendente.ferramenta === "agenda_alterar");
   return (
     <div className="centro">
       <div className="orbe-area">
-        <Orbe ref={refOrbe} estado={estado} nivelMic={nivelMic} nivelVoz={nivelVoz} />
+        <Orbe ref={refOrbe} estado={estado} />
         <motion.p key={estado} className={`legenda legenda-${estado}`} initial={{ opacity: 0, y: 6 }} animate={{ opacity: 1, y: 0 }}>
           {ROTULO_ESTADO[estado]}
         </motion.p>

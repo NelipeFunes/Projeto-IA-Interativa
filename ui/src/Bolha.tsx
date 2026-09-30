@@ -3,6 +3,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useEffect, useReducer } from "react";
 import { Orbe } from "./componentes/Orbe";
 import { inicial, reduzir } from "./estado";
+import { niveis } from "./niveis";
 import { chamar, noApp } from "./ponte";
 import { ROTULO_ESTADO } from "./rotulos";
 import type { Evento } from "./tipos";
@@ -42,9 +43,7 @@ export function Bolha() {
     window.__reiniciarBolha = tocar;
     tocar();
     const onda = setInterval(() => {
-      const v = 0.3 + Math.random() * 0.6;
-      emitir({ tipo: "nivel", fonte: "mic", valor: v });
-      emitir({ tipo: "nivel", fonte: "voz", valor: v });
+      niveis.mic = niveis.voz = 0.3 + Math.random() * 0.6;
     }, 90);
     return () => {
       timers.forEach(clearTimeout);
@@ -57,7 +56,7 @@ export function Bolha() {
 
   return (
     <motion.div className="bolha" initial={{ opacity: 0, y: 20 }} animate={{ opacity: 1, y: 0 }}>
-      <Orbe estado={s.estado} nivelMic={s.nivelMic} nivelVoz={s.nivelVoz} tamanho={74} />
+      <Orbe estado={s.estado} tamanho={70} />
       <div className="bolha-texto">
         <span className={`bolha-estado legenda-${s.estado}`}>{ROTULO_ESTADO[s.estado]}</span>
         <AnimatePresence mode="popLayout">

@@ -665,23 +665,25 @@ input {
 
 /* ---------- bolha flutuante ---------- */
 
+/* A janela da bolha não é transparente (com transparência o pywebview a ativava e roubava o foco):
+   ela é a própria pílula, e o Windows 11 arredonda os cantos. */
 html[data-janela="bolha"],
 html[data-janela="bolha"] body,
 html[data-janela="bolha"] #raiz {
-  background: transparent;
+  background: #0a081c;
 }
 
 .bolha {
   position: fixed;
-  inset: 6px;
+  inset: 0;
   display: flex;
   align-items: center;
   gap: 10px;
-  padding: 6px 16px 6px 6px;
-  border-radius: 999px;
-  background: rgba(10, 8, 28, 0.92);
-  border: 1px solid var(--borda-forte);
-  box-shadow: 0 0 30px rgba(124, 77, 255, 0.35);
+  padding: 4px 16px 4px 8px;
+  background:
+    radial-gradient(circle at 12% 50%, rgba(124, 77, 255, 0.28), transparent 45%),
+    linear-gradient(90deg, #0d0a26, #0a081c);
+  border: 1px solid rgba(179, 136, 255, 0.35);
 }
 
 .bolha-texto {

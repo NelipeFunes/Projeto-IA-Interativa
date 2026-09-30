@@ -1,9 +1,9 @@
 // Barra superior própria (a janela não tem bordas do Windows), campo de entrada e controles da demonstração.
 import { useState } from "react";
-import { chamar, noApp } from "../ponte";
+import { chamar } from "../ponte";
 import type { Estado } from "../tipos";
 
-export function BarraTitulo({ nome, estado, demo }: { nome: string; estado: Estado; demo: boolean }) {
+export function BarraTitulo({ nome, estado, demo, app }: { nome: string; estado: Estado; demo: boolean; app: boolean }) {
   return (
     <div className="barra pywebview-drag-region">
       <span className="marca">
@@ -13,7 +13,7 @@ export function BarraTitulo({ nome, estado, demo }: { nome: string; estado: Esta
       <span className={`ponto ponto-${estado}`} />
       {demo && <span className="selo">demonstração</span>}
       <span className="espaco" />
-      {noApp() && (
+      {app && (
         <span className="botoes-janela">
           <button aria-label="Minimizar" onClick={() => chamar("minimizar")}>
             ─
@@ -65,11 +65,11 @@ export function BarraEntrada({ aoEnviar, ouvindo, aoMicrofone }: {
   );
 }
 
-export function ControlesDemo({ aoReiniciar }: { aoReiniciar: () => void }) {
+export function ControlesDemo({ app, aoReiniciar }: { app: boolean; aoReiniciar: () => void }) {
   return (
     <div className="controles-demo">
       <button onClick={aoReiniciar}>↺ Reiniciar demonstração</button>
-      <button onClick={() => (noApp() ? chamar("mostrar_bolha") : window.open("?janela=bolha&demo=1", "_blank", "width=400,height=130"))}>
+      <button onClick={() => (app ? chamar("mostrar_bolha") : window.open("?janela=bolha&demo=1", "_blank", "width=400,height=130"))}>
         ◌ Simular bolha
       </button>
     </div>

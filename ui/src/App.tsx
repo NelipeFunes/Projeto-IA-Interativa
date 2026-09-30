@@ -5,17 +5,35 @@ import { BarraEntrada, BarraTitulo, ControlesDemo } from "./componentes/Moldura"
 import { Nebulosa } from "./componentes/Nebulosa";
 import { PainelAgenda, PainelConversa, PainelMemoria, PainelStatus } from "./componentes/Paineis";
 import { Demo, eventosAte } from "./demo";
-import { inicial, reduzir } from "./estado";
+import { type Acao, inicial, reduzir } from "./estado";
+import { niveis } from "./niveis";
 import { noApp, parametros } from "./ponte";
 
 // Fase A: a tela roda o roteiro de demonstração. Na Fase C a fonte vira o WebSocket do núcleo.
 const DEMO = true;
 const PASSO_FIXO = parametros.get("passo"); // ?passo=N congela a tela num momento do roteiro (capturas)
 
+/** true depois que o pywebview injeta a ponte (ele faz isso DEPOIS de a página montar). */
+export function useNoApp(): boolean {
+  const [app, setApp] = useState(noApp);
+  useEffect(() => {
+    const pronto = () => setApp(true);
+    window.addEventListener("pywebviewready", pronto);
+    return () => window.removeEventListener("pywebviewready", pronto);
+  }, []);
+  return app;
+}
+
 export function App() {
-  const [s, emitir] = useReducer(reduzir, inicial, (i) =>
+  const [s, despachar] = useReducer(reduzir, inicial, (i) =>
     PASSO_FIXO !== null ? eventosAte(Number(PASSO_FIXO)).reduce(reduzir, i) : i,
   );
+  // O volume do microfone/voz vai direto para os shaders (niveis.ts), sem redesenhar a tela.
+  const emitir = useCallback((ev: Acao) => {
+    if (ev.tipo === "nivel") niveis[ev.fonte] = ev.valor;
+    else despachar(ev);
+  }, []);
+  const app = useNoApp();
   const demo = useRef<Demo | null>(null);
   const orbeRef = useRef<HTMLDivElement>(null);
   const memoriaRef = useRef<HTMLElement>(null);
@@ -24,10 +42,11 @@ export function App() {
   const reiniciar = useCallback(() => {
     if (!DEMO || PASSO_FIXO !== null) return;
     demo.current?.parar();
-    emitir({ tipo: "painel", agenda: [], memorias: [] });
-    demo.current = new Demo(emitir, { autoConfirmarMs: noApp() ? 9000 : 2500, repetir: true });
+    emitir({ tipo: "reiniciar" });
+    // No app espera mais antes de confirmar sozinha (dá tempo de clicar); no navegador, anda rápido.
+    demo.current = new Demo(emitir, { autoConfirmarMs: () => (noApp() ? 9000 : 2500), repetir: true });
     demo.current.iniciar();
-  }, []);
+  }, [emitir]);
 
   useEffect(() => {
     reiniciar();
@@ -46,9 +65,9 @@ export function App() {
 
   return (
     <LayoutGroup>
-      <Nebulosa estado={s.estado} nivelVoz={s.nivelVoz} />
+      <Nebulosa estado={s.estado} />
       <div className="app">
-        <BarraTitulo nome={s.nome} estado={s.estado} demo={DEMO} />
+        <BarraTitulo nome={s.nome} estado={s.estado} demo={DEMO} app={app} />
         <main className="principal">
           <div className="coluna">
             <PainelAgenda agenda={s.agenda} varredura={s.varredura} pendente={s.pendente} />
@@ -58,8 +77,6 @@ export function App() {
             <Centro
               ref={orbeRef}
               estado={s.estado}
-              nivelMic={s.nivelMic}
-              nivelVoz={s.nivelVoz}
               ultimaFala={ultimaFala}
               pendente={s.pendente}
               aoResponder={(id, sim) => demo.current?.responder(id, sim)}
@@ -81,7 +98,7 @@ export function App() {
             <PainelStatus status={s.status} estado={s.estado} />
           </div>
         </main>
-        {DEMO && PASSO_FIXO === null && <ControlesDemo aoReiniciar={reiniciar} />}
+        {DEMO && PASSO_FIXO === null && <ControlesDemo app={app} aoReiniciar={reiniciar} />}
       </div>
       {voo && (
         <motion.div

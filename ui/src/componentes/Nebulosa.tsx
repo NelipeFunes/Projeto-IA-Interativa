@@ -2,6 +2,7 @@
 // ninguém nota, e a GPU agradece).
 import { useEffect, useRef } from "react";
 import { aproximar, iniciarShader, RUIDO_GLSL } from "../gl";
+import { niveis } from "../niveis";
 import type { Estado } from "../tipos";
 
 const FRAG = `
@@ -50,10 +51,10 @@ void main() {
 
 const AGITO: Record<Estado, number> = { ocioso: 0.15, ouvindo: 0.35, pensando: 1.0, falando: 0.55, dormindo: 0.0, jogo: 0.0 };
 
-export function Nebulosa({ estado, nivelVoz }: { estado: Estado; nivelVoz: number }) {
+export function Nebulosa({ estado }: { estado: Estado }) {
   const ref = useRef<HTMLCanvasElement>(null);
-  const alvo = useRef({ estado, nivelVoz });
-  alvo.current = { estado, nivelVoz };
+  const alvo = useRef({ estado });
+  alvo.current = { estado };
 
   useEffect(() => {
     let agito = 0.15;
@@ -63,7 +64,8 @@ export function Nebulosa({ estado, nivelVoz }: { estado: Estado; nivelVoz: numbe
     let proximoFlash = performance.now() / 1000 + 4;
     let segundo: number | null = null;
     return iniciarShader(ref.current!, FRAG, ["uT", "uAgito", "uFlash", "uPulso", "uFlashPos"], 0.5, ({ gl, uniforms }, t) => {
-      const { estado: e, nivelVoz: v } = alvo.current;
+      const e = alvo.current.estado;
+      const v = niveis.voz;
       agito = aproximar(agito, AGITO[e], 0.04);
       pulso = aproximar(pulso, e === "falando" ? v : 0, 0.2);
       // Relâmpago: acende rápido, apaga devagar; às vezes pisca duas vezes.

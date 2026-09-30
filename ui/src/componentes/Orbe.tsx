@@ -2,6 +2,7 @@
 // gira rápido pensando e ondula no ritmo da própria voz falando.
 import { forwardRef, useEffect, useRef } from "react";
 import { aproximar, iniciarShader, RUIDO_GLSL } from "../gl";
+import { niveis } from "../niveis";
 import type { Estado } from "../tipos";
 
 const FRAG = `
@@ -62,11 +63,11 @@ const CORES: Record<Estado, [Cor, Cor]> = {
   jogo: [APAGADO, APAGADO],
 };
 
-export const Orbe = forwardRef<HTMLDivElement, { estado: Estado; nivelMic: number; nivelVoz: number; tamanho?: number }>(
-  function Orbe({ estado, nivelMic, nivelVoz, tamanho = 340 }, refExterno) {
+export const Orbe = forwardRef<HTMLDivElement, { estado: Estado; tamanho?: number }>(
+  function Orbe({ estado, tamanho = 340 }, refExterno) {
     const ref = useRef<HTMLCanvasElement>(null);
-    const alvo = useRef({ estado, nivelMic, nivelVoz });
-    alvo.current = { estado, nivelMic, nivelVoz };
+    const alvo = useRef({ estado });
+    alvo.current = { estado };
 
     useEffect(() => {
       let nivel = 0;
@@ -76,7 +77,7 @@ export const Orbe = forwardRef<HTMLDivElement, { estado: Estado; nivelMic: numbe
       const b = [...AZUL];
       return iniciarShader(ref.current!, FRAG, ["uT", "uNivel", "uGiro", "uOndas", "uCorA", "uCorB"], 1, ({ gl, uniforms }, t) => {
         const s = alvo.current;
-        const bruto = s.estado === "ouvindo" ? s.nivelMic : s.estado === "falando" ? s.nivelVoz : 0;
+        const bruto = s.estado === "ouvindo" ? niveis.mic : s.estado === "falando" ? niveis.voz : 0;
         nivel = aproximar(nivel, bruto, 0.25);
         giro = aproximar(giro, s.estado === "pensando" ? 1 : 0, 0.05);
         ondas = aproximar(ondas, s.estado === "falando" ? 1 : 0, 0.08);
