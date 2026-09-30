@@ -88,6 +88,7 @@ async def montar(
         registro,
         memorias,
         nome_usuario=cfg.get("usuario.nome", "Felipe"),
+        nome_assistente=cfg.get("assistente.nome", "Vision"),
         perfil=cfg.dados / "perfil.md",
         pasta_conversas=cfg.dados / "conversas",
         turnos_historico=int(cfg.get("conversa.turnos_no_historico", 6)),

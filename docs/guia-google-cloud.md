@@ -1,4 +1,4 @@
-﻿# Conectar o Google Agenda ao Jarvis (~10 min, uma vez)
+# Conectar o Google Agenda ao Jarvis (~10 min, uma vez)
 
 O Jarvis usa o servidor MCP `@cocal/google-calendar-mcp` (já instalado em `node/`). Ele precisa de um
 "cliente OAuth" seu no Google Cloud. É grátis e não precisa de cartão.

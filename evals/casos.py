@@ -1,4 +1,4 @@
-﻿"""Casos de avaliação: frases reais do dia a dia do Felipe, com o que se espera do Jarvis.
+"""Casos de avaliação: frases reais do dia a dia do Felipe, com o que se espera do Jarvis.
 
 Cada `checar` devolve a lista de falhas (vazia = passou). As datas são relativas a hoje.
 """

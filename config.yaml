@@ -1,4 +1,7 @@
-﻿# Configuração do Jarvis. Caminhos relativos são relativos à pasta do projeto.
+# Configuração do assistente (Vision). Caminhos relativos são relativos à pasta do projeto.
+
+assistente:
+  nome: Vision              # a palavra de ativação continua "Hey Jarvis" até treinarmos uma com o nome novo
 
 usuario:
   nome: Felipe

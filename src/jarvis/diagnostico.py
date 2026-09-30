@@ -1,4 +1,4 @@
-﻿"""`jarvis teste [tudo|ollama|agenda|orbit|voz]`: checagem do ambiente, com diagnóstico em português."""
+"""`jarvis teste [tudo|ollama|agenda|orbit|voz]`: checagem do ambiente, com diagnóstico em português."""
 
 from __future__ import annotations
 

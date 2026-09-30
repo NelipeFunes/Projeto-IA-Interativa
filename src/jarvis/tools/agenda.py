@@ -1,4 +1,4 @@
-﻿"""Ferramentas de agenda em português, por cima do MCP do Google Agenda (@cocal/google-calendar-mcp).
+"""Ferramentas de agenda em português, por cima do MCP do Google Agenda (@cocal/google-calendar-mcp).
 
 O MCP real tem esquemas enormes (create-event tem ~30 parâmetros); modelo pequeno se perde.
 Aqui o modelo vê 5 ferramentas simples e este módulo traduz para o MCP.

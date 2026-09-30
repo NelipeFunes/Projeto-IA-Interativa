@@ -1,4 +1,4 @@
-﻿# Jarvis
+# Jarvis
 
 Assistente pessoal local do Felipe: agenda (Google), finanças e tarefas (Orbit) e memória, por texto ou voz,
 100% no PC, sem pagar tokens. Cérebro: Qwen3.5 no Ollama (GPU). Ouvido: Parakeet (CPU). Voz: Piper (CPU).
