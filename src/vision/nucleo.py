@@ -24,14 +24,16 @@ import os
 import secrets
 import socket
 import subprocess
+import queue
 import sys
+import threading
 import time
 from collections import deque
 from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from vision import config, inicializacao
+from vision import ajustes, config, inicializacao
 from vision.eventos import Barramento
 from vision.voice.loop import FALA_DE_ERRO
 
@@ -139,6 +141,10 @@ class Janela:
         self.quedas: deque[float] = deque(maxlen=5)
         self.desistiu = False
         self.encerrando = False
+        # Os comandos vão para o stdin da janela por uma thread: se a janela travar e o pipe encher, quem
+        # espera é essa thread, não o loop do núcleo (voz e servidor continuam).
+        self.fila: queue.Queue[tuple[subprocess.Popen, str]] = queue.Queue()
+        threading.Thread(target=self._escritor, name="janela-stdin", daemon=True).start()
 
     def _iniciar(self) -> None:
         env = {**os.environ, "VISION_URL": self.url, "VISION_TOKEN": self.token,
@@ -166,12 +172,18 @@ class Janela:
                 self.mostrar_ao_subir = True
                 self._iniciar()
             return
-        try:
-            assert self.proc is not None and self.proc.stdin is not None
-            self.proc.stdin.write(comando + "\n")
-            self.proc.stdin.flush()
-        except (BrokenPipeError, OSError):
-            log.warning("janela não recebeu '%s'", comando)
+        assert self.proc is not None
+        self.fila.put((self.proc, comando))
+
+    def _escritor(self) -> None:
+        while True:
+            proc, comando = self.fila.get()
+            try:
+                assert proc.stdin is not None
+                proc.stdin.write(comando + "\n")
+                proc.stdin.flush()
+            except (BrokenPipeError, OSError, ValueError):
+                log.warning("janela não recebeu '%s'", comando)
 
     async def supervisionar(self) -> None:
         self._iniciar()
@@ -234,7 +246,10 @@ class Nucleo:
 
         async def confirmar(pid: str, sim: bool) -> None:
             try:
-                await self.j.agente.resolver_pendente(pid, sim)
+                canal = self.j.agente.canal_da_pendente(pid)
+                r = await self.j.agente.resolver_pendente(pid, sim)
+                if r is not None and canal == "voz" and self.laco is not None:
+                    self.laco.pedir_fala(r.texto)  # pedido por voz, confirmado na tela: a resposta também é falada
             except Exception:  # noqa: BLE001
                 log.exception("o agente falhou ao confirmar pela tela")
                 self.barramento.publicar({"tipo": "resposta", "texto": FALA_DE_ERRO})
@@ -248,7 +263,51 @@ class Nucleo:
                 self.laco.saida.interromper.set()
 
         return Controle(texto=texto, confirmar=confirmar, ouvir=ouvir, parar_fala=parar_fala,
-                        abrir_janela=self.abrir_janela, painel=self.painel)
+                        abrir_janela=self.abrir_janela, painel=self.painel, ler_ajustes=self.ler_ajustes,
+                        salvar_ajustes=self.salvar_ajustes, amostra_voz=self.amostra_voz)
+
+    # ---------- tela de ajustes ----------
+
+    async def ler_ajustes(self, **extra: Any) -> None:
+        dados = await asyncio.to_thread(ajustes.ler, self.cfg)  # a lista de microfones consulta o áudio
+        dados["valores"]["inicia_com_windows"] = inicializacao.ativo()
+        self.barramento.publicar({"tipo": "ajustes", **dados, **extra})
+
+    async def salvar_ajustes(self, valores: dict[str, Any]) -> None:
+        inicio = valores.pop("inicia_com_windows", None)
+        try:
+            mudancas = ajustes.validar(self.cfg, valores)
+        except ValueError as e:
+            await self.ler_ajustes(erro=str(e))
+            return
+        reiniciar = ajustes.precisa_reiniciar(mudancas, self.cfg)
+        voz_antes = (self.cfg.get("voz.voz_piper"), self.cfg.get("voz.velocidade_fala"))
+        config.salvar_ajustes(self.cfg, mudancas)
+        erro = None
+        try:
+            if isinstance(inicio, bool) and inicio != inicializacao.ativo():
+                await asyncio.to_thread(inicializacao.ligar if inicio else lambda _p: inicializacao.desligar(),
+                                        self.cfg.raiz)
+            if self.laco is not None:
+                self.laco.ajustar_silencio(float(self.cfg.get("voz.conversa_silencio_max_s", 120)))
+                if (self.cfg.get("voz.voz_piper"), self.cfg.get("voz.velocidade_fala")) != voz_antes:
+                    from vision.voice.tts import carregar_voz
+
+                    self.laco.voz = await asyncio.to_thread(carregar_voz, self.cfg)
+        except Exception as e:  # noqa: BLE001
+            log.exception("não consegui aplicar os ajustes")
+            erro = f"Salvei, mas não consegui aplicar tudo agora: {e}"
+        log.info("ajustes salvos: %s", ", ".join(sorted(mudancas)) or "(início com o Windows)")
+        await self.ler_ajustes(salvo=True, reiniciar=reiniciar, **({"erro": erro} if erro else {}))
+
+    async def amostra_voz(self, nome: str) -> None:
+        if self.laco is None or nome not in ajustes.vozes(self.cfg):
+            return
+        from vision.voice.tts import Voz
+
+        voz = await asyncio.to_thread(Voz, self.cfg.modelos / "piper" / f"{nome}.onnx",
+                                      float(self.cfg.get("voz.velocidade_fala", 1.0)))
+        self.laco.pedir_fala(f"Oi, Felipe. Esta é a voz {nome.split('-')[1]}.", voz)
 
     def abrir_janela(self) -> None:
         if self.janela is not None:

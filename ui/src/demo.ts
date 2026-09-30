@@ -1,6 +1,29 @@
 // Roteiro de demonstração da Fase A: simula uma conversa inteira para aprovar o visual sem o núcleo.
 // Dados de EXEMPLO genéricos (o repositório é público: nada da agenda real aqui).
-import type { Evento, EventoAgenda, Memoria } from "./tipos";
+import type { DadosAjustes, Evento, EventoAgenda, Memoria } from "./tipos";
+
+/** A tela de ajustes na demonstração (no app de verdade, quem manda isto é o núcleo). */
+export const AJUSTES_DEMO: DadosAjustes = {
+  valores: {
+    "assistente.nome": "Vision",
+    "voz.voz_piper": "pt_BR-faber-medium",
+    "voz.velocidade_fala": 1.0,
+    "voz.conversa_silencio_max_s": 120,
+    "voz.microfone": "Microfone (headset)",
+    inicia_com_windows: true,
+  },
+  campos: [
+    { chave: "assistente.nome", tipo: "texto", rotulo: 'Nome do assistente (a ativação continua "Hey Vision")', aoVivo: false },
+    { chave: "voz.voz_piper", tipo: "escolha", rotulo: "Voz", aoVivo: true },
+    { chave: "voz.velocidade_fala", tipo: "numero", rotulo: "Ritmo da fala (maior = mais devagar)", aoVivo: true, minimo: 0.7, maximo: 1.5 },
+    { chave: "voz.conversa_silencio_max_s", tipo: "numero", rotulo: "Fecha a conversa depois de quantos segundos sem falar", aoVivo: true, minimo: 30, maximo: 600 },
+    { chave: "voz.microfone", tipo: "escolha", rotulo: "Microfone", aoVivo: false },
+  ],
+  opcoes: {
+    "voz.voz_piper": ["pt_BR-cadu-medium", "pt_BR-faber-medium", "pt_BR-jeff-medium"],
+    "voz.microfone": ["Microfone (headset)", "Microfone (webcam)"],
+  },
+};
 
 export const AGENDA_EXEMPLO: EventoAgenda[] = [
   { id: "e1", titulo: "Café e planejamento", inicio: "08:30", fim: "09:00" },

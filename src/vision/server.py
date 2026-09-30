@@ -11,7 +11,8 @@ GET    /status       modelo, MCPs, memórias, ferramentas
 GET    /estado       foto da tela (evento "painel")
 GET    /memorias     lista; DELETE /memorias/{id} apaga (clique na tela = você decidiu, sem perguntar de novo)
 POST   /janela       {"acao": "mostrar"}: abre a janela (usado quando você roda `vision` com o núcleo já ligado)
-WS     /ws           eventos do núcleo → tela; comandos da tela → núcleo (texto, confirmar, ouvir, parar_fala)
+WS     /ws           eventos do núcleo → tela; comandos da tela → núcleo (texto, confirmar, ouvir, parar_fala,
+                     ajustes, salvar_ajustes, amostra_voz)
 GET    /app/...      a interface (arquivos estáticos de ui/dist, sem segredo)
 """
 
@@ -56,6 +57,10 @@ class Controle:
     parar_fala: Callable[[], None] | None = None
     abrir_janela: Callable[[], None] | None = None
     painel: Callable[[], Awaitable[dict[str, Any]]] | None = None
+    # Tela de ajustes: a resposta volta como evento "ajustes" (e um "aviso" se algo deu errado).
+    ler_ajustes: Callable[[], Awaitable[None]] | None = None
+    salvar_ajustes: Callable[[dict[str, Any]], Awaitable[None]] | None = None
+    amostra_voz: Callable[[str], Awaitable[None]] | None = None
 
 
 def origens_permitidas(porta: int) -> set[str]:
@@ -253,6 +258,12 @@ def _comando(msg: Any, controle: Controle, tarefas: set[asyncio.Task]) -> None:
         controle.ouvir(msg["segurando"])
     elif tipo == "parar_fala" and controle.parar_fala is not None:
         controle.parar_fala()
+    elif tipo == "ajustes" and controle.ler_ajustes is not None:
+        tarefa = asyncio.create_task(controle.ler_ajustes())
+    elif tipo == "salvar_ajustes" and controle.salvar_ajustes is not None and isinstance(msg.get("valores"), dict):
+        tarefa = asyncio.create_task(controle.salvar_ajustes(msg["valores"]))  # validado em vision/ajustes.py
+    elif tipo == "amostra_voz" and controle.amostra_voz is not None and isinstance(msg.get("voz"), str):
+        tarefa = asyncio.create_task(controle.amostra_voz(msg["voz"][:80]))
     if tarefa is not None:
         tarefas.add(tarefa)
         tarefa.add_done_callback(tarefas.discard)

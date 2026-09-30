@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 import sys
 from pathlib import Path
 
@@ -8,6 +9,7 @@ import pytest
 
 RAIZ = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(RAIZ / "tests"))
+os.environ["VISION_SEM_AJUSTES"] = "1"  # o que o Felipe mudou na janela (data/config-local.yaml) não entra nos testes
 
 from fakes.calendario_falso import criar_servidor  # noqa: E402
 

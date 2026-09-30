@@ -1,13 +1,16 @@
 // Conexão com o núcleo pelo WebSocket /ws (janela aberta pelo núcleo: ?nucleo=1#t=<token>).
 // O token vem no fragmento da URL, que o navegador nunca manda ao servidor; ele é lido uma vez e apagado
 // da barra de endereço. A primeira mensagem é o "olá" com o token; sem ele o núcleo fecha a conexão.
-import type { Evento } from "./tipos";
+import type { Evento, ValorAjuste } from "./tipos";
 
 export type Comando =
   | { tipo: "texto"; texto: string }
   | { tipo: "confirmar"; id: string; sim: boolean }
   | { tipo: "ouvir"; segurando: boolean }
-  | { tipo: "parar_fala" };
+  | { tipo: "parar_fala" }
+  | { tipo: "ajustes" }
+  | { tipo: "salvar_ajustes"; valores: Record<string, ValorAjuste> }
+  | { tipo: "amostra_voz"; voz: string };
 
 export interface Conexao {
   enviar: (c: Comando) => void;

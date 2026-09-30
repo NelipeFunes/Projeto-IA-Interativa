@@ -401,3 +401,20 @@ async def test_pode_desligar_so_da_o_bipe_sem_falar(pecas, registro, tmp_path):
     # As falas do próprio laço (fora do modelo) foram só a saudação: nenhuma despedida falada nem escrita.
     assert [e["texto"] for e in eventos if e["tipo"] == "resposta"] == ["Oi, Felipe. Pode falar."]
     assert laco.historico[-1]["vision"] == ""
+
+
+async def test_resposta_confirmada_pela_tela_e_falada_pelo_laco(pecas, registro, tmp_path):
+    """Fase C: pedido por voz, confirmado no botão da tela: a resposta sai no alto-falante, pelo próprio laço."""
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [_silencio(1.0)], tmp_path)
+    laco.pedir_fala("Feito. Criei o barbeiro para amanhã.")
+    await laco.rodar()
+    assert "amanh" in pecas["stt"].transcrever(laco.saida.audio(), laco.saida.taxa).lower()
+    assert laco.historico == []  # não virou fala sua
+
+
+async def test_com_a_escuta_pausada_a_resposta_da_tela_nao_e_falada(pecas, registro, tmp_path):
+    (tmp_path / "dormindo.flag").touch()
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [_silencio(1.0)], tmp_path)
+    laco.pedir_fala("Feito.")
+    await laco.rodar()
+    assert laco.saida.trechos == []

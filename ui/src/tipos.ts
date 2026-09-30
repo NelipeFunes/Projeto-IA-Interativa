@@ -35,6 +35,27 @@ export interface Pendente {
   evento?: EventoAgenda;
 }
 
+export type ValorAjuste = string | number | boolean | null;
+
+export interface CampoAjuste {
+  chave: string;
+  tipo: "texto" | "numero" | "escolha";
+  rotulo: string;
+  aoVivo: boolean;
+  minimo?: number | null;
+  maximo?: number | null;
+}
+
+/** Tela de ajustes: o que vale agora, os campos, as opções (vozes, microfones) e o resultado de salvar. */
+export interface DadosAjustes {
+  valores: Record<string, ValorAjuste>;
+  campos: CampoAjuste[];
+  opcoes: Record<string, string[]>;
+  erro?: string;
+  salvo?: boolean;
+  reiniciar?: boolean;
+}
+
 export type Evento =
   | { tipo: "estado"; valor: Estado }
   | { tipo: "nivel"; fonte: "mic" | "voz"; valor: number }
@@ -46,6 +67,7 @@ export type Evento =
   | { tipo: "pendente"; pendente: Pendente }
   | { tipo: "pendente_resolvido"; id: string; resultado: "executada" | "cancelada"; evento?: EventoAgenda | null }
   | { tipo: "aviso"; texto: string | null }
+  | ({ tipo: "ajustes" } & DadosAjustes)
   | {
       tipo: "painel";
       nome?: string;
