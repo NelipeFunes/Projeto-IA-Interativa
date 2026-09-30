@@ -1,7 +1,7 @@
 import { LayoutGroup, motion } from "motion/react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
 import { Centro } from "./componentes/Centro";
-import { BarraEntrada, BarraTitulo, ControlesDemo } from "./componentes/Moldura";
+import { BarraEntrada, ControlesDemo, ControlesJanela } from "./componentes/Moldura";
 import { Nebulosa } from "./componentes/Nebulosa";
 import { PainelAgenda, PainelConversa, PainelMemoria, PainelStatus } from "./componentes/Paineis";
 import { Demo, eventosAte } from "./demo";
@@ -67,7 +67,7 @@ export function App() {
     <LayoutGroup>
       <Nebulosa estado={s.estado} />
       <div className="app">
-        <BarraTitulo nome={s.nome} estado={s.estado} demo={DEMO} app={app} />
+        <ControlesJanela app={app} />
         <main className="principal">
           <div className="coluna">
             <PainelAgenda agenda={s.agenda} varredura={s.varredura} pendente={s.pendente} />

@@ -14,8 +14,8 @@
   --borda-forte: rgba(179, 136, 255, 0.5);
   --alerta: #ff6b8b;
   --raio: 16px;
-  --titulo: "Space Grotesk", "Inter", system-ui, sans-serif;
-  --corpo: "Inter", system-ui, sans-serif;
+  --titulo: "DM Sans", system-ui, sans-serif;
+  --corpo: "DM Sans", system-ui, sans-serif;
   color-scheme: dark;
 }
 
@@ -56,61 +56,43 @@ input {
   position: relative;
   z-index: 1;
   display: grid;
-  grid-template-rows: 40px 1fr;
+  grid-template-rows: 1fr;
   height: 100vh;
 }
 
-/* ---------- barra superior ---------- */
+/* ---------- sem barra de título: faixa de arrastar invisível e botões no canto ---------- */
 
-.barra {
+.faixa-arrastar {
+  position: fixed;
+  inset: 0 0 auto 0;
+  height: 28px;
+  z-index: 4;
+}
+
+.botoes-janela {
+  position: fixed;
+  top: 4px;
+  right: 6px;
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 0 6px 0 16px;
-  background: linear-gradient(180deg, rgba(8, 6, 22, 0.85), rgba(8, 6, 22, 0.35));
-  border-bottom: 1px solid rgba(150, 125, 255, 0.12);
+  gap: 2px;
+  z-index: 6;
+  opacity: 0.35;
+  transition: opacity 0.2s;
 }
 
-.marca {
-  display: flex;
-  align-items: center;
-  gap: 9px;
-  font-family: var(--titulo);
-  font-weight: 700;
-  letter-spacing: 0.32em;
-  font-size: 13px;
-}
-
-.marca-orbe {
-  width: 12px;
-  height: 12px;
-  border-radius: 50%;
-  background: radial-gradient(circle at 35% 35%, #fff 0%, var(--ciano) 30%, var(--roxo) 75%);
-  box-shadow: 0 0 12px var(--roxo);
-}
-
-.selo {
-  font-size: 10px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
-  color: var(--violeta);
-  border: 1px solid var(--borda-forte);
-  border-radius: 999px;
-  padding: 2px 8px;
-}
-
-.espaco {
-  flex: 1;
+.botoes-janela:hover {
+  opacity: 1;
 }
 
 .botoes-janela button {
-  width: 42px;
-  height: 32px;
+  width: 34px;
+  height: 24px;
   border: 0;
   background: transparent;
   color: var(--texto-suave);
-  border-radius: 8px;
+  border-radius: 6px;
   cursor: pointer;
+  font-size: 12px;
 }
 
 .botoes-janela button:hover {
@@ -167,7 +149,7 @@ input {
   display: grid;
   grid-template-columns: minmax(250px, 300px) 1fr minmax(290px, 350px);
   gap: 16px;
-  padding: 16px;
+  padding: 32px 16px 16px;  /* o topo fica livre para arrastar a janela e para os botões */
   min-height: 0;
 }
 
@@ -208,10 +190,9 @@ input {
 .painel-cabeca h2 {
   margin: 0;
   font-family: var(--titulo);
-  font-size: 12px;
-  font-weight: 700;
-  letter-spacing: 0.16em;
-  text-transform: uppercase;
+  font-size: 13px;
+  font-weight: 600;
+  letter-spacing: 0.01em;
   color: var(--violeta);
 }
 
@@ -281,7 +262,7 @@ input {
 
 .agenda-hora {
   font-family: var(--titulo);
-  font-weight: 700;
+  font-weight: 600;
   font-size: 13px;
   color: var(--ciano);
   min-width: 42px;
@@ -481,7 +462,7 @@ input {
   margin: 0;
   font-family: var(--titulo);
   font-size: 15px;
-  letter-spacing: 0.08em;
+  letter-spacing: 0.02em;
   color: var(--texto-suave);
 }
 
@@ -624,7 +605,7 @@ input {
 .controles-demo {
   position: fixed;
   left: 50%;
-  top: 48px;
+  top: 3px;
   transform: translateX(-50%);
   display: flex;
   gap: 8px;
@@ -696,8 +677,7 @@ html[data-janela="bolha"] #raiz {
 .bolha-estado {
   font-family: var(--titulo);
   font-size: 11px;
-  letter-spacing: 0.12em;
-  text-transform: uppercase;
+  letter-spacing: 0.02em;
 }
 
 .bolha-fala,

@@ -51,9 +51,10 @@ def montar(
     perfil: str,
     memorias: str,
     ferramentas: set[str] | None = None,
+    nome_assistente: str = "Vision",
 ) -> str:
     partes = [
-        f"Você é o Jarvis, assistente pessoal do {nome_usuario}, rodando no PC dele. "
+        f"Você é o {nome_assistente}, assistente pessoal do {nome_usuario}, rodando no PC dele. "
         f"Trate-o por \"{nome_usuario}\". Jeito: direto, organizado, simpático, com humor leve.",
         f"AGORA: {tempo.descrever_momento(momento)} (fuso America/Sao_Paulo).",
         "TABELA DE DATAS:\n" + tempo.tabela_de_datas(momento.date()),

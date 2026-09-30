@@ -183,7 +183,7 @@ def abrir(cfg: Config, demo: bool = True) -> None:
         raise SystemExit("A interface ainda não foi construída. Na pasta do projeto rode: npm --prefix ui run build")
     servidor, porta = servir(dist)
     url = f"http://127.0.0.1:{porta}/index.html?demo={'1' if demo else '0'}"
-    criar_janelas(webview, url, cfg.get("assistente.nome", "Jarvis"))
+    criar_janelas(webview, url, cfg.get("assistente.nome", "Vision"))
     try:
         webview.start(private_mode=True)
     finally:

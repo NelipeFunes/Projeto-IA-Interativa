@@ -71,6 +71,7 @@ class Agente:
         memorias: Memorias | None = None,
         *,
         nome_usuario: str = "Felipe",
+        nome_assistente: str = "Vision",
         perfil: Path | None = None,
         pasta_conversas: Path | None = None,
         turnos_historico: int = 6,
@@ -83,6 +84,7 @@ class Agente:
         self.registro = registro
         self.memorias = memorias
         self.nome = nome_usuario
+        self.nome_assistente = nome_assistente
         self.perfil = perfil
         self.pasta_conversas = pasta_conversas
         self.turnos_historico = turnos_historico
@@ -194,7 +196,8 @@ class Agente:
                 memorias = Memorias.formatar(achadas)
             except Exception as e:  # noqa: BLE001 - memória fora do ar não pode travar a conversa
                 log.warning("memória indisponível: %s", e)
-        return prompt.montar(self.nome, canal, self.relogio(), perfil, memorias, set(self.registro.ferramentas))
+        return prompt.montar(self.nome, canal, self.relogio(), perfil, memorias, set(self.registro.ferramentas),
+                             self.nome_assistente)
 
     def _historico(self, s: Sessao) -> list[dict[str, Any]]:
         turnos = s.turnos[-self.turnos_historico :]

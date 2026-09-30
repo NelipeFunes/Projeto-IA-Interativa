@@ -20,13 +20,14 @@ async def _chat(cfg: config.Config) -> None:
     from jarvis.google_login import aviso_login
     from jarvis.montagem import montar
 
+    nome = cfg.get("assistente.nome", "Vision")
     async with montar(cfg) as j:
-        print(f"Jarvis ({j.agente.llm.modelo}) — digite 'sair' para encerrar.")
+        print(f"{nome} ({j.agente.llm.modelo}) — digite 'sair' para encerrar.")
         for nome, st in j.host.status().items():
             if st != "ok":
                 print(f"  [aviso] MCP {nome}: {st[:160]}")
         if aviso := aviso_login(cfg):
-            print(f"Jarvis: {aviso}")
+            print(f"{nome}: {aviso}")
         while True:
             try:
                 texto = (await asyncio.to_thread(input, "\nVocê: ")).lstrip("﻿")  # BOM vindo de pipe no PowerShell
@@ -36,7 +37,7 @@ async def _chat(cfg: config.Config) -> None:
                 break
             if not texto.strip():
                 continue
-            print("Jarvis: ", end="", flush=True)
+            print(f"{nome}: ", end="", flush=True)
             r = await j.agente.responder(texto, "texto", "terminal", ao_texto=lambda t: print(t, end="", flush=True))
             usadas = ", ".join(
                 f"{f['nome']}{' (cancelada)' if f.get('cancelada') else '' if f['ok'] else ' (falhou)'}"
@@ -88,7 +89,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("google-login", help="refaz o login do Google Agenda (a cada 7 dias)")
     sub.add_parser("dormir", help="tira o modelo da VRAM e pausa a palavra de ativação")
     sub.add_parser("acordar", help="carrega o modelo e reativa a palavra de ativação")
-    sub.add_parser("memorias", help="lista o que o Jarvis lembra")
+    sub.add_parser("memorias", help="lista o que o assistente lembra")
     f = sub.add_parser("falar", help="fala um texto com a voz configurada (teste de voz)")
     f.add_argument("texto", nargs="+")
     args = ap.parse_args(argv)

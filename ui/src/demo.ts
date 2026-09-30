@@ -35,7 +35,7 @@ export const PASSOS: Passo[] = [
     eventos: [
       {
         tipo: "painel",
-        nome: "Jarvis",
+        nome: "Vision",
         agenda: AGENDA_EXEMPLO,
         memorias: MEMORIAS_EXEMPLO,
         status: { modelo: "qwen3.5:4b", vram: "3,1 GB", microfone: "Headset", googleDias: 6, modoJogo: false },

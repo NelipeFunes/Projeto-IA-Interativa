@@ -1,29 +1,23 @@
-// Barra superior própria (a janela não tem bordas do Windows), campo de entrada e controles da demonstração.
+// Controles da janela sem bordas, campo de entrada e controles da demonstração.
 import { useState } from "react";
 import { chamar } from "../ponte";
-import type { Estado } from "../tipos";
 
-export function BarraTitulo({ nome, estado, demo, app }: { nome: string; estado: Estado; demo: boolean; app: boolean }) {
+// Sem barra de título (pedido de 30/09): a faixa do topo é invisível e só serve para arrastar a janela;
+// minimizar e fechar ficam discretos no canto e acendem com o mouse.
+export function ControlesJanela({ app }: { app: boolean }) {
+  if (!app) return null;
   return (
-    <div className="barra pywebview-drag-region">
-      <span className="marca">
-        <span className="marca-orbe" />
-        {nome.toUpperCase()}
+    <>
+      <div className="faixa-arrastar pywebview-drag-region" />
+      <span className="botoes-janela">
+        <button aria-label="Minimizar" onClick={() => chamar("minimizar")}>
+          ─
+        </button>
+        <button aria-label="Fechar" className="fechar" onClick={() => chamar("fechar")}>
+          ✕
+        </button>
       </span>
-      <span className={`ponto ponto-${estado}`} />
-      {demo && <span className="selo">demonstração</span>}
-      <span className="espaco" />
-      {app && (
-        <span className="botoes-janela">
-          <button aria-label="Minimizar" onClick={() => chamar("minimizar")}>
-            ─
-          </button>
-          <button aria-label="Fechar" className="fechar" onClick={() => chamar("fechar")}>
-            ✕
-          </button>
-        </span>
-      )}
-    </div>
+    </>
   );
 }
 

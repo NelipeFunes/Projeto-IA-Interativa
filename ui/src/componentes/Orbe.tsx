@@ -10,6 +10,7 @@ precision highp float;
 uniform vec2 uRes;
 uniform float uT, uNivel, uGiro, uOndas;
 uniform vec3 uCorA, uCorB;
+const float BRILHO = 0.75;  // pedido de 30/09: uns 25% menos brilho que o primeiro protótipo
 ${RUIDO_GLSL}
 void main() {
   vec2 p = (gl_FragCoord.xy - 0.5 * uRes) / (0.5 * min(uRes.x, uRes.y));
@@ -33,17 +34,18 @@ void main() {
   vec3 escuro = vec3(0.03, 0.02, 0.10);
   vec3 cor = mix(escuro, uCorA * 0.85, smoothstep(0.3, 0.75, plasma));
   cor += uCorB * fil * (1.1 + uNivel * 1.2);
-  cor += vec3(1.0) * pow(fil, 3.0) * 0.6;
+  cor += vec3(1.0) * pow(fil, 3.0) * 0.4;
   cor += mix(uCorA, uCorB, 0.5) * pow(z, 3.0) * 0.25;          // núcleo levemente aceso
   cor *= 0.45 + 0.55 * z;                                       // sombra nas bordas da esfera
   cor += uCorB * pow(1.0 - z, 2.5) * 1.3;                        // aro de luz (fresnel)
 
   float halo = exp(-max(d - borda, 0.0) * 3.2) * (0.38 + uNivel * 0.6);
+  halo *= 1.0 - smoothstep(0.72, 0.98, d);  // chega a zero antes da borda do canvas: sem quadrado aparecendo
   float anel = exp(-pow((d - borda - 0.08 - uNivel * 0.05) * 30.0, 2.0)) * uOndas * uNivel * 0.7;
   vec3 brilho = mix(uCorA, uCorB, 0.65) * (halo + anel);
-  float alfa = clamp(max(dentro, halo + anel), 0.0, 1.0);
-  vec3 col = cor * dentro + brilho * (1.0 - dentro);
-  gl_FragColor = vec4(col * alfa, alfa);
+  // Alfa pré-multiplicado: só a esfera cobre o fundo; o halo SOMA luz (alfa 0), não escurece a nebulosa.
+  // (Antes o halo entrava no alfa e a cor saía multiplicada duas vezes: fundo escurecido num quadrado.)
+  gl_FragColor = vec4((cor * dentro + brilho * (1.0 - dentro)) * BRILHO, dentro);
 }
 `;
 

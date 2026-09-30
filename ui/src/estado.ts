@@ -31,7 +31,7 @@ export interface EstadoUI {
 }
 
 export const inicial: EstadoUI = {
-  nome: "Jarvis",
+  nome: "Vision",
   estado: "ocioso",
   conversa: [],
   agenda: [],
