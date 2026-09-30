@@ -323,6 +323,68 @@ async def test_hey_vision_sim_nao_confirma_pendencia_de_antes_da_conversa(pecas,
     assert laco.historico[0]["jarvis"].endswith("Confirma?")
     assert len(laco.historico) == 2 and laco.em_conversa  # o "Hey Vision, sim" chegou e abriu a conversa
     assert len(servidor_agenda.eventos) == antes  # mas não confirmou nada
+
+
+async def test_hey_jarvis_sim_nao_confirma_pendencia_de_antes(pecas, registro, tmp_path, servidor_agenda):
+    """Revisão do PR 4: no modo `modelo`, acordar também descarta a pendência de antes da conversa."""
+    amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
+    llm = LLMFalso([chama("agenda_criar", titulo="Barbeiro", data=amanha, hora_inicio="16:00"), fala("Certo.")])
+    antes = len(servidor_agenda.eventos)
+    laco = _loop(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), _fala(pecas["pt"], "Marca barbeiro amanhã às quatro da tarde."), _silencio(1.5),
+        _fala(pecas["en"], "Hey Jarvis"), _silencio(1.5), _fala(pecas["pt"], "Sim, pode criar."), _silencio(1.5),
+    ], tmp_path, ativacao_por_texto=False)
+    laco.jogando = True
+    laco.apertou_atalho()
+    responder = laco._responder
+
+    async def responder_e_sair_do_jogo(texto, t_stt):
+        await responder(texto, t_stt)
+        laco.jogando = False
+
+    laco._responder = responder_e_sair_do_jogo
+    await laco.rodar()
+    assert laco.historico[0]["jarvis"].endswith("Confirma?")
+    assert len(laco.historico) == 2 and laco.em_conversa  # acordou pelo modelo e ouviu o "sim"
+    assert len(servidor_agenda.eventos) == antes  # mas não confirmou nada
+
+
+async def test_stt_que_falha_na_fala_inteira_mantem_o_pedido_do_comeco(pecas, registro, tmp_path):
+    """Revisão do PR 4: se só a 2ª transcrição de "Hey Vision, <pedido>" falha, o começo já ouvido vale."""
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [], tmp_path)
+    chamadas, pedidos = [], []
+
+    class SttQueFalhaNaSegunda:
+        def transcrever(self, pcm, taxa):
+            chamadas.append(pcm.size)
+            if len(chamadas) == 2:
+                raise IndexError("falha simulada do Parakeet")
+            return "Hey Vision, qual é a minha agenda"
+
+    async def responder(texto, t_stt):
+        pedidos.append(texto)
+
+    laco.stt, laco._responder = SttQueFalhaNaSegunda(), responder
+    await laco._candidato(_silencio(4.0))  # mais longa que o trecho de 2,5 s: transcreve duas vezes
+    assert len(chamadas) == 2 and laco.em_conversa
+    assert pedidos == ["qual é a minha agenda"]  # o pedido do começo, e não só a saudação
+
+
+async def test_despedida_configurada_fala_e_depois_bipa(pecas, registro, tmp_path):
+    from jarvis.voice.audio import bipe_desligar
+
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Beleza, Vision, pode desligar."),
+        _silencio(1.5),
+    ], tmp_path, despedida="Até mais.")
+    laco.bipes = True
+    eventos = []
+    laco.ao_evento = eventos.append
+    await laco.rodar()
+    assert {"tipo": "resposta", "texto": "Até mais."} in eventos
+    assert np.array_equal(laco.saida.trechos[-1], bipe_desligar())
+
+
 async def test_pode_desligar_so_da_o_bipe_sem_falar(pecas, registro, tmp_path):
     from jarvis.voice.audio import bipe_desligar
 

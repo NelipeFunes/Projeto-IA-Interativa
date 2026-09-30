@@ -14,7 +14,7 @@ SIM = {
 # Por voz, com a conversa aberta, a TV da sala também é ouvida: "isso", "claro", "certo" e "beleza" soltos
 # aparecem em qualquer programa. Ali só vale confirmação explícita; o resto vira "outro" (nada é executado).
 SIM_VOZ = {
-    "sim", "s", "pode", "pode sim", "sim pode", "sim por favor", "confirma", "confirmo", "confirmado", "pode fazer",
+    "sim", "s", "pode sim", "sim pode", "sim por favor", "confirma", "confirmo", "confirmado", "pode fazer",
     "pode criar", "pode apagar", "pode lancar", "pode mudar", "pode esquecer", "pode confirmar",
 }
 COMPLEMENTO_DO_SIM = {"sim", "pode", "por", "favor", "confirma", "confirmo", "vision", "visium", "claro"}
