@@ -8,4 +8,5 @@ modelos/
 amostras/*.wav
 evals/saidas/
 *.log
+node/node_modules/
 RELATORIO-MANHA.md

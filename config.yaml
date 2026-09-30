@@ -1,0 +1,72 @@
+# Configuração do Jarvis. Caminhos relativos são relativos à pasta do projeto.
+
+usuario:
+  nome: Felipe
+  fuso: America/Sao_Paulo
+
+modelo:
+  nome: qwen3.5:4b          # troque para qwen3.5:9b depois de ver evals/resultado-4b-vs-9b.md
+  pensar: false             # "thinking" do Qwen: deixa mais lento; desligado para voz
+  contexto: 8192
+  temperatura: 0.3
+  manter_carregado: 30m     # quanto tempo o modelo fica na VRAM depois da última fala
+  host: http://127.0.0.1:11434
+
+memoria:
+  modelo_embedding: embeddinggemma
+  embedding_na_cpu: true    # não disputa VRAM com o modelo principal
+  # Calibrado em 30/09 com embeddinggemma: fatos relevantes dão 0,24–0,49; irrelevantes ficam em ~0,19–0,29.
+  # Injetar um fato a mais no prompt custa pouco; perder o fato certo custa caro. Por isso o limiar é baixo.
+  top_k: 3
+  similaridade_minima: 0.25
+  similaridade_duplicata: 0.90  # "cachorra Luna" x "cadela Luna" = 0,98; fatos diferentes ≈ 0,60
+
+conversa:
+  turnos_no_historico: 6
+  sessao_expira_min: 10
+
+agenda:
+  servidor: google-calendar
+  calendarios_leitura:
+    - primary
+    - "pt-br.brazilian#holiday@group.v.calendar.google.com"
+  calendario_escrita: primary
+  duracao_padrao_min: 60
+  aviso_login_dias: 6       # login do Google em modo teste vence em 7 dias
+
+mcp:
+  google-calendar:
+    ativo: true
+    comando: "%LOCALAPPDATA%\\Programs\\nodejs\\node.exe"
+    args: ["node/node_modules/@cocal/google-calendar-mcp/build/index.js"]
+    env:
+      GOOGLE_OAUTH_CREDENTIALS: data/google-oauth.json
+      ENABLED_TOOLS: list-events,search-events,get-event,create-event,update-event,delete-event
+    timeout_s: 30
+  orbit:
+    ativo: true
+    comando: ".venv\\Scripts\\python.exe"
+    args: ["mcp_servers/orbit/server.py"]
+    timeout_s: 100          # o Render leva ~1 min para acordar
+
+voz:
+  microfone: [HyperX, C920]   # procura por nome, na ordem
+  alto_falante: [HyperX]
+  voz_piper: pt_BR-faber-medium
+  velocidade_fala: 1.0        # >1 fala mais devagar (length_scale do Piper)
+  stt: parakeet-ptbr          # parakeet-ptbr (melhor em PT) ou parakeet-base-int8 (mais leve)
+  palavra_ativacao: hey_jarvis
+  limiar_ativacao: 0.5
+  atalho: ctrl+alt+j
+  silencio_fim_ms: 800        # quanto silêncio encerra a sua fala
+  maximo_fala_s: 20
+
+modo_jogo:
+  ativo: true
+  processos: [cs2.exe]
+  checar_a_cada_s: 20
+
+servidor:
+  host: 127.0.0.1
+  porta: 8765
+  prazo_alexa_s: 6
