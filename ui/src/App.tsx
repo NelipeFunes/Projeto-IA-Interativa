@@ -1,11 +1,12 @@
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
+import { Ajustes } from "./componentes/Ajustes";
 import { Centro } from "./componentes/Centro";
 import { BarraEntrada, ControlesDemo, ControlesJanela } from "./componentes/Moldura";
 import { Nebulosa } from "./componentes/Nebulosa";
 import { PainelAgenda, PainelConversa, PainelMemoria, PainelStatus } from "./componentes/Paineis";
 import { type Conexao, conectar } from "./conexao";
-import { Demo, eventosAte } from "./demo";
+import { AJUSTES_DEMO, Demo, eventosAte } from "./demo";
 import { type Acao, inicial, reduzir } from "./estado";
 import { niveis } from "./niveis";
 import { noApp, parametros } from "./ponte";
@@ -54,6 +55,17 @@ export function App() {
   const memoriaRef = useRef<HTMLElement>(null);
   const [voo, setVoo] = useState<{ id: number; de: [number, number]; para: [number, number] } | null>(null);
   const [avisoFechado, setAvisoFechado] = useState<string | null>(null);
+  const [ajustesAbertos, setAjustesAbertos] = useState(parametros.get("ajustes") === "1");
+
+  const abrirAjustes = () => {
+    setAjustesAbertos(true);
+    if (NUCLEO) conexao.current?.enviar({ tipo: "ajustes" });
+    else emitir({ tipo: "ajustes", ...AJUSTES_DEMO });
+  };
+  const fecharAjustes = useCallback(() => setAjustesAbertos(false), []);
+  useEffect(() => {
+    if (DEMO && parametros.get("ajustes") === "1") emitir({ tipo: "ajustes", ...AJUSTES_DEMO });
+  }, [emitir]);
 
   const reiniciar = useCallback(() => {
     if (!DEMO || PASSO_FIXO !== null) return;
@@ -94,6 +106,9 @@ export function App() {
       <Nebulosa estado={s.estado} />
       <div className="app">
         <ControlesJanela app={app} />
+        <button className="botao-ajustes" aria-label="Ajustes" title="Ajustes" onClick={abrirAjustes}>
+          ⚙
+        </button>
         <AnimatePresence>
           {aviso && aviso !== avisoFechado && (
             <motion.div
@@ -143,6 +158,21 @@ export function App() {
           </div>
         </main>
         {DEMO && PASSO_FIXO === null && <ControlesDemo app={app} aoReiniciar={reiniciar} />}
+        <AnimatePresence>
+          {ajustesAbertos && (
+            <Ajustes
+              dados={s.ajustes}
+              aoFechar={fecharAjustes}
+              aoSalvar={(valores) =>
+                NUCLEO
+                  ? conexao.current?.enviar({ tipo: "salvar_ajustes", valores })
+                  : emitir({ tipo: "ajustes", ...AJUSTES_DEMO, valores: { ...AJUSTES_DEMO.valores, ...valores }, salvo: true,
+                      reiniciar: "assistente.nome" in valores || "voz.microfone" in valores })
+              }
+              aoOuvir={(voz) => NUCLEO && conexao.current?.enviar({ tipo: "amostra_voz", voz })}
+            />
+          )}
+        </AnimatePresence>
       </div>
       {voo && (
         <motion.div

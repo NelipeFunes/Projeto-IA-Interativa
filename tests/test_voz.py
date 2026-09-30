@@ -401,3 +401,41 @@ async def test_pode_desligar_so_da_o_bipe_sem_falar(pecas, registro, tmp_path):
     # As falas do próprio laço (fora do modelo) foram só a saudação: nenhuma despedida falada nem escrita.
     assert [e["texto"] for e in eventos if e["tipo"] == "resposta"] == ["Oi, Felipe. Pode falar."]
     assert laco.historico[-1]["vision"] == ""
+
+
+async def test_resposta_confirmada_pela_tela_e_falada_pelo_laco(pecas, registro, tmp_path):
+    """Fase C: pedido por voz, confirmado no botão da tela: a resposta sai no alto-falante, pelo próprio laço."""
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [_silencio(1.0)], tmp_path)
+    laco.pedir_fala("Feito. Criei o barbeiro para amanhã.")
+    await laco.rodar()
+    assert "amanh" in pecas["stt"].transcrever(laco.saida.audio(), laco.saida.taxa).lower()
+    assert laco.historico == []  # não virou fala sua
+
+
+async def test_com_a_escuta_pausada_a_resposta_da_tela_nao_e_falada(pecas, registro, tmp_path):
+    (tmp_path / "dormindo.flag").touch()
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [_silencio(1.0)], tmp_path)
+    laco.pedir_fala("Feito.")
+    await laco.rodar()
+    assert laco.saida.trechos == []
+
+
+async def test_fala_de_fora_que_falha_nao_derruba_a_escuta(pecas, registro, tmp_path):
+    """Revisão do PR 8: um erro ao falar a resposta da tela (ou a amostra) não pode matar o laço."""
+    hoje = tempo.agora().date().isoformat()
+    llm = LLMFalso([chama("agenda_listar", data_inicio=hoje), fala("Hoje você tem aula.")])
+    laco = _loop(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(0.2), _fala(pecas["pt"], "Qual é a minha agenda de hoje?"),
+        _silencio(1.5),
+    ], tmp_path)
+
+    class VozQuebrada:
+        taxa = 22050
+
+        def sintetizar(self, _texto):
+            raise RuntimeError("falha simulada do Piper")
+
+    laco.pedir_fala("Feito.", VozQuebrada())
+    await laco.rodar()
+    assert len(laco.historico) == 1  # continuou ouvindo e respondeu depois da falha
+    assert not isinstance(laco.voz, VozQuebrada)

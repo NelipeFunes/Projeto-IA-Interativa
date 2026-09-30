@@ -11,6 +11,11 @@ import yaml
 from dotenv import load_dotenv
 
 RAIZ = Path(__file__).resolve().parents[2]
+# O que você muda pela tela de ajustes (vision/ajustes.py): em data/, fora do git, por cima do config.yaml.
+AJUSTES_LOCAIS = "config-local.yaml"
+# Só estas chaves saem do arquivo local (as mesmas de vision/ajustes.py): o resto é ignorado.
+CHAVES_AJUSTAVEIS = {"assistente.nome", "voz.voz_piper", "voz.velocidade_fala", "voz.conversa_silencio_max_s",
+                     "voz.microfone"}
 
 
 @dataclass
@@ -38,11 +43,39 @@ def carregar(arquivo: Path | None = None, sobrescrever: dict[str, Any] | None = 
     load_dotenv(RAIZ / ".env")
     arquivo = arquivo or RAIZ / "config.yaml"
     bruto = yaml.safe_load(arquivo.read_text(encoding="utf-8")) or {}
+    if os.environ.get("VISION_SEM_AJUSTES") != "1":  # os testes não herdam o que você mudou na janela
+        for chave, valor in ler_ajustes(RAIZ / "data" / AJUSTES_LOCAIS).items():
+            if chave in CHAVES_AJUSTAVEIS and not (chave == "voz.voz_piper" and not _nome_de_arquivo(valor)):
+                _definir(bruto, chave, valor)
     for chave, valor in (sobrescrever or {}).items():
         _definir(bruto, chave, valor)
     cfg = Config(bruto=bruto)
     cfg.dados.mkdir(exist_ok=True)
     return cfg
+
+
+def ler_ajustes(arquivo: Path) -> dict[str, Any]:
+    """{"voz.voz_piper": ..., ...}. Arquivo ausente ou estragado: nenhum ajuste (vale o config.yaml)."""
+    try:
+        dados = yaml.safe_load(arquivo.read_text(encoding="utf-8"))
+    except (OSError, yaml.YAMLError):
+        return {}
+    return {str(k): v for k, v in dados.items()} if isinstance(dados, dict) else {}
+
+
+def _nome_de_arquivo(valor: Any) -> bool:
+    return isinstance(valor, str) and bool(valor) and not any(c in valor for c in "/\\:") and ".." not in valor
+
+
+def salvar_ajustes(cfg: Config, mudancas: dict[str, Any]) -> None:
+    """Grava as mudanças em data/config-local.yaml e já aplica no cfg em memória."""
+    arquivo = cfg.dados / AJUSTES_LOCAIS
+    todos = {**ler_ajustes(arquivo), **mudancas}
+    temporario = arquivo.with_suffix(".tmp")
+    temporario.write_text(yaml.safe_dump(todos, allow_unicode=True, sort_keys=True), encoding="utf-8")
+    temporario.replace(arquivo)  # nunca fica pela metade
+    for chave, valor in mudancas.items():
+        _definir(cfg.bruto, chave, valor)
 
 
 def _definir(d: dict[str, Any], chave: str, valor: Any) -> None:

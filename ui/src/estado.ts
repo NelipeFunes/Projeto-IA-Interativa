@@ -1,5 +1,5 @@
 // Estado da tela e o redutor que aplica cada evento. Sem efeitos colaterais: fácil de testar.
-import type { Estado, Evento, EventoAgenda, Memoria, Pendente, Status } from "./tipos";
+import type { DadosAjustes, Estado, Evento, EventoAgenda, Memoria, Pendente, Status } from "./tipos";
 
 export interface Mensagem {
   id: number;
@@ -27,6 +27,7 @@ export interface EstadoUI {
   varredura: number; // muda quando a agenda é consultada → dispara a linha de varredura
   estrela: number; // muda quando uma memória é guardada → dispara a estrela voando
   aviso: string | null;
+  ajustes: DadosAjustes | null;
   seq: number;
 }
 
@@ -42,6 +43,7 @@ export const inicial: EstadoUI = {
   varredura: 0,
   estrela: 0,
   aviso: null,
+  ajustes: null,
   seq: 0,
 };
 
@@ -171,6 +173,11 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
 
     case "aviso":
       return { ...s, seq, aviso: ev.texto };
+
+    case "ajustes": {
+      const { tipo: _tipo, ...dados } = ev;
+      return { ...s, seq, ajustes: dados };
+    }
 
     case "painel":
       return {

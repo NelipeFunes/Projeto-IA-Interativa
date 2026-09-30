@@ -136,4 +136,9 @@ describe("eventos do núcleo", () => {
     expect(limpo.conversa).toEqual([]);
     expect(limpo.estado).toBe("ouvindo");
   });
+
+  it("ajustes do núcleo ficam guardados para a tela de ajustes", () => {
+    const s = aplicar([{ tipo: "ajustes", valores: { "voz.velocidade_fala": 1.1 }, campos: [], opcoes: {}, salvo: true }]);
+    expect(s.ajustes).toEqual({ valores: { "voz.velocidade_fala": 1.1 }, campos: [], opcoes: {}, salvo: true });
+  });
 });

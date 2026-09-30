@@ -142,7 +142,10 @@ class Agente:
         canal: str = "texto",
         sessao: str = "padrao",
         ao_texto: Callable[[str], None] | None = None,
+        pendente_esperada: str | None = None,
     ) -> Resposta:
+        """`pendente_esperada`: o "sim"/"não" é a resposta a ESSA confirmação (clique na tela). Conferido dentro
+        da trava: se a voz resolveu ou trocou a pendência enquanto isso, o clique não vale para a nova."""
         s = self.sessao(canal, sessao)
         self._emitir("fala_usuario", texto=texto, canal=canal)
         if self.ao_evento is not None:
@@ -155,12 +158,15 @@ class Agente:
 
         async with s.trava:
             inicio = time.perf_counter()
-            r = (await self._tratar_confirmacao(s, texto, ao_texto, estrito=canal == "voz")
-                 if s.pendente is not None else None)
-            if r is None:
-                r = await self._pensar(s, texto, canal, ao_texto)
+            if pendente_esperada is not None and (s.pendente is None or s.pendente.id != pendente_esperada):
+                r = Resposta("Essa confirmação já tinha sido resolvida. Nada foi feito agora.")
+            else:
+                r = (await self._tratar_confirmacao(s, texto, ao_texto, estrito=canal == "voz")
+                     if s.pendente is not None else None)
+                if r is None:
+                    r = await self._pensar(s, texto, canal, ao_texto)
+                self._registrar(canal, sessao, texto, r)
             r.segundos = time.perf_counter() - inicio
-            self._registrar(canal, sessao, texto, r)
         self._emitir("resposta", texto=r.texto, aguardando_confirmacao=r.aguardando_confirmacao)
         return r
 
@@ -192,7 +198,14 @@ class Agente:
                     r = Resposta("Essa confirmação expirou. Se ainda quiser, me peça de novo.")
                     self._emitir("resposta", texto=r.texto, aguardando_confirmacao=False)
                     return r
-                return await self.responder("sim" if sim else "não", canal, sessao)
+                return await self.responder("sim" if sim else "não", canal, sessao, pendente_esperada=pendente_id)
+        return None
+
+    def canal_da_pendente(self, pendente_id: str) -> str | None:
+        """De que canal é essa confirmação ("voz", "texto"...): confirmada pela tela, a resposta da voz é falada."""
+        for (canal, _sessao), s in self.sessoes.items():
+            if s.pendente is not None and s.pendente.id == pendente_id:
+                return canal
         return None
 
     # ------------------------------------------------------------------ confirmação

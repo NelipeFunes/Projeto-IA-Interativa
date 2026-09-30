@@ -95,6 +95,9 @@ class LoopVoz:
         self.bipes = bipes
         self.jogando = False
         self.acionar = asyncio.Event()
+        # Falas pedidas de fora do laço (a resposta de uma confirmação da voz feita pela tela). Faladas pelo
+        # próprio laço, entre um bloco e outro: nunca por cima de outra fala, e o microfone descarta o eco.
+        self.para_falar: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
         self.estado = "ocioso"
         self.historico: list[dict[str, Any]] = []  # para testes e para o relatório
         self.ativacao_por_texto = ativacao_por_texto
@@ -103,7 +106,7 @@ class LoopVoz:
         # Conversa aberta: tudo o que você fala vai para ele. Silêncio contado em blocos de 80 ms (tempo de
         # áudio, não relógio: igual no microfone e nos testes).
         self.em_conversa = False
-        self.blocos_silencio_max = int(silencio_max_s / BLOCO_S)
+        self.ajustar_silencio(silencio_max_s)
         self.silencio = 0
         self.voz_seguida = 0
         # Confirmação por voz tem prazo: um "beleza" da TV 5 min depois não pode virar "sim" (revisão do PR 3).
@@ -161,6 +164,9 @@ class LoopVoz:
         self.feitas = 0
         self._mostrar("ocioso")
         async for bloco in self.entrada.blocos():
+            if self.estado == "ocioso" and not self.para_falar.empty():
+                await self._falar_de_fora(self.para_falar.get_nowait())
+                continue
             if self.estado == "ocioso":
                 self.pre_fala.append(bloco)
                 origem = await self._esperando(bloco)
@@ -389,13 +395,14 @@ class LoopVoz:
         while (frase := await fila.get()) is not None:
             if interrompido or not frase.strip():
                 continue
-            audio = await asyncio.to_thread(self.voz.sintetizar, frase)
+            voz = self.voz  # uma vez por frase: a tela de ajustes pode trocar a voz no meio
+            audio = await asyncio.to_thread(voz.sintetizar, frase)
             if not primeira_fala:
                 primeira_fala.append(time.perf_counter())
             self._mostrar("falando")
-            ondas = asyncio.create_task(self._emitir_voz(envelope(audio, self.voz.taxa))) if self.ao_evento else None
+            ondas = asyncio.create_task(self._emitir_voz(envelope(audio, voz.taxa))) if self.ao_evento else None
             try:
-                if not await asyncio.to_thread(self.saida.tocar, audio, self.voz.taxa):
+                if not await asyncio.to_thread(self.saida.tocar, audio, voz.taxa):
                     interrompido = True
             finally:
                 if ondas is not None:
@@ -410,6 +417,38 @@ class LoopVoz:
             if espera > 0:
                 await asyncio.sleep(espera)
             self._emitir({"tipo": "nivel", "fonte": "voz", "valor": float(v)})
+
+    def pedir_fala(self, texto: str, voz: Any = None) -> None:
+        """Pede ao laço para falar isto assim que estiver livre (só no loop do núcleo). `voz`: outra voz só
+        para esta frase (a amostra da tela de ajustes)."""
+        if texto.strip():
+            self.para_falar.put_nowait((texto, voz))
+
+    async def _falar_de_fora(self, pedido: tuple[str, Any]) -> None:
+        texto, voz = pedido
+        if self._pausado():
+            return  # jogo ou escuta pausada: fica só na tela
+        fila: asyncio.Queue[str | None] = asyncio.Queue()
+        fila.put_nowait(texto)
+        fila.put_nowait(None)
+        antes = self.voz
+        if voz is not None:
+            self.voz = voz
+        try:
+            await self._falador(fila, [])
+        except Exception:  # noqa: BLE001 - uma fala que falha (síntese, alto-falante) não derruba a escuta
+            log.exception("não consegui falar uma frase pedida de fora do laço")
+        finally:
+            if self.voz is voz and voz is not None:  # se salvaram outra voz enquanto isso, fica a salva
+                self.voz = antes
+        if voz is None:
+            self.pergunta_em = None
+        self.pre_fala.clear()
+        self.entrada.descartar()  # a própria voz não é você falando
+        self._mostrar("ocioso")
+
+    def ajustar_silencio(self, silencio_max_s: float) -> None:
+        self.blocos_silencio_max = int(silencio_max_s / BLOCO_S)
 
     async def falar(self, texto: str) -> None:
         """Fala uma frase fora de conversa (aviso de login, lembrete)."""
