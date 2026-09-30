@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import ctypes
 import functools
+import os
 import sys
 import threading
 from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
@@ -47,9 +48,23 @@ def servir(pasta: Path) -> tuple[ThreadingHTTPServer, int]:
 # ------------------------------------------------------------------ Win32 (bolha sem roubar foco)
 
 def _hwnd(titulo: str) -> int:
+    """Janela de nível superior DESTE processo com esse título (0 se não achar).
+
+    Só pelo título, uma segunda instância aberta mostraria a bolha da outra (revisão de 30/09).
+    """
     if sys.platform != "win32":
         return 0
-    return ctypes.windll.user32.FindWindowW(None, titulo) or 0
+    u32 = ctypes.windll.user32
+    u32.FindWindowExW.restype = ctypes.c_void_p
+    u32.FindWindowExW.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p)
+    u32.GetWindowThreadProcessId.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong))
+    pid = ctypes.c_ulong()
+    hwnd = None
+    while hwnd := u32.FindWindowExW(None, hwnd, None, titulo):
+        u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+        if pid.value == os.getpid():
+            return hwnd
+    return 0
 
 
 def _mostrar_sem_foco(hwnd: int) -> None:
@@ -90,11 +105,13 @@ def mostrar_bolha() -> None:
     if janela is None:
         return
     hwnd = _hwnd(janela.title)
-    if hwnd:
-        _cantos_arredondados(hwnd)
-        _mostrar_sem_foco(hwnd)
-    else:
-        janela.show()
+    if not hwnd:
+        # Sem o handle não dá para mostrar sem ativar, e janela.show() rouba o foco (do jogo, inclusive).
+        # Melhor não mostrar a bolha do que tirar você do que está fazendo.
+        print("interface: janela da bolha não encontrada; bolha não mostrada", file=sys.stderr)
+        return
+    _cantos_arredondados(hwnd)
+    _mostrar_sem_foco(hwnd)
     janela.evaluate_js("window.__reiniciarBolha && window.__reiniciarBolha()")
 
 
@@ -110,14 +127,18 @@ FUNCOES_EXPOSTAS = (minimizar, fechar, mostrar_bolha, esconder_bolha)
 # ------------------------------------------------------------------ janelas
 
 def _posicao_bolha(webview: Any) -> tuple[int, int]:
-    """Canto inferior direito da área útil (sem a barra de tarefas) do monitor PRINCIPAL."""
+    """Canto inferior direito da área útil (sem a barra de tarefas) do monitor PRINCIPAL.
+
+    No Windows o monitor principal é sempre o que começa em (0, 0). No pywebview (winforms), `frame` já
+    é o `Screen.WorkingArea`, no mesmo espaço de coordenadas de x/y/width/height (os que ele espera em
+    create_window), então não se divide pela escala.
+    """
     telas = list(webview.screens)
-    tela = next((t for t in telas if getattr(t.frame, "Primary", False)), None)
-    tela = tela or next((t for t in telas if t.x == 0 and t.y == 0), telas[0])
-    try:
-        area = tela.frame.WorkingArea  # pixels físicos; pywebview trabalha em lógicos
-        direita, baixo = area.Right / tela.scale, area.Bottom / tela.scale
-    except AttributeError:
+    tela = next((t for t in telas if t.x == 0 and t.y == 0), telas[0])
+    area = tela.frame
+    if hasattr(area, "Right") and hasattr(area, "Bottom"):
+        direita, baixo = area.Right, area.Bottom
+    else:  # outra plataforma ou pywebview diferente: estima a barra de tarefas
         direita, baixo = tela.x + tela.width, tela.y + tela.height - 48
     return int(direita - LARGURA_BOLHA - 16), int(baixo - ALTURA_BOLHA - 16)
 

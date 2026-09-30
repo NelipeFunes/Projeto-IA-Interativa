@@ -1,5 +1,6 @@
 """Janela da interface: servidor estático fechado e ponte JS → Python sem porta de entrada para o sistema."""
 
+import sys
 import urllib.error
 import urllib.request
 
@@ -127,3 +128,54 @@ def test_bolha_nasce_escondida_sem_transparencia_e_fecha_junto():
         assert bolha.destruida
     finally:
         interface._JANELAS.clear()
+
+
+class _Area:  # o System.Drawing.Rectangle do Screen.WorkingArea
+    def __init__(self, direita, baixo):
+        self.Right, self.Bottom = direita, baixo
+
+
+class _TelaFalsa:
+    def __init__(self, x, y, largura, altura, frame):
+        self.x, self.y, self.width, self.height, self.frame, self.scale = x, y, largura, altura, frame, 1.25
+
+
+def test_bolha_vai_para_a_area_util_do_monitor_principal():
+    class Wv:
+        screens = [
+            _TelaFalsa(-1920, 0, 1920, 1080, _Area(0, 1040)),  # secundário à esquerda
+            _TelaFalsa(0, 0, 2560, 1440, _Area(2560, 1380)),  # principal, barra de tarefas de 60 px
+        ]
+
+    # Sem dividir pela escala: o WorkingArea já está no espaço de x/y que o create_window espera.
+    assert interface._posicao_bolha(Wv) == (2560 - interface.LARGURA_BOLHA - 16, 1380 - interface.ALTURA_BOLHA - 16)
+
+
+def test_bolha_sem_area_util_estima_a_barra_de_tarefas():
+    class Wv:
+        screens = [_TelaFalsa(0, 0, 1920, 1080, None)]
+
+    assert interface._posicao_bolha(Wv) == (1920 - interface.LARGURA_BOLHA - 16, 1080 - 48 - interface.ALTURA_BOLHA - 16)
+
+
+def test_sem_o_handle_a_bolha_nao_aparece_em_vez_de_roubar_o_foco(monkeypatch):
+    class Bolha:
+        title = "Teste (bolha)"
+        mostrada = False
+
+        def show(self):
+            self.mostrada = True
+
+        def evaluate_js(self, _js):
+            raise AssertionError("não deveria animar uma bolha que não apareceu")
+
+    bolha = Bolha()
+    monkeypatch.setattr(interface, "_hwnd", lambda _titulo: 0)
+    monkeypatch.setitem(interface._JANELAS, "bolha", bolha)
+    interface.mostrar_bolha()
+    assert not bolha.mostrada
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="Win32")
+def test_hwnd_so_procura_janelas_deste_processo():
+    assert interface._hwnd("janela que não existe 7f3a") == 0

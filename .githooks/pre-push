@@ -1,0 +1,37 @@
+#!/bin/sh
+# Barra o push se um termo pessoal do dono aparecer no que vai subir: conteúdo adicionado, mensagens de
+# commit ou nomes de arquivo (o repositório é público). Os termos ficam em data/termos-privados.txt,
+# ignorado pelo git; sem ele não há o que checar. A mensagem cita só o número do termo, nunca o termo.
+# Ativar uma vez por clone: git config core.hooksPath .githooks
+raiz=$(git rev-parse --show-toplevel) || exit 1
+termos="$raiz/data/termos-privados.txt"
+[ -f "$termos" ] || exit 0
+zero=0000000000000000000000000000000000000000
+
+# tr tira \r que chegue no stdin (o git manda \n, mas outro chamador no Windows pode mandar \r\n).
+tr -d '\r' | while read -r _ref_local sha_local _ref_remota sha_remoto; do
+  [ "$sha_local" = "$zero" ] && continue  # apagando um branch no GitHub: nada sobe
+  if [ "$sha_remoto" = "$zero" ]; then
+    faixa="$sha_local --not --remotes"  # branch novo: só o que o GitHub ainda não tem
+  else
+    faixa="$sha_remoto..$sha_local"
+  fi
+  # Se não der para ler os commits, barra: na dúvida, nada sobe.
+  if ! mensagens=$(git log --format=%B $faixa) || ! mudancas=$(git log -p --format= $faixa); then
+    echo "push bloqueado: não consegui ler os commits que iam subir." >&2
+    exit 1
+  fi
+  # Linhas removidas ("-") ficam de fora: tirar um termo que já estava publicado não pode ser barrado.
+  adicionado=$(printf '%s\n' "$mudancas" | grep -v '^-')
+  n=0
+  while IFS= read -r termo || [ -n "$termo" ]; do
+    termo=$(printf '%s' "$termo" | tr -d '\r' | sed 's/^[[:space:]]*//; s/[[:space:]]*$//')
+    case "$termo" in '' | '#'*) continue ;; esac
+    n=$((n + 1))
+    if printf '%s\n%s\n' "$mensagens" "$adicionado" | grep -q -i -F -- "$termo"; then
+      echo "push bloqueado: o termo privado nº $n de data/termos-privados.txt aparece no que ia subir." >&2
+      exit 1
+    fi
+  done < "$termos"
+done || exit 1  # o while roda num subshell (pipe): o exit 1 lá dentro vira o status do pipe
+exit 0
