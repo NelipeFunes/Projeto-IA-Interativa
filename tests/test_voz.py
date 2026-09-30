@@ -108,6 +108,42 @@ async def test_confirmacao_por_voz_sem_repetir_hey_jarvis(pecas, registro, tmp_p
     assert any(e["summary"] == "Barbeiro" for e in servidor_agenda.eventos)
 
 
+async def test_conversa_continua_sem_hey_jarvis(pecas, registro, tmp_path):
+    # Caso real de 30/09: a resposta terminou em ponto final e a pergunta seguinte, sem "Hey Jarvis", era ignorada.
+    hoje = tempo.agora().date().isoformat()
+    llm = LLMFalso([
+        fala("Não consigo gerar esse relatório agora."),
+        chama("agenda_listar", data_inicio=hoje),
+        fala("Hoje você tem aula às 19:30."),
+    ])
+    agente = Agente(llm, registro, None)
+    falas: list[str] = []
+    laco = _loop(pecas, agente, [
+        _silencio(0.5), _fala(pecas["en"], "Hey Jarvis"), _silencio(0.4),
+        _fala(pecas["pt"], "Me faz um relatório dos gastos."), _silencio(1.5),
+        _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),
+    ], tmp_path)
+    laco.escrever = falas.append
+    await laco.rodar(limite=2)
+    assert "agenda" in laco.historico[1]["felipe"].lower()
+    assert laco.historico[1]["jarvis"].startswith("Hoje você tem aula")
+    assert falas.count("…ouvindo") == 2
+
+
+async def test_janela_de_conversa_fecha(pecas, registro, tmp_path):
+    agente = Agente(LLMFalso([fala("Tudo certo por aqui.")]), registro, None)
+    falas: list[str] = []
+    laco = _loop(pecas, agente, [
+        _silencio(0.5), _fala(pecas["en"], "Hey Jarvis"), _silencio(0.4), _fala(pecas["pt"], "Tudo bem?"),
+        _silencio(10),  # mais que os 8 s da janela
+        _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),
+    ], tmp_path)
+    laco.escrever = falas.append
+    await laco.rodar()
+    assert len(laco.historico) == 1  # a segunda pergunta, sem "Hey Jarvis" e fora da janela, é ignorada
+    assert "(para falar de novo: 'Hey Jarvis' ou o atalho)" in falas
+
+
 async def test_dormindo_ignora_hey_jarvis(pecas, registro, tmp_path):
     (tmp_path / "dormindo.flag").write_text("1")
     agente = Agente(LLMFalso([]), registro, None)

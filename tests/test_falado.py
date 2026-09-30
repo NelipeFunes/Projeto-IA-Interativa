@@ -27,5 +27,13 @@ def test_para_fala(entrada, saida):
     assert para_fala(entrada) == saida
 
 
+def test_corrige_jarvis_ouvido_errado():
+    from jarvis.voice.stt import corrigir_nomes
+
+    assert corrigir_nomes("Jarves, quanto eu gastei com iFood esse mês?") == "Jarvis, quanto eu gastei com iFood esse mês?"
+    assert corrigir_nomes("ei jarvi qual minha agenda") == "ei Jarvis qual minha agenda"
+    assert corrigir_nomes("o Jarvis está aqui") == "o Jarvis está aqui"
+
+
 def test_frases():
     assert frases("Oi, Felipe. Hoje tem aula! E amanhã?") == ["Oi, Felipe.", "Hoje tem aula!", "E amanhã?"]

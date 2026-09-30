@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 import time
 from pathlib import Path
 
@@ -42,7 +43,17 @@ class Transcritor:
             audio = audio.astype(np.float32) / (32768.0 if np.issubdtype(audio.dtype, np.integer) else 1.0)
         if taxa != TAXA:
             audio = reamostrar(audio, taxa, TAXA)
-        return str(self.modelo.recognize(audio, sample_rate=TAXA)).strip()
+        return corrigir_nomes(str(self.modelo.recognize(audio, sample_rate=TAXA)).strip())
+
+
+# O Parakeet ouve "Jarvis" com sotaque como "Jarves"/"Jarvi" (visto na calibração de 30/09).
+_NOMES = [(re.compile(r"\b(jarv[eiy]s|jarvi|djarvis|jarvez)\b", re.IGNORECASE), "Jarvis")]
+
+
+def corrigir_nomes(texto: str) -> str:
+    for padrao, certo in _NOMES:
+        texto = padrao.sub(certo, texto)
+    return texto
 
 
 def reamostrar(audio: np.ndarray, de: int, para: int) -> np.ndarray:

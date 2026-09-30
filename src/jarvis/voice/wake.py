@@ -55,6 +55,10 @@ class DetectorFala:
         self.ms_total = 0
         self.ms_silencio = 0
 
+    def tem_voz(self, pcm: np.ndarray) -> bool:
+        """Só pergunta 'tem voz nestes 80 ms?' (usado na janela de conversa, antes de gravar)."""
+        return float(self.vad.predict(pcm, frame_size=640)) >= 0.5
+
     def bloco(self, pcm: np.ndarray) -> bool:
         """Processa 80 ms. Devolve True quando a fala acabou (ou estourou o tempo)."""
         prob = float(self.vad.predict(pcm, frame_size=640))

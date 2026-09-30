@@ -1,6 +1,6 @@
 """Loop de voz: 'Hey Jarvis' (ou atalho) → grava até você parar → transcreve → pensa → fala frase a frase.
 
-Depois que o Jarvis faz uma pergunta ("Confirma?"), ele já escuta a resposta sem precisar de "Hey Jarvis".
+Depois de cada resposta há uma janela de conversa (8 s): se você falar, ele ouve sem precisar de "Hey Jarvis".
 O atalho durante a fala interrompe o Jarvis e começa a ouvir.
 """
 
@@ -9,6 +9,7 @@ from __future__ import annotations
 import asyncio
 import re
 import time
+from collections import deque
 from collections.abc import Callable
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ class LoopVoz:
         flag_dormindo: Path | None = None,
         escrever: Callable[[str], None] = print,
         bipes: bool = True,
+        janela_conversa_s: float = 8.0,
     ):
         self.agente = agente
         self.voz = voz
@@ -49,9 +51,16 @@ class LoopVoz:
         self.bipes = bipes
         self.jogando = False
         self.acionar = asyncio.Event()
-        self.seguir_ouvindo = False
         self.estado = "ocioso"
         self.historico: list[dict[str, Any]] = []  # para testes e para o relatório
+        # Janela de conversa: depois de cada resposta, fica ouvindo sem precisar de "Hey Jarvis".
+        # Contada em blocos de 80 ms (tempo de áudio), não em relógio: igual no microfone e nos testes.
+        # Motivo (30/09): a resposta terminou em ponto final, o Jarvis voltou a esperar "Hey Jarvis" e o Felipe,
+        # que continuou conversando normalmente, achou que ele tinha travado.
+        self.blocos_janela_conversa = int(janela_conversa_s / 0.08)
+        self.janela = 0
+        self.voz_seguida = 0
+        self.pre_fala: deque[np.ndarray] = deque(maxlen=4)  # 320 ms antes do início, para não cortar a 1ª sílaba
 
     # ------------------------------------------------------------------ controles externos
 
@@ -72,20 +81,33 @@ class LoopVoz:
         feitas = 0
         async for bloco in self.entrada.blocos():
             if self.estado == "ocioso":
-                disparou = False
+                self.pre_fala.append(bloco)
+                origem = None
                 if self.acionar.is_set():
                     self.acionar.clear()
-                    disparou = True
-                elif self.seguir_ouvindo:
-                    self.seguir_ouvindo = False
-                    disparou = True
+                    origem = "atalho"
+                elif self.janela > 0:
+                    self.janela -= 1
+                    self.voz_seguida = self.voz_seguida + 1 if self.detector.tem_voz(bloco) else 0
+                    if self.voz_seguida >= 2:  # 160 ms de voz seguida: é você continuando a conversa
+                        origem = "conversa"
+                    elif self.janela == 0:
+                        self.escrever("(para falar de novo: 'Hey Jarvis' ou o atalho)")
                 elif self.ativacao_ligada() and self.ativacao.ouvir(bloco):
-                    disparou = True
-                if disparou:
+                    origem = "ativacao"
+                if origem is None:
+                    continue
+                self.janela = self.voz_seguida = 0
+                self.detector.zerar()
+                gravado = []
+                if origem == "conversa":
+                    gravado = list(self.pre_fala)  # a fala já começou: guarda o começo dela
+                    for b in gravado:
+                        self.detector.bloco(b)
+                else:
                     await self._bipe(subindo=True)
-                    self.detector.zerar()
-                    gravado = []
-                    self.estado = "gravando"
+                self.escrever("…ouvindo")
+                self.estado = "gravando"
                 continue
 
             gravado.append(bloco)
@@ -144,7 +166,7 @@ class LoopVoz:
                       f"{' · ' + usadas if usadas else ''}]")
         self.historico.append({"felipe": texto, "jarvis": r.texto, "ferramentas": usadas,
                                "stt_s": t_stt, "pensar_s": r.segundos, "ate_falar_s": ate_falar})
-        self.seguir_ouvindo = r.aguardando_confirmacao or r.texto.rstrip().endswith("?")
+        self.janela = self.blocos_janela_conversa
 
     async def _falador(self, fila: asyncio.Queue[str | None], primeira_fala: list[float]) -> None:
         self.saida.interromper.clear()
@@ -211,7 +233,8 @@ async def rodar_voz(cfg, com_ativacao: bool = True) -> None:
     async with montar(cfg) as j:
         with Microfone(cfg) as mic:
             laco = LoopVoz(j.agente, voz, stt, mic, saida, detector, ativacao,
-                           flag_dormindo=cfg.dados / "dormindo.flag")
+                           flag_dormindo=cfg.dados / "dormindo.flag",
+                           janela_conversa_s=float(cfg.get("voz.janela_conversa_s", 8)))
             loop = asyncio.get_running_loop()
             atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
             for nota in mic.notas:

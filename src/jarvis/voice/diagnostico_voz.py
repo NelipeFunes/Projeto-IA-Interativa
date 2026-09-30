@@ -87,30 +87,55 @@ async def _calibrar(cfg, p, OK, ERRO, AVISO, ok, mic, nome_alto, voz, audio) -> 
     print("\nVou tocar um bipe e uma frase no alto-falante.")
     saida.tocar(bipe(True), 22050)
     saida.tocar(audio, voz.taxa)
-    if input("Ouviu? [s/n] ").strip().lower().startswith("n"):
+    if input("Ouviu o bipe e a frase? Digite s ou n e aperte Enter: ").strip().lower().startswith("n"):
         p(ERRO, f"sem som em '{nome_alto}'. Ajuste voz.alto_falante no config.yaml")
         ok = False
 
     from jarvis.voice.wake import PalavraAtivacao
 
     ativ = PalavraAtivacao(cfg.modelos / "openwakeword", limiar=1.0)
-    scores = []
-    for i in range(3):
-        input(f"\n[{i + 1}/3] Aperte Enter e diga 'Hey Jarvis' do seu jeito normal (3 s)...")
+
+    def medir() -> float:
         pcm = _gravar(mic, 3.0)
         ativ.zerar()
         pico = 0.0
         for j in range(0, len(pcm) - BLOCO + 1, BLOCO):
             ativ.ouvir(pcm[j : j + BLOCO])
             pico = max(pico, ativ.ultimo_score)
+        return pico
+
+    # Uma tentativa perdida (falou fora da janela de 3 s) dá ~0,01 e não diz nada sobre a sua voz:
+    # em 30/09 um 0,01 assim puxou a sugestão para baixo e gerou um alarme falso. Repete essas.
+    print("\nAgora 3 vezes 'Hey Jarvis'. Depois de apertar Enter você tem 3 segundos.")
+    scores = []
+    for i in range(3):
+        for tentativa in range(2):
+            input(f"\n[{i + 1}/3] Aperte Enter e diga 'Hey Jarvis'...")
+            pico = medir()
+            print(f"   score: {pico:.2f}")
+            if pico >= 0.1 or tentativa == 1:
+                break
+            print("   não ouvi 'Hey Jarvis' nessa; vamos repetir esta.")
         scores.append(pico)
-        print(f"   score: {pico:.2f}")
-    sugerido = max(0.15, min(0.6, round(min(scores) * 0.7, 2)))
+    validos = [s for s in scores if s >= 0.1]
     atual = float(cfg.get("voz.limiar_ativacao", 0.3))
-    p(OK if min(scores) >= atual else AVISO,
-      f"'Hey Jarvis': scores {', '.join(f'{s:.2f}' for s in scores)}; limiar atual {atual}; sugerido {sugerido}")
-    if min(scores) < 0.15:
-        p(AVISO, "scores muito baixos: tente 'Hei Djárvis' mais em inglês, ou use o atalho (ou treine uma palavra própria depois)")
+    if not validos:
+        p(AVISO, f"'Hey Jarvis' não foi reconhecido (scores {', '.join(f'{s:.2f}' for s in scores)}). "
+                 "Tente falar mais perto do microfone e 'Hei Djárvis' mais em inglês, ou use o atalho.")
+    else:
+        sugerido = max(0.15, min(0.5, round(min(validos) * 0.6, 2)))
+        pegou = sum(s >= atual for s in scores)
+        p(OK if pegou == len(scores) else AVISO,
+          f"'Hey Jarvis': scores {', '.join(f'{s:.2f}' for s in scores)}; com o limiar atual ({atual}) "
+          f"pegaria {pegou} de {len(scores)}; sugerido: {sugerido}")
+    preferido = (cfg.get("voz.microfone") or [None])[0]
+    if preferido:
+        from jarvis.voice.audio import achar_dispositivo
+
+        disp_preferido, _ = achar_dispositivo([preferido], entrada=True)
+        if disp_preferido is not None and mic != disp_preferido:
+            p(AVISO, f"calibrado com o microfone reserva: o '{preferido}' estava mudo. "
+                     "Com ele (mais perto da boca) os scores tendem a subir")
 
     from jarvis.voice.stt import Transcritor
 
