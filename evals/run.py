@@ -78,20 +78,23 @@ async def rodar_caso(cfg, llm, caso: Caso) -> dict:
     }
 
 
-async def avaliar(modelo: str, pensar: bool, so: set[str] | None) -> dict:
+async def avaliar(modelo: str, pensar: bool, so: set[str] | None, repeticoes: int = 1) -> dict:
     cfg = config.carregar(sobrescrever={"modelo.nome": modelo, "modelo.pensar": pensar})
     llm = criar_llm(cfg)
     t = time.perf_counter()
     await llm.conversar([{"role": "user", "content": "oi"}], None)  # aquece (carrega na VRAM)
     carga = time.perf_counter() - t
     resultados = []
-    for caso in CASOS:
-        if so and caso.id not in so:
-            continue
-        r = await rodar_caso(cfg, llm, caso)
-        marca = "ok " if r["passou"] else "ERR"
-        print(f"  {marca} {caso.id:28} {r['tempos'][-1]['total']:5.1f}s  {'; '.join(r['falhas'])[:110]}", flush=True)
-        resultados.append(r)
+    for rep in range(repeticoes):
+        for caso in CASOS:
+            if so and caso.id not in so:
+                continue
+            r = await rodar_caso(cfg, llm, caso)
+            r["rep"] = rep
+            marca = "ok " if r["passou"] else "ERR"
+            print(f"  {marca} [{rep + 1}] {caso.id:28} {r['tempos'][-1]['total']:5.1f}s  {'; '.join(r['falhas'])[:100]}",
+                  flush=True)
+            resultados.append(r)
     vram = await _vram()
     await llm.descarregar()
     return {"modelo": modelo, "pensar": pensar, "carga_s": carga, "vram": vram, "resultados": resultados}
@@ -112,8 +115,10 @@ def _rotulo(av: dict) -> str:
 
 
 def relatorio(avaliacoes: list[dict]) -> str:
+    ids = list(dict.fromkeys(r["id"] for r in avaliacoes[0]["resultados"]))
+    reps = max(r.get("rep", 0) for r in avaliacoes[0]["resultados"]) + 1
     linhas = ["# Avaliação do Jarvis", "",
-              f"Gerado em {tempo.agora():%d/%m/%Y %H:%M} · {len(avaliacoes[0]['resultados'])} casos · canal voz · "
+              f"Gerado em {tempo.agora():%d/%m/%Y %H:%M} · {len(ids)} casos × {reps} rodada(s) · canal voz · "
               "agenda e Orbit falsos · memória com embeddinggemma real", ""]
     linhas += ["## Resumo", "", "| Modelo | Acertos | Tempo médio | p90 | 1ª palavra (média) | Insistências | VRAM |",
                "|---|---|---|---|---|---|---|"]
@@ -135,14 +140,15 @@ def relatorio(avaliacoes: list[dict]) -> str:
             rs = [r for r in av["resultados"] if r["categoria"] == cat]
             cel.append(f"{sum(r['passou'] for r in rs)}/{len(rs)}")
         linhas.append(f"| {cat} | " + " | ".join(cel) + " |")
-    linhas += ["", "## Caso a caso", "", "| Caso | " + " | ".join(_rotulo(a) for a in avaliacoes) + " |",
-               "|---|" + "---|" * len(avaliacoes)]
-    for i, caso in enumerate(avaliacoes[0]["resultados"]):
+    linhas += ["", "## Caso a caso (uma marca por rodada; tempo médio da última fala)", "",
+               "| Caso | " + " | ".join(_rotulo(a) for a in avaliacoes) + " |", "|---|" + "---|" * len(avaliacoes)]
+    for cid in ids:
         cel = []
         for av in avaliacoes:
-            r = av["resultados"][i]
-            cel.append(("✅" if r["passou"] else "❌") + f" {r['tempos'][-1]['total']:.1f}s")
-        linhas.append(f"| `{caso['id']}` | " + " | ".join(cel) + " |")
+            rs = [r for r in av["resultados"] if r["id"] == cid]
+            marcas = "".join("✅" if r["passou"] else "❌" for r in rs)
+            cel.append(f"{marcas} {statistics.mean(r['tempos'][-1]['total'] for r in rs):.1f}s")
+        linhas.append(f"| `{cid}` | " + " | ".join(cel) + " |")
     linhas += ["", "## Onde errou", ""]
     for av in avaliacoes:
         erros = [r for r in av["resultados"] if not r["passou"]]
@@ -162,6 +168,7 @@ async def main() -> int:
     ap.add_argument("--pensar", action="store_true", help="avalia também o 4B com 'thinking' ligado")
     ap.add_argument("--so", help="ids de casos separados por vírgula")
     ap.add_argument("--nome", default=None, help="sufixo do arquivo de resultado")
+    ap.add_argument("--repeticoes", type=int, default=1, help="rodadas por caso (o modelo varia um pouco)")
     args = ap.parse_args()
     so = set(args.so.split(",")) if args.so else None
     configs = [(m, False) for m in args.modelos.split(",")]
@@ -170,7 +177,7 @@ async def main() -> int:
     avaliacoes = []
     for modelo, pensar in configs:
         print(f"\n== {modelo}{' (pensando)' if pensar else ''} ==", flush=True)
-        av = await avaliar(modelo, pensar, so)
+        av = await avaliar(modelo, pensar, so, args.repeticoes)
         avaliacoes.append(av)
         saidas = RAIZ / "evals" / "saidas"
         saidas.mkdir(exist_ok=True)

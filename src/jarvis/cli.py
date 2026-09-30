@@ -29,7 +29,7 @@ async def _chat(cfg: config.Config) -> None:
             print(f"Jarvis: {aviso}")
         while True:
             try:
-                texto = await asyncio.to_thread(input, "\nVocê: ")
+                texto = (await asyncio.to_thread(input, "\nVocê: ")).lstrip("﻿")  # BOM vindo de pipe no PowerShell
             except (EOFError, KeyboardInterrupt):
                 break
             if texto.strip().lower() in {"sair", "exit", "tchau"}:
