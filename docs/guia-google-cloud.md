@@ -21,16 +21,16 @@ O Jarvis usa o servidor MCP `@cocal/google-calendar-mcp` (já instalado em `node
 7. No terminal, na pasta do projeto:
 
    ```bash
-   .\jarvis google-login
+   jarvis google-login
    ```
 
    O navegador abre. Escolha a conta e aceite. Como o app está em teste, aparece o aviso "O Google não
    verificou este app" → *Continuar*. Esse aviso é esperado para um app pessoal.
-8. Teste: `.\jarvis teste agenda` e depois `.\jarvis chat` → "qual minha agenda de hoje?".
+8. Teste: `jarvis teste agenda` e depois `jarvis chat` → "qual minha agenda de hoje?".
 
 ## A cada 7 dias
 
-Rode `.\jarvis google-login` de novo. O Jarvis avisa no 6º dia ao iniciar. Se esquecer, ele diz
+Rode `jarvis google-login` de novo. O Jarvis avisa no 6º dia ao iniciar. Se esquecer, ele diz
 "a agenda está sem login" quando você perguntar da agenda.
 
 Para acabar com isso um dia: tela de consentimento → *Publicar app* → "Em produção". Para uso pessoal

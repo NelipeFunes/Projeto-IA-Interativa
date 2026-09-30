@@ -48,9 +48,9 @@ def aviso_login(cfg: Config) -> str | None:
     dias = dias_desde_login(cfg)
     limite = float(cfg.get("agenda.aviso_login_dias", 6))
     if dias is None:
-        return "Felipe, a agenda do Google ainda não está conectada. Rode: .\\jarvis google-login"
+        return "Felipe, a agenda do Google ainda não está conectada. Rode: jarvis google-login"
     if dias >= 7:
-        return "Felipe, o login do Google venceu. Rode: .\\jarvis google-login"
+        return "Felipe, o login do Google venceu. Rode: jarvis google-login"
     if dias >= limite:
-        return "Felipe, o login do Google vence amanhã. Quando puder, rode: .\\jarvis google-login"
+        return "Felipe, o login do Google vence amanhã. Quando puder, rode: jarvis google-login"
     return None

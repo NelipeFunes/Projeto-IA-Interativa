@@ -38,7 +38,7 @@ class Agenda:
         if not r.ok:
             if any(s in r.texto for s in SEM_LOGIN) or "OAuth" in r.texto or "indisponível" in r.texto:
                 raise ErroFerramenta(
-                    "A agenda do Google está sem login. Diga ao Felipe para rodar `.\\jarvis google-login`."
+                    "A agenda do Google está sem login. Diga ao Felipe para rodar `jarvis google-login`."
                     f" (detalhe: {r.texto[:200]})"
                 )
             raise ErroFerramenta(f"A agenda do Google deu erro: {r.texto[:300]}")

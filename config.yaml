@@ -55,11 +55,11 @@ voz:
   voz_piper: pt_BR-faber-medium
   velocidade_fala: 1.0        # >1 fala mais devagar (length_scale do Piper)
   # parakeet-base-int8 (650 MB, carrega em 2,6 s) ou parakeet-ptbr (ajuste fino PT-BR, 2,5 GB, 4,3 s).
-  # Com voz sintética o base errou menos; com voz humana o PT-BR deve ganhar. Compare: .\jarvis teste voz
+  # Com voz sintética o base errou menos; com voz humana o PT-BR deve ganhar. Compare: jarvis teste voz
   stt: parakeet-base-int8
   palavra_ativacao: hey_jarvis
   # Inglês nativo dá 0,99; vozes sintéticas PT-BR dizendo "Hey Jarvis" deram 0,11–0,75; frases comuns ~0,00.
-  # Calibre com a SUA voz: .\jarvis teste voz  (mostra o score de cada "Hey Jarvis")
+  # Calibre com a SUA voz: jarvis teste voz  (mostra o score de cada "Hey Jarvis")
   limiar_ativacao: 0.3
   atalho: ctrl+alt+j
   silencio_fim_ms: 800        # quanto silêncio encerra a sua fala

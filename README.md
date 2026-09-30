@@ -3,22 +3,44 @@
 Assistente pessoal local do Felipe: agenda (Google), finanças e tarefas (Orbit) e memória, por texto ou voz,
 100% no PC, sem pagar tokens. Cérebro: Qwen3.5 no Ollama (GPU). Ouvido: Parakeet (CPU). Voz: Piper (CPU).
 
-## Comandos
+## Instalação (Windows)
+
+Precisa de: GPU NVIDIA com 6+ GB de VRAM, [Ollama](https://ollama.com), [uv](https://docs.astral.sh/uv/), Node.js e git.
 
 ```bash
-.\jarvis chat              # conversa por texto
-.\jarvis voz               # "Hey Jarvis" ou ctrl+alt+j
-.\jarvis teste             # checagem geral (ollama, agenda, orbit, voz)
-.\jarvis teste voz         # calibra o "Hey Jarvis" e compara os STT com a sua voz
-.\jarvis google-login      # a cada 7 dias (app do Google em modo teste)
-.\jarvis memorias          # o que o Jarvis lembra de você
-.\jarvis dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Jarvis"
-.\jarvis acordar
-.\jarvis falar "Oi, Felipe"   # testa a voz
-.\jarvis servidor          # cérebro como API em 127.0.0.1:8765 (para a Alexa, depois)
-.\jarvis --modelo qwen3.5:9b chat   # troca de modelo sem mexer no config
-.venv\Scripts\python -m pytest                   # testes (74, sem precisar de login nem microfone)
-.venv\Scripts\python evals\run.py      # avaliação 4B × 9B com agenda e Orbit falsos
+git clone https://github.com/NelipeFunes/Projeto-IA-Interativa.git jarvis
+cd jarvis
+uv sync --python 3.12
+ollama pull qwen3.5:4b
+ollama pull embeddinggemma
+.venv\Scripts\python scripts\baixar_modelos.py
+npm install --prefix node
+```
+
+Depois, ponha a pasta do projeto no PATH para o comando `jarvis` (o `jarvis.cmd`) funcionar de qualquer pasta.
+Para conectar o Google Agenda, veja `docs/guia-google-cloud.md`.
+
+## Comandos (de qualquer pasta)
+
+```bash
+jarvis chat              # conversa por texto
+jarvis voz               # "Hey Jarvis" ou ctrl+alt+j
+jarvis teste             # checagem geral (ollama, agenda, orbit, voz)
+jarvis teste voz         # calibra o "Hey Jarvis" e compara os STT com a sua voz
+jarvis google-login      # a cada 7 dias (app do Google em modo teste)
+jarvis memorias          # o que o Jarvis lembra de você
+jarvis dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Jarvis"
+jarvis acordar
+jarvis falar "Oi, Felipe"   # testa a voz
+jarvis servidor          # cérebro como API em 127.0.0.1:8765 (para a Alexa, depois)
+jarvis --modelo qwen3.5:9b chat   # troca de modelo sem mexer no config
+```
+
+Na pasta do projeto:
+
+```bash
+.venv\Scripts\python -m pytest      # 77 testes, sem precisar de login nem microfone
+.venv\Scripts\python evals\run.py   # avaliação 4B × 9B com agenda e Orbit falsos
 ```
 
 ## Como funciona
