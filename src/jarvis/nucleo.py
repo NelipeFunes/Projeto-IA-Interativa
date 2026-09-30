@@ -1,7 +1,7 @@
 """Núcleo do assistente: roda em segundo plano (sem console), inicia com o Windows e junta num processo só:
 
 - agente + MCPs + memória (montagem.montar);
-- voz ("Hey Jarvis", atalho, janela de conversa), se os modelos de voz estiverem baixados;
+- voz ("Hey Vision" abre a conversa, "pode desligar" fecha; atalho), se os modelos de voz estiverem baixados;
 - servidor local (API + WebSocket da tela, com token), só em 127.0.0.1;
 - ícone na bandeja, com o menu;
 - a janela, que é OUTRO processo (pywebview quer a thread principal; se ela travar, a voz continua).

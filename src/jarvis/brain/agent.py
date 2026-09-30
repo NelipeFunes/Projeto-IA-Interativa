@@ -124,6 +124,13 @@ class Agente:
     def _expirada(self, s: Sessao) -> bool:
         return time.monotonic() - s.ultima > self.expira_s and not s.trava.locked()
 
+    def cancelar_pendente(self, canal: str, sessao: str) -> None:
+        """Descarta a confirmação em aberto dessa sessão (ex.: a conversa por voz foi encerrada) e avisa a tela."""
+        s = self.sessoes.get((canal, sessao))
+        if s is not None and s.pendente is not None and not s.trava.locked():
+            self._emitir("pendente_resolvido", id=s.pendente.id, resultado="cancelada")
+            s.pendente = None
+
     def esquecer_sessao(self, canal: str, sessao: str) -> None:
         self.sessoes.pop((canal, sessao), None)
 

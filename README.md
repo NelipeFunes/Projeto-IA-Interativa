@@ -32,6 +32,9 @@ jarvis nucleo            # o mesmo núcleo, com log no console (para ver o que a
 ```
 
 - **Bandeja:** abrir, falar agora, pausar escuta, iniciar com o Windows, sair. O ícone muda de cor com o estado.
+- **Conversa:** "Hey Vision" acorda ("Oi, Felipe. Pode falar."); daí tudo o que você fala vai para ele, sem repetir
+  o nome, até "Beleza, Vision, pode desligar" ou 2 minutos de silêncio. Fora da conversa, o que você fala perto do PC
+  é transcrito só para achar o nome e descartado (não vai para a tela, o log nem o disco).
 - **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.
 - **Janela fechada:** falando com ele, aparece uma bolha no canto, sem tirar o foco (não aparece no modo jogo).
 - **Log:** `data/logs/nucleo.log` e `data/logs/janela.log`.
@@ -40,12 +43,12 @@ jarvis nucleo            # o mesmo núcleo, com log no console (para ver o que a
 
 ```bash
 jarvis chat              # conversa por texto
-jarvis voz               # "Hey Jarvis" ou ctrl+alt+j
+jarvis voz               # "Hey Vision" (ou ctrl+alt+j) abre a conversa; "Beleza, Vision, pode desligar" fecha
 jarvis teste             # checagem geral (ollama, agenda, orbit, voz)
-jarvis teste voz         # calibra o "Hey Jarvis" e compara os STT com a sua voz
+jarvis teste voz         # testa o "Hey Vision" e o "pode desligar" com a sua voz
 jarvis google-login      # a cada 7 dias (app do Google em modo teste)
 jarvis memorias          # o que o Jarvis lembra de você
-jarvis dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Jarvis"
+jarvis dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Vision"
 jarvis acordar
 jarvis falar "Oi, Felipe"   # testa a voz
 jarvis servidor          # só o cérebro como API em 127.0.0.1:8765 (token em data/nucleo.json)
@@ -65,7 +68,7 @@ git config core.hooksPath .githooks  # uma vez: barra push com termo de data/ter
 ## Como funciona
 
 ```
-microfone → openWakeWord ("hey jarvis") → Silero VAD (fim da fala) → Parakeet (texto)
+microfone → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? abre a conversa → …
          → Agente (Qwen3.5 + ferramentas) → Piper (voz, frase a frase) → fone
                   │
                   ├── agenda_*   → MCP @cocal/google-calendar-mcp (node/)

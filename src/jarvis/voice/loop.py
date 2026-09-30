@@ -1,7 +1,17 @@
-"""Loop de voz: 'Hey Jarvis' (ou atalho) → grava até você parar → transcreve → pensa → fala frase a frase.
+"""Loop de voz com conversa aberta e fechada por você.
 
-Depois de cada resposta há uma janela de conversa (8 s): se você falar, ele ouve sem precisar de "Hey Jarvis".
-O atalho durante a fala interrompe o Jarvis e começa a ouvir.
+- Esperando: só "Hey Vision" (ou o atalho) acorda. Ele diz "Oi, Felipe. Pode falar." e abre a conversa.
+  "Hey Vision, o que eu tenho hoje?" abre e já responde.
+- Em conversa: tudo o que você fala vai para ele, sem repetir o nome, até "Beleza, Vision, pode desligar"
+  ou 2 minutos de silêncio. Aí ele volta a esperar o "Hey Vision".
+- O atalho durante a fala interrompe e começa a ouvir.
+
+Pedido do Felipe (30/09): antes, depois de cada resposta ele ouvia tudo por 8 s e pegava conversa que não
+era com ele. Agora quem abre e fecha a conversa é você.
+
+Como "Hey Vision" não tem modelo pronto de ativação, esperando ele transcreve (localmente) o começo de cada
+fala curta e procura o nome (voice/comandos.py). Essas transcrições não vão para a tela, o log nem o disco.
+Com `voz.ativacao: modelo`, usa o openWakeWord (o "Hey Jarvis" de antes).
 """
 
 from __future__ import annotations
@@ -20,12 +30,16 @@ import numpy as np
 
 from jarvis.brain.agent import Agente
 from jarvis.voice.audio import TAXA, bipe
+from jarvis.voice.comandos import achar_ativacao, e_despedida
 from jarvis.voice.wake import DetectorFala, PalavraAtivacao
 
 log = logging.getLogger(__name__)
 
 FALA_DE_ERRO = "Não consegui pensar agora. O modelo pode estar carregando; tenta de novo em um instante."
 FIM_DE_FRASE = re.compile(r"(?<=[.!?])\s+")
+BLOCO_S = 0.08
+TRECHO_ATIVACAO_S = 2.5  # para achar o nome, basta transcrever o começo da fala (mais leve para a CPU)
+MAXIMO_CANDIDATO_S = 12.0  # fala mais longa que isso, esperando, não é alguém chamando: nem transcreve
 PASSO_NIVEL_S = 1 / 15  # ~15 atualizações de volume por segundo para a tela
 
 
@@ -62,7 +76,10 @@ class LoopVoz:
         flag_dormindo: Path | None = None,
         escrever: Callable[[str], None] = print,
         bipes: bool = True,
-        janela_conversa_s: float = 8.0,
+        ativacao_por_texto: bool = True,
+        silencio_max_s: float = 120.0,
+        saudacao: str = "Oi, Felipe. Pode falar.",
+        despedida: str = "Beleza. Até mais.",
         ao_evento: Callable[[dict[str, Any]], None] | None = None,
     ):
         self.agente = agente
@@ -79,12 +96,14 @@ class LoopVoz:
         self.acionar = asyncio.Event()
         self.estado = "ocioso"
         self.historico: list[dict[str, Any]] = []  # para testes e para o relatório
-        # Janela de conversa: depois de cada resposta, fica ouvindo sem precisar de "Hey Jarvis".
-        # Contada em blocos de 80 ms (tempo de áudio), não em relógio: igual no microfone e nos testes.
-        # Motivo (30/09): a resposta terminou em ponto final, o Jarvis voltou a esperar "Hey Jarvis" e o Felipe,
-        # que continuou conversando normalmente, achou que ele tinha travado.
-        self.blocos_janela_conversa = int(janela_conversa_s / 0.08)
-        self.janela = 0
+        self.ativacao_por_texto = ativacao_por_texto
+        self.saudacao = saudacao
+        self.despedida = despedida
+        # Conversa aberta: tudo o que você fala vai para ele. Silêncio contado em blocos de 80 ms (tempo de
+        # áudio, não relógio: igual no microfone e nos testes).
+        self.em_conversa = False
+        self.blocos_silencio_max = int(silencio_max_s / BLOCO_S)
+        self.silencio = 0
         self.voz_seguida = 0
         self.pre_fala: deque[np.ndarray] = deque(maxlen=4)  # 320 ms antes do início, para não cortar a 1ª sílaba
         # Para a tela: estado do orbe e volumes (microfone quando ouve, a própria voz quando fala).
@@ -98,7 +117,9 @@ class LoopVoz:
             self.ao_evento(evento)
 
     def _mostrar(self, estado: str) -> None:
-        if estado == "ocioso" and self.jogando:
+        if estado == "ocioso" and self.em_conversa:
+            estado = "ouvindo"  # conversa aberta: ele está te ouvindo
+        elif estado == "ocioso" and self.jogando:
             estado = "jogo"
         elif estado == "ocioso" and self.flag_dormindo is not None and self.flag_dormindo.exists():
             estado = "dormindo"
@@ -118,82 +139,159 @@ class LoopVoz:
         if self.estado == "ocioso":
             self._mostrar("ocioso")
 
-    def ativacao_ligada(self) -> bool:
-        if self.ativacao is None or self.jogando:
+    def escuta_ligada(self) -> bool:
+        """Se o "Hey Vision" pode acordar agora (não no jogo, não com a escuta pausada na bandeja)."""
+        if self.jogando or (self.flag_dormindo and self.flag_dormindo.exists()):
             return False
-        return not (self.flag_dormindo and self.flag_dormindo.exists())
+        return self.ativacao_por_texto or self.ativacao is not None
 
     # ------------------------------------------------------------------ loop
 
     async def rodar(self, limite: int | None = None) -> None:
+        """`limite`: para depois de tantas respostas (testes). Sem limite, roda enquanto houver áudio."""
         gravado: list[np.ndarray] = []
-        feitas = 0
+        origem = ""
+        self.feitas = 0
         self._mostrar("ocioso")
         async for bloco in self.entrada.blocos():
             if self.estado == "ocioso":
                 self.pre_fala.append(bloco)
-                origem = None
-                if self.acionar.is_set():
-                    self.acionar.clear()
-                    origem = "atalho"
-                elif self.janela > 0:
-                    self.janela -= 1
-                    self.voz_seguida = self.voz_seguida + 1 if self.detector.tem_voz(bloco) else 0
-                    if self.voz_seguida >= 2:  # 160 ms de voz seguida: é você continuando a conversa
-                        origem = "conversa"
-                    elif self.janela == 0:
-                        self.escrever("(para falar de novo: 'Hey Jarvis' ou o atalho)")
-                elif self.ativacao_ligada() and self.ativacao.ouvir(bloco):
-                    origem = "ativacao"
-                if origem is None:
+                origem = await self._esperando(bloco)
+                if not origem:
                     continue
-                self.janela = self.voz_seguida = 0
                 self.detector.zerar()
                 gravado = []
-                if origem == "conversa":
+                if origem in ("conversa", "candidato"):
                     gravado = list(self.pre_fala)  # a fala já começou: guarda o começo dela
                     for b in gravado:
                         self.detector.bloco(b)
                 else:
                     await self._bipe(subindo=True)
-                self.escrever("…ouvindo")
                 self.estado = "gravando"
-                self._mostrar("ouvindo")
+                if origem != "candidato":  # esperando, ninguém sabe que ele está transcrevendo para achar o nome
+                    self.escrever("…ouvindo")
+                    self._mostrar("ouvindo")
                 continue
 
             gravado.append(bloco)
-            self._emitir({"tipo": "nivel", "fonte": "mic", "valor": nivel_do_bloco(bloco)})
+            if origem != "candidato":
+                self._emitir({"tipo": "nivel", "fonte": "mic", "valor": nivel_do_bloco(bloco)})
+            if origem == "candidato" and len(gravado) * BLOCO_S > MAXIMO_CANDIDATO_S:
+                gravado, self.estado = [], "ocioso"  # falação longa, não é alguém chamando
+                continue
             if not self.detector.bloco(bloco):
                 continue
-            self.estado = "pensando"
-            self._mostrar("pensando")
-            self._emitir({"tipo": "nivel", "fonte": "mic", "valor": 0.0})
-            falou = self.detector.falou
-            await self._processar(np.concatenate(gravado) if falou else np.zeros(0, np.int16))
-            feitas += 1
+            pcm = np.concatenate(gravado) if self.detector.falou else np.zeros(0, np.int16)
+            if origem == "candidato":
+                await self._candidato(pcm)
+            else:
+                self._mostrar("pensando")
+                self._emitir({"tipo": "nivel", "fonte": "mic", "valor": 0.0})
+                await self._fala_na_conversa(pcm)
             self.entrada.descartar()
             if self.ativacao is not None:
                 self.ativacao.zerar()
             self.estado = "ocioso"
+            self.silencio = self.voz_seguida = 0
             self._mostrar("ocioso")
-            if limite is not None and feitas >= limite:
+            if limite is not None and self.feitas >= limite:
                 return
 
-    async def _processar(self, pcm: np.ndarray) -> None:
+    async def _esperando(self, bloco: np.ndarray) -> str:
+        """Um bloco sem gravação em andamento. Devolve de onde vem a próxima gravação ("" = nenhuma)."""
+        if self.acionar.is_set():  # atalho: acorda (se precisar) e já ouve
+            self.acionar.clear()
+            if not self.em_conversa:
+                self._abrir_conversa()
+            return "atalho"
+        if self.em_conversa:
+            self.silencio += 1
+            if self.silencio >= self.blocos_silencio_max:
+                self.escrever("(conversa encerrada: 2 minutos sem falar. Para voltar: 'Hey Vision')")
+                await self._fechar_conversa(falar=False)
+                return ""
+            return "conversa" if self._comecou_a_falar(bloco) else ""
+        if not self.escuta_ligada():
+            return ""
+        if not self.ativacao_por_texto:  # openWakeWord ("Hey Jarvis")
+            if self.ativacao is not None and self.ativacao.ouvir(bloco):
+                self._abrir_conversa()
+                await self._dizer(self.saudacao)
+                return "atalho"
+            return ""
+        return "candidato" if self._comecou_a_falar(bloco) else ""
+
+    def _comecou_a_falar(self, bloco: np.ndarray) -> bool:
+        self.voz_seguida = self.voz_seguida + 1 if self.detector.tem_voz(bloco) else 0
+        return self.voz_seguida >= 2  # 160 ms de voz seguida
+
+    # ------------------------------------------------------------------ abrir e fechar a conversa
+
+    def _abrir_conversa(self) -> None:
+        self.em_conversa = True
+        self.silencio = 0
+        self.escrever("(conversa aberta: fale à vontade; para encerrar, 'Beleza, Vision, pode desligar')")
+        self._mostrar("ouvindo")
+
+    async def _fechar_conversa(self, falar: bool) -> None:
+        self.em_conversa = False
+        # Uma confirmação no ar não sobrevive ao fim da conversa (e o cartão some da tela).
+        self.agente.cancelar_pendente("voz", "voz")
+        if falar:
+            await self._dizer(self.despedida)
+        else:
+            await self._bipe(subindo=False)
+        self._mostrar("ocioso")
+
+    async def _candidato(self, pcm: np.ndarray) -> None:
+        """Esperando: alguém falou. Se começou chamando o assistente, abre a conversa."""
+        if pcm.size == 0:
+            return
+        comeco = pcm[: int(TRECHO_ATIVACAO_S * TAXA)]
+        texto = await asyncio.to_thread(self.stt.transcrever, comeco, TAXA)
+        resto = achar_ativacao(texto)
+        if resto is None:
+            return  # não era com ele: nada é guardado nem mostrado
+        if pcm.size > comeco.size:  # a fala continua: o pedido vem inteiro
+            resto = achar_ativacao(await asyncio.to_thread(self.stt.transcrever, pcm, TAXA)) or resto
+        self._abrir_conversa()
+        if not resto or e_despedida(resto):
+            await self._dizer(self.saudacao)
+            return
+        self._mostrar("pensando")
+        await self._responder(resto, 0.0)
+
+    async def _fala_na_conversa(self, pcm: np.ndarray) -> None:
         if pcm.size == 0:
             self.escrever("(não ouvi nada)")
-            self.historico.append({"felipe": "", "jarvis": ""})
             return
         t0 = time.perf_counter()
         texto = await asyncio.to_thread(self.stt.transcrever, pcm, TAXA)
         t_stt = time.perf_counter() - t0
         if not texto.strip():
             self.escrever("(não entendi o áudio)")
-            self.historico.append({"felipe": "", "jarvis": ""})
             return
         self.escrever(f"Você: {texto}")
+        if e_despedida(texto):
+            self.escrever("(conversa encerrada. Para voltar: 'Hey Vision')")
+            await self._fechar_conversa(falar=True)
+            self.historico.append({"felipe": texto, "jarvis": self.despedida, "despedida": True})
+            self.feitas += 1
+            return
         await self._bipe(subindo=False)
+        await self._responder(texto, t_stt)
 
+    async def _dizer(self, texto: str) -> None:
+        """Uma frase dele fora das respostas do modelo (saudação, despedida): falada e mostrada na tela."""
+        self._emitir({"tipo": "resposta", "texto": texto})
+        fila: asyncio.Queue[str | None] = asyncio.Queue()
+        fila.put_nowait(texto)
+        fila.put_nowait(None)
+        await self._falador(fila, [])
+        self._mostrar("ocioso")
+
+    async def _responder(self, texto: str, t_stt: float) -> None:
+        self.feitas += 1
         fila: asyncio.Queue[str | None] = asyncio.Queue()
         pendente = [""]
         primeira_fala: list[float] = []
@@ -222,7 +320,6 @@ class LoopVoz:
             await falador
         if r is None:
             self.historico.append({"felipe": texto, "jarvis": FALA_DE_ERRO, "erro": True})
-            self.janela = self.blocos_janela_conversa
             return
         usadas = ", ".join(f["nome"] for f in r.ferramentas)
         ate_falar = (primeira_fala[0] - t1) if primeira_fala else 0.0
@@ -231,7 +328,6 @@ class LoopVoz:
                       f"{' · ' + usadas if usadas else ''}]")
         self.historico.append({"felipe": texto, "jarvis": r.texto, "ferramentas": usadas,
                                "stt_s": t_stt, "pensar_s": r.segundos, "ate_falar_s": ate_falar})
-        self.janela = self.blocos_janela_conversa
 
     async def _falador(self, fila: asyncio.Queue[str | None], primeira_fala: list[float]) -> None:
         self.saida.interromper.clear()
@@ -286,12 +382,12 @@ class LoopVoz:
                 if self.estado == "ocioso":
                     self._mostrar("ocioso")  # vira "jogo"
                 await self.agente.descarregar()
-                self.escrever("[modo jogo] modelo fora da VRAM; 'Hey Jarvis' pausado, o atalho continua valendo.")
+                self.escrever("[modo jogo] modelo fora da VRAM; 'Hey Vision' pausado, o atalho continua valendo.")
             elif not agora and self.jogando:
                 self.jogando = False
                 if self.estado == "ocioso":
                     self._mostrar("ocioso")
-                self.escrever("[modo jogo] fim do jogo; 'Hey Jarvis' de volta.")
+                self.escrever("[modo jogo] fim do jogo; 'Hey Vision' de volta.")
             await asyncio.sleep(a_cada_s)
 
 
@@ -318,7 +414,8 @@ def preparar_voz(
     stt = carregar_transcritor(cfg)
     pasta_oww = cfg.modelos / "openwakeword"
     ativacao = None
-    if com_ativacao:
+    por_texto = cfg.get("voz.ativacao", "transcricao") != "modelo"
+    if com_ativacao and not por_texto:
         try:
             ativacao = PalavraAtivacao(pasta_oww, cfg.get("voz.palavra_ativacao", "hey_jarvis"),
                                        float(cfg.get("voz.limiar_ativacao", 0.3)))
@@ -330,8 +427,11 @@ def preparar_voz(
     escrever(f"Voz carregada em {time.perf_counter() - t:.1f}s (STT: {stt.nome}, voz: {cfg.get('voz.voz_piper')})")
     with Microfone(cfg) as mic:
         laco = LoopVoz(agente, voz, stt, mic, saida, detector, ativacao,
-                       flag_dormindo=cfg.dados / "dormindo.flag", escrever=escrever,
-                       janela_conversa_s=float(cfg.get("voz.janela_conversa_s", 8)), ao_evento=ao_evento)
+                       flag_dormindo=cfg.dados / "dormindo.flag", escrever=escrever, ao_evento=ao_evento,
+                       ativacao_por_texto=com_ativacao and por_texto,
+                       silencio_max_s=float(cfg.get("voz.conversa_silencio_max_s", 120)),
+                       saudacao=cfg.get("voz.saudacao", f"Oi, {agente.nome}. Pode falar."),
+                       despedida=cfg.get("voz.despedida", "Beleza. Até mais."))
         loop = asyncio.get_running_loop()
         atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
         for nota in mic.notas:
@@ -357,7 +457,8 @@ async def rodar_voz(cfg, com_ativacao: bool = True) -> None:
     nome = cfg.get("assistente.nome", "Vision")
     async with montar(cfg) as j:
         with preparar_voz(cfg, j.agente, com_ativacao=com_ativacao) as (laco, atalho):
-            print("Diga 'Hey Jarvis'" + (f" ou aperte {atalho.combinacao}" if atalho.ativo else "") + ". Ctrl+C para sair.")
+            print(f"Diga 'Hey {nome}'" + (f" ou aperte {atalho.combinacao}" if atalho.ativo else "")
+                  + f". Para encerrar a conversa: 'Beleza, {nome}, pode desligar'. Ctrl+C para sair.")
             for servidor, st in j.host.status().items():
                 if st != "ok":
                     print(f"  [aviso] MCP {servidor}: {st[:120]}")
