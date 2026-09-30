@@ -1,0 +1,11 @@
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.env
+data/
+modelos/
+amostras/*.wav
+evals/saidas/
+*.log
+RELATORIO-MANHA.md
