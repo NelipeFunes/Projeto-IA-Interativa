@@ -62,6 +62,7 @@ def _sh() -> str | None:
 
 SH = _sh()
 TERMO_FALSO = "Termo-Falso-7f3a"
+TERMO_ACENTUADO = "são-falsópolis-7f3a"
 precisa_de_sh = pytest.mark.skipif(SH is None, reason="sem sh (Git for Windows) nesta máquina")
 
 
@@ -79,10 +80,10 @@ def _commit(repo: Path, arquivo: str, conteudo: str, mensagem: str = "commit") -
     return _git(repo, "rev-parse", "HEAD")
 
 
-def _push(repo: Path, local: str, remoto: str = ZERO) -> subprocess.CompletedProcess:
+def _push(repo: Path, local: str, remoto: str = ZERO, nome_remoto: str = "origin") -> subprocess.CompletedProcess:
     """Roda o hook como o git roda: uma linha por ref no stdin (ref local, sha local, ref remota, sha remoto)."""
     r = subprocess.run(  # em bytes: no modo texto o Windows trocaria o \n por \r\n, e o git manda \n
-        [SH, str(HOOK)], cwd=repo, input=f"refs/heads/x {local} refs/heads/x {remoto}\n".encode(),
+        [SH, str(HOOK), nome_remoto, "https://example.com/repo.git"], cwd=repo, input=f"refs/heads/x {local} refs/heads/x {remoto}\n".encode(),
         capture_output=True,
     )
     return subprocess.CompletedProcess(r.args, r.returncode, r.stdout.decode(), r.stderr.decode())
@@ -92,7 +93,9 @@ def _push(repo: Path, local: str, remoto: str = ZERO) -> subprocess.CompletedPro
 def repo(tmp_path: Path) -> Path:
     _git(tmp_path, "init", "-q")
     (tmp_path / "data").mkdir()
-    (tmp_path / "data" / "termos-privados.txt").write_text(f"# comentário\n\n{TERMO_FALSO.lower()}\n", encoding="utf-8")
+    (tmp_path / "data" / "termos-privados.txt").write_text(
+        f"# comentário\n\n{TERMO_FALSO.lower()}\n{TERMO_ACENTUADO}\n", encoding="utf-8"
+    )
     return tmp_path
 
 
@@ -134,3 +137,38 @@ def test_hook_barra_quando_nao_consegue_ler_os_commits(repo):
 def test_hook_sem_arquivo_de_termos_nao_barra(repo):
     (repo / "data" / "termos-privados.txt").unlink()
     assert _push(repo, _commit(repo, "a.txt", f"{TERMO_FALSO}\n")).returncode == 0
+
+
+@precisa_de_sh
+def test_hook_ve_o_que_foi_digitado_ao_resolver_conflito_de_merge(repo):
+    publicado = _commit(repo, "f.txt", "base\n")
+    _git(repo, "checkout", "-q", "-b", "outro")
+    _commit(repo, "f.txt", "do outro\n")
+    _git(repo, "checkout", "-q", "-")
+    _commit(repo, "f.txt", "da principal\n")
+    with pytest.raises(subprocess.CalledProcessError):
+        _git(repo, "merge", "-q", "outro")  # dá conflito
+    assert (repo / ".git" / "MERGE_HEAD").exists()
+    (repo / "f.txt").write_text(f"resolvido com {TERMO_FALSO}\n", encoding="utf-8")
+    _git(repo, "add", "f.txt")
+    _git(repo, "commit", "-q", "--no-edit")
+    assert _push(repo, _git(repo, "rev-parse", "HEAD"), remoto=publicado).returncode == 1
+
+
+@precisa_de_sh
+def test_hook_le_a_mensagem_de_tag_anotada(repo):
+    _commit(repo, "a.txt", "limpo\n")
+    _git(repo, "tag", "-a", "v0.1", "-m", f"versão do {TERMO_FALSO}")
+    assert _push(repo, _git(repo, "rev-parse", "v0.1")).returncode == 1
+
+
+@precisa_de_sh
+def test_hook_nao_confia_em_outro_remoto(repo):
+    sha = _commit(repo, "a.txt", f"{TERMO_FALSO}\n")
+    _git(repo, "update-ref", "refs/remotes/backup/main", sha)  # já está num remoto privado, não no origin
+    assert _push(repo, sha, nome_remoto="origin").returncode == 1
+
+
+@precisa_de_sh
+def test_hook_le_nome_de_arquivo_acentuado(repo):
+    assert _push(repo, _commit(repo, f"doc-{TERMO_ACENTUADO}.txt", "limpo\n")).returncode == 1

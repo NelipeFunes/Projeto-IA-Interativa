@@ -47,21 +47,25 @@ def servir(pasta: Path) -> tuple[ThreadingHTTPServer, int]:
 
 # ------------------------------------------------------------------ Win32 (bolha sem roubar foco)
 
+# Instância própria do user32: os tipos definidos aqui não mudam o ctypes.windll.user32 do resto do processo.
+_U32 = ctypes.WinDLL("user32") if sys.platform == "win32" else None
+if _U32 is not None:
+    _U32.FindWindowExW.restype = ctypes.c_void_p
+    _U32.FindWindowExW.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p)
+    _U32.GetWindowThreadProcessId.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong))
+
+
 def _hwnd(titulo: str) -> int:
     """Janela de nível superior DESTE processo com esse título (0 se não achar).
 
     Só pelo título, uma segunda instância aberta mostraria a bolha da outra (revisão de 30/09).
     """
-    if sys.platform != "win32":
+    if _U32 is None:
         return 0
-    u32 = ctypes.windll.user32
-    u32.FindWindowExW.restype = ctypes.c_void_p
-    u32.FindWindowExW.argtypes = (ctypes.c_void_p, ctypes.c_void_p, ctypes.c_wchar_p, ctypes.c_wchar_p)
-    u32.GetWindowThreadProcessId.argtypes = (ctypes.c_void_p, ctypes.POINTER(ctypes.c_ulong))
     pid = ctypes.c_ulong()
     hwnd = None
-    while hwnd := u32.FindWindowExW(None, hwnd, None, titulo):
-        u32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
+    while hwnd := _U32.FindWindowExW(None, hwnd, None, titulo):
+        _U32.GetWindowThreadProcessId(hwnd, ctypes.byref(pid))
         if pid.value == os.getpid():
             return hwnd
     return 0
