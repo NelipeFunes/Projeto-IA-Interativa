@@ -143,7 +143,7 @@ class Janela:
         self.encerrando = False
         # Os comandos vão para o stdin da janela por uma thread: se a janela travar e o pipe encher, quem
         # espera é essa thread, não o loop do núcleo (voz e servidor continuam).
-        self.fila: queue.Queue[tuple[subprocess.Popen, str]] = queue.Queue()
+        self.fila: queue.Queue[tuple[subprocess.Popen, str]] = queue.Queue(maxsize=100)
         threading.Thread(target=self._escritor, name="janela-stdin", daemon=True).start()
 
     def _iniciar(self) -> None:
@@ -173,7 +173,10 @@ class Janela:
                 self._iniciar()
             return
         assert self.proc is not None
-        self.fila.put((self.proc, comando))
+        try:
+            self.fila.put_nowait((self.proc, comando))
+        except queue.Full:
+            log.warning("janela parada: '%s' descartado", comando)
 
     def _escritor(self) -> None:
         while True:
@@ -276,18 +279,22 @@ class Nucleo:
     async def salvar_ajustes(self, valores: dict[str, Any]) -> None:
         inicio = valores.pop("inicia_com_windows", None)
         try:
-            mudancas = ajustes.validar(self.cfg, valores)
+            mudancas = await asyncio.to_thread(ajustes.validar, self.cfg, valores)  # consulta o áudio
         except ValueError as e:
             await self.ler_ajustes(erro=str(e))
             return
         reiniciar = ajustes.precisa_reiniciar(mudancas, self.cfg)
         voz_antes = (self.cfg.get("voz.voz_piper"), self.cfg.get("voz.velocidade_fala"))
         config.salvar_ajustes(self.cfg, mudancas)
-        erro = None
+        erros = []
         try:
             if isinstance(inicio, bool) and inicio != inicializacao.ativo():
                 await asyncio.to_thread(inicializacao.ligar if inicio else lambda _p: inicializacao.desligar(),
                                         self.cfg.raiz)
+        except Exception as e:  # noqa: BLE001 - o resto dos ajustes vale mesmo assim
+            log.exception("não consegui mudar o início com o Windows")
+            erros.append(f"início com o Windows: {e}")
+        try:
             if self.laco is not None:
                 self.laco.ajustar_silencio(float(self.cfg.get("voz.conversa_silencio_max_s", 120)))
                 if (self.cfg.get("voz.voz_piper"), self.cfg.get("voz.velocidade_fala")) != voz_antes:
@@ -296,7 +303,8 @@ class Nucleo:
                     self.laco.voz = await asyncio.to_thread(carregar_voz, self.cfg)
         except Exception as e:  # noqa: BLE001
             log.exception("não consegui aplicar os ajustes")
-            erro = f"Salvei, mas não consegui aplicar tudo agora: {e}"
+            erros.append(f"voz: {e}")
+        erro = f"Salvei, mas não consegui aplicar agora: {'; '.join(erros)}" if erros else None
         log.info("ajustes salvos: %s", ", ".join(sorted(mudancas)) or "(início com o Windows)")
         await self.ler_ajustes(salvo=True, reiniciar=reiniciar, **({"erro": erro} if erro else {}))
 

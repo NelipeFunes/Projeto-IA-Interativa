@@ -99,7 +99,7 @@ def test_ajustes_validos_e_o_que_pede_reinicio(cfg_ajustes):
     cfg_ajustes.bruto.setdefault("voz", {})["microfone"] = ["HyperX", "C920"]
     m = ajustes.validar(cfg_ajustes, {"assistente.nome": "Íris", "voz.velocidade_fala": 1.1,
                                       "voz.voz_piper": "pt_BR-cadu-medium", "voz.microfone": "Microfone (C920)"})
-    assert m["voz.microfone"] == ["Microfone (C920)", "HyperX", "C920"]  # o escolhido primeiro, os outros de reserva
+    assert m["voz.microfone"] == ["Microfone (C920)", "HyperX"]  # o escolhido primeiro, os outros de reserva
     assert ajustes.precisa_reiniciar(m, cfg_ajustes)  # nome e microfone só valem ao reiniciar
     assert not ajustes.precisa_reiniciar({"voz.velocidade_fala": 1.1}, cfg_ajustes)
 
@@ -213,3 +213,28 @@ def test_janela_que_morreu_so_registra(cfg, caplog):
         time.sleep(0.05)
     assert "não recebeu 'mostrar'" in caplog.text
 
+
+
+def test_arquivo_local_so_muda_as_chaves_da_tela(cfg, monkeypatch, tmp_path):
+    """Revisão do PR 8: data/config-local.yaml não vira porta para servidor, modelo ou caminho de arquivo."""
+    from vision import ajustes as aj
+
+    assert config.CHAVES_AJUSTAVEIS == set(aj.POR_CHAVE)  # as duas listas andam juntas
+    (tmp_path / "raiz" / "data").mkdir(parents=True)
+    (tmp_path / "raiz" / "data" / config.AJUSTES_LOCAIS).write_text(
+        'servidor.porta: 80\nmodelo.host: "http://outro"\nvoz.voz_piper: "../../x"\nvoz.velocidade_fala: 1.3\n',
+        encoding="utf-8")
+    monkeypatch.setattr(config, "RAIZ", tmp_path / "raiz")
+    monkeypatch.delenv("VISION_SEM_AJUSTES")
+    original = config.carregar(config.Path(__file__).resolve().parents[1] / "config.yaml")
+    monkeypatch.setenv("VISION_SEM_AJUSTES", "1")
+    base = config.carregar(config.Path(__file__).resolve().parents[1] / "config.yaml")
+    assert original.get("voz.velocidade_fala") == 1.3
+    for chave in ("servidor.porta", "modelo.host", "voz.voz_piper"):
+        assert original.get(chave) == base.get(chave)
+
+
+def test_trocar_de_microfone_nao_empilha_a_lista(cfg_ajustes):
+    cfg_ajustes.bruto.setdefault("voz", {})["microfone"] = ["Microfone (C920)", "HyperX", "C920"]
+    m = ajustes.validar(cfg_ajustes, {"voz.microfone": "Microfone (HyperX Cloud)"})
+    assert m["voz.microfone"] == ["Microfone (HyperX Cloud)", "Microfone (C920)", "C920"]

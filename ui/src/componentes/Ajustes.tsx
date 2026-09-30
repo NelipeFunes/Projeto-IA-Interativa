@@ -13,7 +13,8 @@ export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir }: {
 }) {
   const [form, setForm] = useState<Record<string, ValorAjuste>>(dados?.valores ?? {});
   useEffect(() => {
-    if (dados) setForm(dados.valores); // chegou do núcleo (abriu ou acabou de salvar): mostra o que vale
+    // Chegou do núcleo (abriu ou acabou de salvar): mostra o que vale. Com erro, fica o que você digitou.
+    if (dados && !dados.erro) setForm(dados.valores);
   }, [dados]);
   useEffect(() => {
     const esc = (e: KeyboardEvent) => e.key === "Escape" && aoFechar();

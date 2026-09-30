@@ -94,7 +94,8 @@ def validar(cfg: Config, dados: Any) -> dict[str, Any]:
         elif chave == "voz.microfone":
             if valor not in microfones():
                 raise ValueError("esse microfone não foi encontrado")
-            antes = [m for m in (cfg.get("voz.microfone", []) or []) if m != valor]
+            # Sem os pedaços que já casam com o escolhido: a lista não cresce a cada troca.
+            antes = [m for m in (cfg.get("voz.microfone", []) or []) if str(m).lower() not in valor.lower()]
             mudancas[chave] = [valor, *antes]  # o escolhido primeiro; os outros continuam de reserva
     return mudancas
 

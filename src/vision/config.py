@@ -13,6 +13,9 @@ from dotenv import load_dotenv
 RAIZ = Path(__file__).resolve().parents[2]
 # O que você muda pela tela de ajustes (vision/ajustes.py): em data/, fora do git, por cima do config.yaml.
 AJUSTES_LOCAIS = "config-local.yaml"
+# Só estas chaves saem do arquivo local (as mesmas de vision/ajustes.py): o resto é ignorado.
+CHAVES_AJUSTAVEIS = {"assistente.nome", "voz.voz_piper", "voz.velocidade_fala", "voz.conversa_silencio_max_s",
+                     "voz.microfone"}
 
 
 @dataclass
@@ -42,7 +45,8 @@ def carregar(arquivo: Path | None = None, sobrescrever: dict[str, Any] | None = 
     bruto = yaml.safe_load(arquivo.read_text(encoding="utf-8")) or {}
     if os.environ.get("VISION_SEM_AJUSTES") != "1":  # os testes não herdam o que você mudou na janela
         for chave, valor in ler_ajustes(RAIZ / "data" / AJUSTES_LOCAIS).items():
-            _definir(bruto, chave, valor)
+            if chave in CHAVES_AJUSTAVEIS and not (chave == "voz.voz_piper" and not _nome_de_arquivo(valor)):
+                _definir(bruto, chave, valor)
     for chave, valor in (sobrescrever or {}).items():
         _definir(bruto, chave, valor)
     cfg = Config(bruto=bruto)
@@ -57,6 +61,10 @@ def ler_ajustes(arquivo: Path) -> dict[str, Any]:
     except (OSError, yaml.YAMLError):
         return {}
     return {str(k): v for k, v in dados.items()} if isinstance(dados, dict) else {}
+
+
+def _nome_de_arquivo(valor: Any) -> bool:
+    return isinstance(valor, str) and bool(valor) and not any(c in valor for c in "/\\:") and ".." not in valor
 
 
 def salvar_ajustes(cfg: Config, mudancas: dict[str, Any]) -> None:

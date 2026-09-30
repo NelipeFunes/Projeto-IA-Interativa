@@ -395,13 +395,14 @@ class LoopVoz:
         while (frase := await fila.get()) is not None:
             if interrompido or not frase.strip():
                 continue
-            audio = await asyncio.to_thread(self.voz.sintetizar, frase)
+            voz = self.voz  # uma vez por frase: a tela de ajustes pode trocar a voz no meio
+            audio = await asyncio.to_thread(voz.sintetizar, frase)
             if not primeira_fala:
                 primeira_fala.append(time.perf_counter())
             self._mostrar("falando")
-            ondas = asyncio.create_task(self._emitir_voz(envelope(audio, self.voz.taxa))) if self.ao_evento else None
+            ondas = asyncio.create_task(self._emitir_voz(envelope(audio, voz.taxa))) if self.ao_evento else None
             try:
-                if not await asyncio.to_thread(self.saida.tocar, audio, self.voz.taxa):
+                if not await asyncio.to_thread(self.saida.tocar, audio, voz.taxa):
                     interrompido = True
             finally:
                 if ondas is not None:
@@ -435,6 +436,8 @@ class LoopVoz:
             self.voz = voz
         try:
             await self._falador(fila, [])
+        except Exception:  # noqa: BLE001 - uma fala que falha (síntese, alto-falante) não derruba a escuta
+            log.exception("não consegui falar uma frase pedida de fora do laço")
         finally:
             if self.voz is voz and voz is not None:  # se salvaram outra voz enquanto isso, fica a salva
                 self.voz = antes
