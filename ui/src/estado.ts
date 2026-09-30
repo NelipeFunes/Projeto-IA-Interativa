@@ -13,7 +13,7 @@ export interface Mensagem {
 export const LIMITE_CONVERSA = 50;
 
 /** Eventos do núcleo + ações só da tela. */
-export type Acao = Evento | { tipo: "reiniciar" };
+export type Acao = Evento | { tipo: "reiniciar" } | { tipo: "limpar_conversa" };
 
 export interface EstadoUI {
   nome: string;
@@ -64,6 +64,9 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
   switch (ev.tipo) {
     case "reiniciar":
       return { ...inicial, nome: s.nome, seq };
+
+    case "limpar_conversa": // a bolha, quando reaparece: só a conversa nova, sem mexer no estado do orbe
+      return { ...s, seq, conversa: [], ferramentasTurno: [] };
 
     case "estado":
       return { ...s, seq, estado: ev.valor };
@@ -127,11 +130,22 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
         const m = ev.dados as Memoria;
         return { ...s, seq, estrela: seq, memorias: [m, ...s.memorias.filter((x) => x.id !== m.id)] };
       }
-      if ((ev.nome === "agenda_criar" || ev.nome === "agenda_alterar") && ev.dados) {
+      // Criar confirmado: quem põe o evento na agenda é o pendente_resolvido (que vem logo depois e
+      // mantém o voo do cartão). Aqui só entra o que foi criado sem cartão na tela.
+      if (ev.nome === "agenda_criar" && ev.dados && s.pendente?.ferramenta !== "agenda_criar") {
         return { ...s, seq, agenda: comEvento(s.agenda, ev.dados as EventoAgenda) };
       }
-      if (ev.nome === "agenda_apagar" && ev.args?.evento_id) {
-        return { ...s, seq, agenda: semEvento(s.agenda, ev.args.evento_id) };
+      if (ev.nome === "agenda_alterar") {
+        // Sem dados = o evento saiu de hoje: sai do painel.
+        const agenda = ev.dados ? comEvento(s.agenda, ev.dados as EventoAgenda) : semEvento(s.agenda, ev.args?.evento_id);
+        return { ...s, seq, agenda };
+      }
+      if (ev.nome === "agenda_apagar") {
+        return { ...s, seq, agenda: semEvento(s.agenda, (ev.dados as { id?: string } | undefined)?.id ?? ev.args?.evento_id) };
+      }
+      if (ev.nome === "esquecer" && ev.dados) {
+        const id = (ev.dados as { id: number }).id;
+        return { ...s, seq, memorias: s.memorias.filter((m) => m.id !== id) };
       }
       return { ...s, seq };
     }
@@ -142,10 +156,13 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
     case "pendente_resolvido": {
       const p = s.pendente;
       if (!p || p.id !== ev.id) return { ...s, seq };
-      if (ev.resultado === "cancelada" || !p.evento) return { ...s, seq, pendente: null };
+      const real = ev.evento ?? undefined; // o evento de verdade (id do Google), quando o núcleo manda
+      if (ev.resultado === "cancelada" || !(p.evento || real)) return { ...s, seq, pendente: null };
       if (p.ferramenta === "agenda_criar" || p.ferramenta === "agenda_alterar") {
-        return { ...s, seq, pendente: null, agenda: comEvento(s.agenda, p.evento) };
+        const novo = real ? { ...real, anima: p.evento?.id } : (p.evento as EventoAgenda);
+        return { ...s, seq, pendente: null, agenda: comEvento(s.agenda, novo) };
       }
+      if (!p.evento) return { ...s, seq, pendente: null };
       if (p.ferramenta === "agenda_apagar") {
         return { ...s, seq, pendente: null, agenda: semEvento(s.agenda, p.evento.id) };
       }

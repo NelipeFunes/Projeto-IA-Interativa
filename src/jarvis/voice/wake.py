@@ -81,10 +81,11 @@ class Atalho:
     def __init__(self, combinacao: str, ao_apertar: Callable[[], None]):
         self.combinacao = combinacao
         self.ativo = False
+        self._gancho = None
         try:
             import keyboard
 
-            keyboard.add_hotkey(combinacao, ao_apertar)
+            self._gancho = keyboard.add_hotkey(combinacao, ao_apertar)
             self.ativo = True
         except Exception as e:  # noqa: BLE001 - sem atalho o resto continua funcionando
             log.warning("atalho %s indisponível: %s", combinacao, e)
@@ -93,4 +94,6 @@ class Atalho:
         if self.ativo:
             import keyboard
 
-            keyboard.unhook_all_hotkeys()
+            # Só o deste atalho: o núcleo tem mais de um (ouvir e abrir a janela).
+            keyboard.remove_hotkey(self._gancho)
+            self.ativo = False

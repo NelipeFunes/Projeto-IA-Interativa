@@ -18,8 +18,9 @@ async def cliente_e_agenda(cfg, host, memorias, servidor_agenda):
         fala("Sim o quê?"),
     ])
     async with montar(cfg, llm=llm, host=host, memorias=memorias) as j:
-        app = criar_app(cfg, jarvis=j)
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://jarvis") as c:
+        app = criar_app(cfg, jarvis=j, token="segredo-de-teste")
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://jarvis",
+                                     headers={"Authorization": "Bearer segredo-de-teste"}) as c:
             yield c, servidor_agenda
 
 

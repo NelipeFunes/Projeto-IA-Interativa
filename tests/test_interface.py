@@ -52,6 +52,7 @@ def test_nao_lista_pasta_nem_sai_dela(pasta):
 class _Eventos:
     def __init__(self):
         self.closed = _Lista()
+        self.closing = _Lista()
 
 
 class _Lista(list):
@@ -74,6 +75,15 @@ class _JanelaFalsa:
     def destroy(self):
         self.destruida = True
 
+    def show(self):
+        self.visivel = True
+
+    def hide(self):
+        self.visivel = False
+
+    def restore(self):
+        pass
+
 
 class _WebviewFalso:
     class _Tela:
@@ -85,10 +95,12 @@ class _WebviewFalso:
 
     def __init__(self):
         self.janelas = []
+        self.urls = []
 
     def create_window(self, titulo, url, **kwargs):
         j = _JanelaFalsa(titulo, kwargs)
         self.janelas.append(j)
+        self.urls.append(url)
         return j
 
 
@@ -179,3 +191,48 @@ def test_sem_o_handle_a_bolha_nao_aparece_em_vez_de_roubar_o_foco(monkeypatch):
 @pytest.mark.skipif(sys.platform != "win32", reason="Win32")
 def test_hwnd_so_procura_janelas_deste_processo():
     assert interface._hwnd("janela que não existe 7f3a") == 0
+
+
+@pytest.fixture
+def no_nucleo(monkeypatch):
+    wv = _WebviewFalso()
+    interface.criar_janelas(wv, "http://127.0.0.1:1/app/index.html?nucleo=1", "Teste", escondida=True, sufixo="#t=x")
+    monkeypatch.setitem(interface._MODO, "nucleo", True)
+    mostradas = []
+    monkeypatch.setattr(interface, "mostrar_bolha", lambda: mostradas.append("bolha"))
+    yield wv, mostradas
+    interface._JANELAS.clear()
+    interface._MODO.update(nucleo=False, principal_visivel=True)
+
+
+def test_no_nucleo_a_janela_nasce_escondida_e_o_token_fica_no_fragmento(no_nucleo):
+    wv, _ = no_nucleo
+    principal, bolha = wv.janelas
+    assert principal.kwargs["hidden"] is True
+    assert "#t=x" in wv.urls[0] and wv.urls[1].endswith("&janela=bolha#t=x")  # o fragmento vem por último
+
+
+def test_no_nucleo_fechar_so_esconde(no_nucleo):
+    wv, _ = no_nucleo
+    principal, bolha = wv.janelas
+    interface.mostrar_principal()
+    assert all(fn() is False for fn in principal.events.closing)  # Alt+F4: cancelado
+    interface.fechar()  # o ✕ da tela
+    assert principal.visivel is False and not principal.destruida and not bolha.destruida
+
+
+def test_comandos_do_nucleo(no_nucleo):
+    wv, mostradas = no_nucleo
+    principal, bolha = wv.janelas
+    assert interface.executar_comando("bolha\n") and mostradas == ["bolha"]  # janela escondida: bolha aparece
+    assert interface.executar_comando("mostrar\n") and principal.visivel
+    assert interface.executar_comando("bolha") and mostradas == ["bolha"]  # janela aberta: sem bolha
+    assert interface.executar_comando("rm -rf /") is True  # desconhecido: ignorado
+    assert interface.executar_comando("sair") is False
+    assert principal.destruida and bolha.destruida
+
+
+def test_se_o_nucleo_morrer_a_janela_fecha(no_nucleo):
+    wv, _ = no_nucleo
+    interface._ouvir_nucleo(iter(["mostrar\n"]))  # a entrada acaba sem "sair"
+    assert all(j.destruida for j in wv.janelas)

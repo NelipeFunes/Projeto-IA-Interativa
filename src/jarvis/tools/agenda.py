@@ -12,7 +12,7 @@ from typing import Any
 
 from jarvis import tempo
 from jarvis.config import Config
-from jarvis.tools.base import ErroFerramenta, Ferramenta, esquema, numero, texto
+from jarvis.tools.base import ComDados, ErroFerramenta, Ferramenta, esquema, numero, texto
 from jarvis.tools.mcp_host import HostMCP
 
 SEM_LOGIN = ("No valid Google account tokens", "invalid_grant", "No authenticated accounts", "Token has been expired")
@@ -73,6 +73,52 @@ class Agenda:
         hoje = tempo.agora().date()
         return "\n".join(self._linha_evento(e, hoje) for e in eventos)
 
+    def para_tela(self, ev: dict[str, Any], dia: date | None = None) -> dict[str, Any] | None:
+        """Evento no formato do painel "Agenda de hoje" ({id, titulo, inicio "HH:MM", fim?, local?}).
+
+        None se o evento não for do dia pedido (padrão: hoje): o painel só mostra hoje.
+        """
+        dia = dia or tempo.agora().date()
+        ini, fim = ev.get("start") or {}, ev.get("end") or {}
+        tela: dict[str, Any] = {"id": str(ev.get("id") or ""), "titulo": ev.get("summary") or "(sem título)"}
+        if ini.get("dateTime"):
+            a = datetime.fromisoformat(ini["dateTime"]).astimezone(tempo.FUSO)
+            if a.date() != dia:
+                return None
+            tela["inicio"] = f"{a:%H:%M}"
+            if fim.get("dateTime"):
+                tela["fim"] = f"{datetime.fromisoformat(fim['dateTime']).astimezone(tempo.FUSO):%H:%M}"
+        elif ini.get("date"):
+            if date.fromisoformat(ini["date"]) != dia:
+                return None
+            tela["inicio"], tela["diaInteiro"] = "00:00", True
+        else:
+            return None
+        if ev.get("location"):
+            tela["local"] = ev["location"]
+        if "holiday" in (ev.get("calendarId") or ""):
+            tela["feriado"] = True
+        return tela
+
+    async def hoje(self) -> list[dict[str, Any]]:
+        """Eventos de hoje para o painel (foto inicial da tela)."""
+        dia = tempo.agora().date()
+        dados = await self._mcp("list-events", {
+            "calendarId": self.leitura, "timeMin": f"{dia.isoformat()}T00:00:00",
+            "timeMax": f"{dia.isoformat()}T23:59:59", "timeZone": self.fuso,
+        })
+        return [t for e in dados.get("events", []) if (t := self.para_tela(e, dia))]
+
+    def previa_criar(self, args: dict[str, Any]) -> dict[str, Any] | None:
+        """Cartão do evento pendente, só se for hoje e com horário (é o que o painel mostra)."""
+        try:
+            ini, fim, dia_inteiro = self._montar_horario(args)
+        except ErroFerramenta:
+            return None
+        if dia_inteiro or ini[:10] != tempo.agora().date().isoformat():
+            return None
+        return {"titulo": (args.get("titulo") or "").strip(), "inicio": ini[11:16], "fim": fim[11:16]}
+
     # ---------- ferramentas ----------
 
     async def listar(self, args: dict[str, Any]) -> str:
@@ -90,7 +136,11 @@ class Agenda:
             },
         )
         periodo = inicio.strftime("%d/%m") + ("" if fim == inicio else f" a {fim:%d/%m}")
-        return f"Eventos de {periodo}:\n" + self._formatar(dados.get("events", []), "Nenhum evento nesse período.")
+        texto_ = f"Eventos de {periodo}:\n" + self._formatar(dados.get("events", []), "Nenhum evento nesse período.")
+        hoje = tempo.agora().date()
+        if not (inicio == fim == hoje):
+            return texto_  # o painel é de hoje: outra data não substitui a lista
+        return ComDados(texto_, [t for e in dados.get("events", []) if (t := self.para_tela(e, hoje))])
 
     async def buscar(self, args: dict[str, Any]) -> str:
         consulta = (args.get("texto") or "").strip()
@@ -151,7 +201,7 @@ class Agenda:
         aviso = ""
         if dados.get("conflicts"):
             aviso = f" Atenção: conflita com {len(dados['conflicts'])} evento(s)."
-        return f"Evento criado: {titulo} (id: {ev.get('id')}).{aviso}"
+        return ComDados(f"Evento criado: {titulo} (id: {ev.get('id')}).{aviso}", self.para_tela(ev) if ev else None)
 
     async def descrever_criar(self, args: dict[str, Any]) -> str:
         titulo = (args.get("titulo") or "(sem título)").strip()
@@ -178,8 +228,10 @@ class Agenda:
                 atual = await self._evento(evento_id)
                 args = {**args, "data": (atual.get("start", {}).get("dateTime") or atual["start"]["date"])[:10]}
             payload["start"], payload["end"], _ = self._montar_horario(args)
-        await self._mcp("update-event", payload)
-        return f"Evento {evento_id} alterado."
+        dados = await self._mcp("update-event", payload)
+        ev = dados.get("event", dados) if isinstance(dados, dict) else {}
+        # dados None = o evento saiu de hoje (ou não deu para ler): a tela tira ele do painel.
+        return ComDados(f"Evento {evento_id} alterado.", self.para_tela(ev) if ev.get("start") else None)
 
     async def descrever_alterar(self, args: dict[str, Any]) -> str:
         ev = await self._evento(args.get("evento_id", ""))
@@ -199,7 +251,7 @@ class Agenda:
     async def apagar(self, args: dict[str, Any]) -> str:
         evento_id = args.get("evento_id", "")
         await self._mcp("delete-event", {"calendarId": self.escrita, "eventId": evento_id})
-        return f"Evento {evento_id} apagado."
+        return ComDados(f"Evento {evento_id} apagado.", {"id": evento_id})
 
     async def descrever_apagar(self, args: dict[str, Any]) -> str:
         ev = await self._evento(args.get("evento_id", ""))
@@ -245,6 +297,7 @@ class Agenda:
                 escrita=True,
                 descrever=self.descrever_criar,
                 grupo="agenda",
+                previa=self.previa_criar,
             ),
             Ferramenta(
                 "agenda_alterar",
@@ -271,6 +324,7 @@ class Agenda:
                 escrita=True,
                 descrever=self.descrever_apagar,
                 grupo="agenda",
+                previa=lambda a: {"id": str(a.get("evento_id") or "")} if a.get("evento_id") else None,
             ),
         ]
 

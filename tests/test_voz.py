@@ -172,3 +172,42 @@ def test_amostras_de_voz_existem():
     if not amostras.exists():
         pytest.skip("amostras ainda não geradas")
     assert {p.name for p in Path(amostras).glob("voz-*.wav")} >= {"voz-faber.wav", "voz-cadu.wav", "voz-jeff.wav"}
+
+
+async def test_voz_manda_estado_e_volume_para_a_tela(pecas, registro, tmp_path):
+    hoje = tempo.agora().date().isoformat()
+    agente = Agente(LLMFalso([chama("agenda_listar", data_inicio=hoje), fala("Hoje você tem aula.")]), registro, None)
+    laco = _loop(pecas, agente, [
+        _silencio(0.5), _fala(pecas["en"], "Hey Jarvis"), _silencio(0.4),
+        _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),
+    ], tmp_path)
+    eventos = []
+    laco.ao_evento = eventos.append
+    await laco.rodar(limite=1)
+    estados = [e["valor"] for e in eventos if e["tipo"] == "estado"]
+    assert estados == ["ocioso", "ouvindo", "pensando", "falando", "ocioso"]
+    mic = [e["valor"] for e in eventos if e["tipo"] == "nivel" and e["fonte"] == "mic"]
+    assert max(mic) > 0.05 and mic[-1] == 0.0  # volume enquanto ouve, zera ao terminar
+    voz = [e for e in eventos if e["tipo"] == "nivel" and e["fonte"] == "voz"]
+    assert voz and voz[-1]["valor"] == 0.0  # o orbe para de ondular quando a fala acaba
+
+    (tmp_path / "dormindo.flag").touch()
+    laco.reavaliar_estado()
+    assert eventos[-1] == {"tipo": "estado", "valor": "dormindo"}
+
+
+async def test_erro_do_modelo_nao_mata_a_voz(pecas, registro, tmp_path):
+    def quebra(_msgs):
+        raise ConnectionError("Ollama fora do ar")
+
+    agente = Agente(LLMFalso([quebra, fala("Agora sim.")]), registro, None)
+    laco = _loop(pecas, agente, [
+        _silencio(0.5), _fala(pecas["en"], "Hey Jarvis"), _silencio(0.4),
+        _fala(pecas["pt"], "Tudo bem?"), _silencio(1.5),
+        _fala(pecas["pt"], "E agora?"), _silencio(1.5),  # dentro da janela de conversa: sem "Hey Jarvis"
+    ], tmp_path)
+    eventos = []
+    laco.ao_evento = eventos.append
+    await laco.rodar(limite=2)
+    assert laco.historico[0].get("erro") and laco.historico[1]["jarvis"] == "Agora sim."
+    assert any(e == {"tipo": "resposta", "texto": laco.historico[0]["jarvis"]} for e in eventos)

@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 from jarvis.memory.store import Memorias
-from jarvis.tools.base import ErroFerramenta, Ferramenta, esquema, texto
+from jarvis.tools.base import ComDados, ErroFerramenta, Ferramenta, esquema, texto
 
 CATEGORIAS = ["rotina", "preferencia", "pessoa", "meta", "saude", "estudo", "trabalho", "financas", "geral"]
 
@@ -22,7 +22,8 @@ class FerramentasMemoria:
         if categoria not in CATEGORIAS:
             categoria = "geral"
         tipo, mem = await self.m.lembrar(fato, categoria)
-        return f"Memória {'atualizada' if tipo == 'atualizada' else 'guardada'} [{mem.id}]: {mem.texto}"
+        return ComDados(f"Memória {'atualizada' if tipo == 'atualizada' else 'guardada'} [{mem.id}]: {mem.texto}",
+                        {"id": mem.id, "texto": mem.texto})
 
     async def buscar(self, args: dict[str, Any]) -> str:
         consulta = (args.get("consulta") or "").strip()
@@ -41,7 +42,7 @@ class FerramentasMemoria:
     async def esquecer(self, args: dict[str, Any]) -> str:
         alvo = await self._alvo(args)
         await self.m.esquecer(alvo.id)
-        return f"Memória apagada: {alvo.texto}"
+        return ComDados(f"Memória apagada: {alvo.texto}", {"id": alvo.id})
 
     async def descrever_esquecer(self, args: dict[str, Any]) -> str:
         alvo = await self._alvo(args)

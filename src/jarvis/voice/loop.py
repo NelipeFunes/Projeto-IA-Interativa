@@ -7,10 +7,12 @@ O atalho durante a fala interrompe o Jarvis e começa a ouvir.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Iterator
+from contextlib import contextmanager
 from pathlib import Path
 from typing import Any
 
@@ -20,7 +22,30 @@ from jarvis.brain.agent import Agente
 from jarvis.voice.audio import TAXA, bipe
 from jarvis.voice.wake import DetectorFala, PalavraAtivacao
 
+log = logging.getLogger(__name__)
+
+FALA_DE_ERRO = "Não consegui pensar agora. O modelo pode estar carregando; tenta de novo em um instante."
 FIM_DE_FRASE = re.compile(r"(?<=[.!?])\s+")
+PASSO_NIVEL_S = 1 / 15  # ~15 atualizações de volume por segundo para a tela
+
+
+def nivel_do_bloco(bloco: np.ndarray) -> float:
+    """Volume de 0 a 1 de um bloco int16 do microfone (fala normal fica entre 0,3 e 0,8)."""
+    if bloco.size == 0:
+        return 0.0
+    rms = float(np.sqrt(np.mean((bloco.astype(np.float32) / 32768.0) ** 2)))
+    return min(1.0, rms * 8.0)
+
+
+def envelope(audio: np.ndarray, taxa: int, passo_s: float = PASSO_NIVEL_S) -> np.ndarray:
+    """Volume da fala sintetizada (float32) a cada `passo_s`, normalizado para 0..1."""
+    n = max(1, int(taxa * passo_s))
+    if audio.size == 0:
+        return np.zeros(0, np.float32)
+    partes = audio[: audio.size - audio.size % n].reshape(-1, n) if audio.size >= n else audio.reshape(1, -1)
+    rms = np.sqrt(np.mean(partes.astype(np.float32) ** 2, axis=1))
+    pico = float(rms.max()) or 1.0
+    return (rms / pico).astype(np.float32)
 
 
 class LoopVoz:
@@ -38,6 +63,7 @@ class LoopVoz:
         escrever: Callable[[str], None] = print,
         bipes: bool = True,
         janela_conversa_s: float = 8.0,
+        ao_evento: Callable[[dict[str, Any]], None] | None = None,
     ):
         self.agente = agente
         self.voz = voz
@@ -61,6 +87,24 @@ class LoopVoz:
         self.janela = 0
         self.voz_seguida = 0
         self.pre_fala: deque[np.ndarray] = deque(maxlen=4)  # 320 ms antes do início, para não cortar a 1ª sílaba
+        # Para a tela: estado do orbe e volumes (microfone quando ouve, a própria voz quando fala).
+        self.ao_evento = ao_evento
+        self._estado_tela = ""
+
+    # ------------------------------------------------------------------ eventos para a tela
+
+    def _emitir(self, evento: dict[str, Any]) -> None:
+        if self.ao_evento is not None:
+            self.ao_evento(evento)
+
+    def _mostrar(self, estado: str) -> None:
+        if estado == "ocioso" and self.jogando:
+            estado = "jogo"
+        elif estado == "ocioso" and self.flag_dormindo is not None and self.flag_dormindo.exists():
+            estado = "dormindo"
+        if estado != self._estado_tela:
+            self._estado_tela = estado
+            self._emitir({"tipo": "estado", "valor": estado})
 
     # ------------------------------------------------------------------ controles externos
 
@@ -68,6 +112,11 @@ class LoopVoz:
         """Chamado pela thread do teclado (via call_soon_threadsafe)."""
         self.saida.interromper.set()
         self.acionar.set()
+
+    def reavaliar_estado(self) -> None:
+        """A escuta foi pausada/retomada por fora (bandeja): o orbe mostra "dormindo" ou volta ao normal."""
+        if self.estado == "ocioso":
+            self._mostrar("ocioso")
 
     def ativacao_ligada(self) -> bool:
         if self.ativacao is None or self.jogando:
@@ -79,6 +128,7 @@ class LoopVoz:
     async def rodar(self, limite: int | None = None) -> None:
         gravado: list[np.ndarray] = []
         feitas = 0
+        self._mostrar("ocioso")
         async for bloco in self.entrada.blocos():
             if self.estado == "ocioso":
                 self.pre_fala.append(bloco)
@@ -108,12 +158,16 @@ class LoopVoz:
                     await self._bipe(subindo=True)
                 self.escrever("…ouvindo")
                 self.estado = "gravando"
+                self._mostrar("ouvindo")
                 continue
 
             gravado.append(bloco)
+            self._emitir({"tipo": "nivel", "fonte": "mic", "valor": nivel_do_bloco(bloco)})
             if not self.detector.bloco(bloco):
                 continue
             self.estado = "pensando"
+            self._mostrar("pensando")
+            self._emitir({"tipo": "nivel", "fonte": "mic", "valor": 0.0})
             falou = self.detector.falou
             await self._processar(np.concatenate(gravado) if falou else np.zeros(0, np.int16))
             feitas += 1
@@ -121,6 +175,7 @@ class LoopVoz:
             if self.ativacao is not None:
                 self.ativacao.zerar()
             self.estado = "ocioso"
+            self._mostrar("ocioso")
             if limite is not None and feitas >= limite:
                 return
 
@@ -152,16 +207,26 @@ class LoopVoz:
 
         falador = asyncio.create_task(self._falador(fila, primeira_fala))
         t1 = time.perf_counter()
+        r = None
         try:
             r = await self.agente.responder(texto, canal="voz", sessao="voz", ao_texto=ao_texto)
+        except Exception:  # noqa: BLE001 - Ollama fora do ar (ex.: logo depois de ligar o PC) não pode matar a voz
+            log.exception("o agente falhou numa pergunta por voz")
+            pendente[0] = ""
+            fila.put_nowait(FALA_DE_ERRO)
+            self._emitir({"tipo": "resposta", "texto": FALA_DE_ERRO})
         finally:
             if pendente[0].strip():
                 fila.put_nowait(pendente[0])
             fila.put_nowait(None)
             await falador
+        if r is None:
+            self.historico.append({"felipe": texto, "jarvis": FALA_DE_ERRO, "erro": True})
+            self.janela = self.blocos_janela_conversa
+            return
         usadas = ", ".join(f["nome"] for f in r.ferramentas)
         ate_falar = (primeira_fala[0] - t1) if primeira_fala else 0.0
-        self.escrever(f"Jarvis: {r.texto}")
+        self.escrever(f"{self.agente.nome_assistente}: {r.texto}")
         self.escrever(f"  [ouvir {t_stt:.1f}s · pensar {r.segundos:.1f}s · 1ª palavra {ate_falar:.1f}s"
                       f"{' · ' + usadas if usadas else ''}]")
         self.historico.append({"felipe": texto, "jarvis": r.texto, "ferramentas": usadas,
@@ -177,8 +242,28 @@ class LoopVoz:
             audio = await asyncio.to_thread(self.voz.sintetizar, frase)
             if not primeira_fala:
                 primeira_fala.append(time.perf_counter())
-            if not await asyncio.to_thread(self.saida.tocar, audio, self.voz.taxa):
-                interrompido = True
+            self._mostrar("falando")
+            ondas = asyncio.create_task(self._emitir_voz(envelope(audio, self.voz.taxa))) if self.ao_evento else None
+            try:
+                if not await asyncio.to_thread(self.saida.tocar, audio, self.voz.taxa):
+                    interrompido = True
+            finally:
+                if ondas is not None:
+                    ondas.cancel()
+                    self._emitir({"tipo": "nivel", "fonte": "voz", "valor": 0.0})
+
+    async def _emitir_voz(self, niveis: np.ndarray) -> None:
+        """Volume da própria fala no ritmo em que ela toca: o orbe ondula junto."""
+        inicio = time.perf_counter()
+        for i, v in enumerate(niveis):
+            espera = inicio + i * PASSO_NIVEL_S - time.perf_counter()
+            if espera > 0:
+                await asyncio.sleep(espera)
+            self._emitir({"tipo": "nivel", "fonte": "voz", "valor": float(v)})
+
+    async def falar(self, texto: str) -> None:
+        """Fala uma frase fora de conversa (aviso de login, lembrete)."""
+        await asyncio.to_thread(self.saida.tocar, self.voz.sintetizar(texto), self.voz.taxa)
 
     async def _bipe(self, subindo: bool) -> None:
         if self.bipes:
@@ -198,17 +283,31 @@ class LoopVoz:
             agora = await asyncio.to_thread(rodando)
             if agora and not self.jogando:
                 self.jogando = True
+                if self.estado == "ocioso":
+                    self._mostrar("ocioso")  # vira "jogo"
                 await self.agente.descarregar()
                 self.escrever("[modo jogo] modelo fora da VRAM; 'Hey Jarvis' pausado, o atalho continua valendo.")
             elif not agora and self.jogando:
                 self.jogando = False
+                if self.estado == "ocioso":
+                    self._mostrar("ocioso")
                 self.escrever("[modo jogo] fim do jogo; 'Hey Jarvis' de volta.")
             await asyncio.sleep(a_cada_s)
 
 
-async def rodar_voz(cfg, com_ativacao: bool = True) -> None:
-    from jarvis.google_login import aviso_login
-    from jarvis.montagem import montar
+@contextmanager
+def preparar_voz(
+    cfg,
+    agente: Agente,
+    *,
+    com_ativacao: bool = True,
+    escrever: Callable[[str], None] = print,
+    ao_evento: Callable[[dict[str, Any]], None] | None = None,
+) -> Iterator[tuple[LoopVoz, Any]]:
+    """Carrega voz, transcrição, ativação e microfone e monta o LoopVoz (usado pelo `jarvis voz` e pelo núcleo).
+
+    Devolve (laço, atalho). O microfone e o atalho são fechados na saída.
+    """
     from jarvis.voice.audio import Microfone, Saida
     from jarvis.voice.stt import carregar_transcritor
     from jarvis.voice.tts import carregar_voz
@@ -224,36 +323,50 @@ async def rodar_voz(cfg, com_ativacao: bool = True) -> None:
             ativacao = PalavraAtivacao(pasta_oww, cfg.get("voz.palavra_ativacao", "hey_jarvis"),
                                        float(cfg.get("voz.limiar_ativacao", 0.3)))
         except Exception as e:  # noqa: BLE001
-            print(f"[aviso] palavra de ativação indisponível ({e}); use o atalho.")
+            escrever(f"[aviso] palavra de ativação indisponível ({e}); use o atalho.")
     detector = DetectorFala(pasta_oww / "silero_vad.onnx", int(cfg.get("voz.silencio_fim_ms", 800)),
                             float(cfg.get("voz.maximo_fala_s", 20)))
     saida = Saida(cfg)
-    print(f"Voz carregada em {time.perf_counter() - t:.1f}s (STT: {stt.nome}, voz: {cfg.get('voz.voz_piper')})")
+    escrever(f"Voz carregada em {time.perf_counter() - t:.1f}s (STT: {stt.nome}, voz: {cfg.get('voz.voz_piper')})")
+    with Microfone(cfg) as mic:
+        laco = LoopVoz(agente, voz, stt, mic, saida, detector, ativacao,
+                       flag_dormindo=cfg.dados / "dormindo.flag", escrever=escrever,
+                       janela_conversa_s=float(cfg.get("voz.janela_conversa_s", 8)), ao_evento=ao_evento)
+        loop = asyncio.get_running_loop()
+        atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
+        for nota in mic.notas:
+            escrever(f"  [microfone] {nota}")
+        escrever(f"Microfone: {mic.nome} · Saída: {saida.nome}")
+        try:
+            yield laco, atalho
+        finally:
+            atalho.fechar()
 
+
+def vigiar_jogos_se_ligado(cfg, laco: LoopVoz) -> asyncio.Task | None:
+    if not cfg.get("modo_jogo.ativo", True):
+        return None
+    return asyncio.create_task(laco.vigiar_jogos(
+        cfg.get("modo_jogo.processos", ["cs2.exe"]), float(cfg.get("modo_jogo.checar_a_cada_s", 20))))
+
+
+async def rodar_voz(cfg, com_ativacao: bool = True) -> None:
+    from jarvis.google_login import aviso_login
+    from jarvis.montagem import montar
+
+    nome = cfg.get("assistente.nome", "Vision")
     async with montar(cfg) as j:
-        with Microfone(cfg) as mic:
-            laco = LoopVoz(j.agente, voz, stt, mic, saida, detector, ativacao,
-                           flag_dormindo=cfg.dados / "dormindo.flag",
-                           janela_conversa_s=float(cfg.get("voz.janela_conversa_s", 8)))
-            loop = asyncio.get_running_loop()
-            atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
-            for nota in mic.notas:
-                print(f"  [microfone] {nota}")
-            print(f"Microfone: {mic.nome} · Saída: {saida.nome}")
+        with preparar_voz(cfg, j.agente, com_ativacao=com_ativacao) as (laco, atalho):
             print("Diga 'Hey Jarvis'" + (f" ou aperte {atalho.combinacao}" if atalho.ativo else "") + ". Ctrl+C para sair.")
-            for nome, st in j.host.status().items():
+            for servidor, st in j.host.status().items():
                 if st != "ok":
-                    print(f"  [aviso] MCP {nome}: {st[:120]}")
-            tarefas = []
-            if cfg.get("modo_jogo.ativo", True):
-                tarefas.append(asyncio.create_task(laco.vigiar_jogos(
-                    cfg.get("modo_jogo.processos", ["cs2.exe"]), float(cfg.get("modo_jogo.checar_a_cada_s", 20)))))
+                    print(f"  [aviso] MCP {servidor}: {st[:120]}")
+            jogos = vigiar_jogos_se_ligado(cfg, laco)
             if aviso := aviso_login(cfg):
-                print(f"Jarvis: {aviso}")
-                await asyncio.to_thread(saida.tocar, voz.sintetizar(aviso.split(" Rode:")[0] + "."), voz.taxa)
+                print(f"{nome}: {aviso}")
+                await laco.falar(aviso.split(" Rode:")[0] + ".")
             try:
                 await laco.rodar()
             finally:
-                for tk in tarefas:
-                    tk.cancel()
-                atalho.fechar()
+                if jogos is not None:
+                    jogos.cancel()

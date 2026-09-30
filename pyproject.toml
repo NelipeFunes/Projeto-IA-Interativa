@@ -23,10 +23,17 @@ dependencies = [
     "piper-tts>=1.3",
     "keyboard>=0.13",
     "pywebview>=6.2.1",
+    "pystray>=0.19",
+    "pillow>=11",
+    "websockets>=13",
 ]
 
 [project.scripts]
 jarvis = "jarvis.cli:main"
+
+[project.gui-scripts]
+# Sem janela de console: é o que o atalho da pasta Inicializar roda.
+jarvisw = "jarvis.nucleo:main"
 
 [dependency-groups]
 dev = [
