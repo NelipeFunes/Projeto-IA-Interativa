@@ -27,6 +27,7 @@ DESLIGAR = {"desligar", "desliga", "desliger", "dormir", "encerrar", "encerra", 
 # O que pode vir depois de "desligar" numa despedida. Qualquer outra palavra ("desligar o alarme") é um pedido.
 ENCHIMENTO = {"agora", "ja", "por", "favor", "obrigado", "obrigada", "valeu", "entao", "tchau", "ta", "beleza"}
 MAX_PALAVRAS_DESPEDIDA = 8
+DESLIGAR_MAL_OUVIDO = {"dizer", "diz", "desli", "deslig", "desligue", "dislig", "disliga"}
 # "Beleza, Vision, pode ..." com o fim mal ouvido: o Parakeet já trocou "desligar" por "dizer I" (30/09).
 FECHAMENTO = {"beleza", "valeu", "obrigado", "obrigada", "falou", "blz", "ok", "certo", "show"}
 # Depois de "pode", isto é pedido, não despedida ("beleza, Vision, pode marcar o dentista").
@@ -110,5 +111,8 @@ def _fechamento_mal_ouvido(palavras: list[str]) -> bool:
         return False
     if not any(_e_o_nome(p, True) for p in palavras[1:i]):
         return False
+    # Só "desligar" mal ouvido ("pode dizer I"). Aceitar tudo o que não fosse pedido deixava passar
+    # "pode agendar" e "pode ser" (2ª revisão do PR 3): qualquer outra coisa depois do "pode" é pedido.
     depois = palavras[i + 1:]
-    return 0 < len(depois) <= 2 and not any(p in PEDIDOS for p in depois)
+    return (0 < len(depois) <= 2 and depois[0] in DESLIGAR_MAL_OUVIDO
+            and all(p in {"i", "e", "ai", "gar", "ga"} for p in depois[1:]))

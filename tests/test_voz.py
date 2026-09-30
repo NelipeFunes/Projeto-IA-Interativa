@@ -298,3 +298,28 @@ async def test_hey_vision_pode_desligar_com_a_conversa_fechada_nao_faz_nada(peca
     ], tmp_path)
     await laco.rodar()
     assert not laco.em_conversa and laco.saida.trechos == []
+
+
+async def test_hey_vision_sim_nao_confirma_pendencia_de_antes_da_conversa(pecas, registro, tmp_path, servidor_agenda):
+    """2ª revisão do PR 3: no jogo o atalho não abre conversa; um "Hey Vision, sim" depois não pode confirmar."""
+    amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
+    llm = LLMFalso([chama("agenda_criar", titulo="Barbeiro", data=amanha, hora_inicio="16:00"), fala("Certo.")])
+    antes = len(servidor_agenda.eventos)
+    laco = _loop(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), _fala(pecas["pt"], "Marca barbeiro amanhã às quatro da tarde."), _silencio(1.5),
+        _chama(pecas), _silencio(0.2), _fala(pecas["pt"], "Sim, pode criar."), _silencio(1.5),
+    ], tmp_path)
+    laco.jogando = True
+    laco.apertou_atalho()
+
+    responder = laco._responder
+
+    async def responder_e_sair_do_jogo(texto, t_stt):
+        await responder(texto, t_stt)
+        laco.jogando = False  # o jogo fechou logo depois do "Confirma?"
+
+    laco._responder = responder_e_sair_do_jogo
+    await laco.rodar()
+    assert laco.historico[0]["jarvis"].endswith("Confirma?")
+    assert len(laco.historico) == 2 and laco.em_conversa  # o "Hey Vision, sim" chegou e abriu a conversa
+    assert len(servidor_agenda.eventos) == antes  # mas não confirmou nada

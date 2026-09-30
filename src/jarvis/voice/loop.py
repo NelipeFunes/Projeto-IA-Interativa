@@ -243,6 +243,7 @@ class LoopVoz:
             if self.ativacao is not None and self.ativacao.ouvir(bloco):
                 self._abrir_conversa()
                 await self._dizer(self.saudacao)
+                self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
                 return "atalho"
             return ""
         return "candidato" if self._comecou_a_falar(bloco) else ""
@@ -275,17 +276,20 @@ class LoopVoz:
         if pcm.size == 0:
             return
         comeco = pcm[: int(TRECHO_ATIVACAO_S * TAXA)]
-        texto = await asyncio.to_thread(self.stt.transcrever, comeco, TAXA)
+        texto = await self._transcrever(comeco)
         resto = achar_ativacao(texto)
         if resto is None:
             return  # não era com ele: nada é guardado nem mostrado
         if pcm.size > comeco.size:  # a fala continua: o pedido vem inteiro (nunca o trecho cortado em 2,5 s)
-            inteiro = await asyncio.to_thread(self.stt.transcrever, pcm, TAXA)
+            inteiro = await self._transcrever(pcm)
             resto = achar_ativacao(inteiro)
             if resto is None:
                 resto = inteiro.strip()
         if resto and e_despedida(resto):
             return  # "Hey Vision, pode desligar" com a conversa já fechada: nada a fazer
+        # Pendência de antes da conversa (atalho no modo jogo) nunca é respondida por um "Hey Vision, sim".
+        self.agente.cancelar_pendente("voz", "voz")
+        self.pergunta_em = None
         self._abrir_conversa()
         if not resto:
             await self._dizer(self.saudacao)
@@ -298,16 +302,13 @@ class LoopVoz:
             self.escrever("(não ouvi nada)")
             return
         t0 = time.perf_counter()
-        texto = await asyncio.to_thread(self.stt.transcrever, pcm, TAXA)
+        texto = await self._transcrever(pcm)
         t_stt = time.perf_counter() - t0
         if not texto.strip():
             self.escrever("(não entendi o áudio)")
             return
         self.silencio = 0  # só fala de verdade reinicia os 2 min (tosse, porta e ruído não)
         self.escrever(f"Você: {texto}")
-        if self.pergunta_em is not None and time.monotonic() - self.pergunta_em > self.prazo_confirmacao_s:
-            self.agente.cancelar_pendente("voz", "voz")  # demorou demais: o que vier agora não é resposta
-            self.pergunta_em = None
         if e_despedida(texto):
             self.escrever("(conversa encerrada. Para voltar: 'Hey Vision')")
             await self._fechar_conversa(falar=True)
@@ -316,6 +317,14 @@ class LoopVoz:
             return
         await self._bipe(subindo=False)
         await self._responder(texto, t_stt)
+
+    async def _transcrever(self, pcm: np.ndarray) -> str:
+        """O STT roda em toda fala da sala: um erro dele vale como "não entendi", não derruba a escuta."""
+        try:
+            return await asyncio.to_thread(self.stt.transcrever, pcm, TAXA)
+        except Exception:  # noqa: BLE001
+            log.exception("o STT falhou num trecho de %.1f s", pcm.size / TAXA)
+            return ""
 
     async def _dizer(self, texto: str) -> None:
         """Uma frase dele fora das respostas do modelo (saudação, despedida): falada e mostrada na tela."""
@@ -328,6 +337,11 @@ class LoopVoz:
 
     async def _responder(self, texto: str, t_stt: float) -> None:
         self.feitas += 1
+        # Vale para todo caminho (conversa, "Hey Vision, sim", atalho no jogo): passou do prazo, o que vier
+        # agora não é resposta ao "Confirma?" (2ª revisão do PR 3).
+        if self.pergunta_em is not None and time.monotonic() - self.pergunta_em > self.prazo_confirmacao_s:
+            self.agente.cancelar_pendente("voz", "voz")
+            self.pergunta_em = None
         fila: asyncio.Queue[str | None] = asyncio.Queue()
         pendente = [""]
         primeira_fala: list[float] = []

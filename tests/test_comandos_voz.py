@@ -73,6 +73,13 @@ def test_despedidas(ouvido):
     "Beleza Vision pode continuar",
     "Certo, Vision, pode repetir",
     "Ok Vision, pode excluir",
+    # 2ª revisão do PR 3: verbo fora da lista não é "desligar" mal ouvido
+    "Beleza Vision pode agendar",
+    "Beleza Vision pode adicionar",
+    "Beleza Vision pode remarcar",
+    "Beleza Vision pode checar",
+    "Valeu Vision pode olhar",
+    "Certo, Vision, pode ser",
     "Tchau pra você também, a reunião acabou cedo",  # tchau sem o nome, frase longa
     "Me explica como a gente vai desligar o servidor antigo sem perder os dados de ninguém",
     "",
