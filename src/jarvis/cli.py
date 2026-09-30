@@ -23,9 +23,9 @@ async def _chat(cfg: config.Config) -> None:
     nome = cfg.get("assistente.nome", "Vision")
     async with montar(cfg) as j:
         print(f"{nome} ({j.agente.llm.modelo}) — digite 'sair' para encerrar.")
-        for nome, st in j.host.status().items():
+        for servidor, st in j.host.status().items():
             if st != "ok":
-                print(f"  [aviso] MCP {nome}: {st[:160]}")
+                print(f"  [aviso] MCP {servidor}: {st[:160]}")
         if aviso := aviso_login(cfg):
             print(f"{nome}: {aviso}")
         while True:

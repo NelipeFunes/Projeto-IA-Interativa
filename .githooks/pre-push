@@ -9,6 +9,8 @@ termos="$raiz/data/termos-privados.txt"
 [ -f "$termos" ] || exit 0
 zero=0000000000000000000000000000000000000000
 remoto="$1"  # nome do remoto (ou a URL); só os refs DELE contam como já publicados
+# Vazio, --remotes= valeria para TODOS os remotos (inclusive um privado). O git sempre passa o $1.
+[ -n "$remoto" ] || { echo "push bloqueado: remoto desconhecido." >&2; exit 1; }
 
 # tr tira \r que chegue no stdin (o git manda \n, mas outro chamador no Windows pode mandar \r\n).
 tr -d '\r' | while read -r _ref_local sha_local _ref_remota sha_remoto; do

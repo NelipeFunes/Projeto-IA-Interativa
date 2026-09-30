@@ -172,3 +172,8 @@ def test_hook_nao_confia_em_outro_remoto(repo):
 @precisa_de_sh
 def test_hook_le_nome_de_arquivo_acentuado(repo):
     assert _push(repo, _commit(repo, f"doc-{TERMO_ACENTUADO}.txt", "limpo\n")).returncode == 1
+
+
+@precisa_de_sh
+def test_hook_sem_nome_de_remoto_barra(repo):
+    assert _push(repo, _commit(repo, "a.txt", "limpo\n"), nome_remoto="").returncode == 1
