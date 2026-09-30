@@ -22,7 +22,7 @@ from http.server import SimpleHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from typing import Any
 
-from jarvis.config import Config
+from vision.config import Config
 
 _JANELAS: dict[str, Any] = {}
 # No núcleo (Fase B), fechar só esconde: a janela fica carregada e abre na hora da próxima vez.
@@ -250,7 +250,7 @@ def abrir_no_nucleo(cfg: Config) -> None:
     base = os.environ.get("VISION_URL", "")
     token = os.environ.get("VISION_TOKEN", "")
     if not base.startswith("http://127.0.0.1:") or not token:
-        raise SystemExit("Esta janela é aberta pelo núcleo (jarvis nucleo), não diretamente.")
+        raise SystemExit("Esta janela é aberta pelo núcleo (vision nucleo), não diretamente.")
     _MODO["nucleo"] = True
     criar_janelas(webview, f"{base}/app/index.html?nucleo=1", cfg.get("assistente.nome", "Vision"),
                   escondida=os.environ.get("VISION_MOSTRAR") != "1", sufixo=f"#t={token}")

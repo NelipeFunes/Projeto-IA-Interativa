@@ -1,6 +1,6 @@
 import pytest
 
-from jarvis.voice.falado import frases, para_fala
+from vision.voice.falado import frases, para_fala
 
 
 @pytest.mark.parametrize(
@@ -28,7 +28,7 @@ def test_para_fala(entrada, saida):
 
 
 def test_corrige_jarvis_ouvido_errado():
-    from jarvis.voice.stt import corrigir_nomes
+    from vision.voice.stt import corrigir_nomes
 
     assert corrigir_nomes("Jarves, quanto eu gastei com iFood esse mês?") == "Jarvis, quanto eu gastei com iFood esse mês?"
     assert corrigir_nomes("ei jarvi qual minha agenda") == "ei Jarvis qual minha agenda"

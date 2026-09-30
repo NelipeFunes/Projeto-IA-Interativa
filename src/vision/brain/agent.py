@@ -16,11 +16,11 @@ from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
 
-from jarvis import tempo
-from jarvis.brain import confirmacao, intencao, prompt
-from jarvis.brain.llm import LLM, RespostaLLM
-from jarvis.memory.store import Memorias
-from jarvis.tools.base import ErroFerramenta, Registro
+from vision import tempo
+from vision.brain import confirmacao, intencao, prompt
+from vision.brain.llm import LLM, RespostaLLM
+from vision.memory.store import Memorias
+from vision.tools.base import ErroFerramenta, Registro
 
 log = logging.getLogger(__name__)
 
@@ -384,7 +384,7 @@ class Agente:
             "canal": canal,
             "sessao": sessao,
             "felipe": texto,
-            "jarvis": r.texto,
+            "vision": r.texto,
             "ferramentas": r.ferramentas,
             "insistiu": r.insistiu,
             "segundos": round(r.segundos, 2),

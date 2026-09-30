@@ -28,7 +28,7 @@ def normalizar(t: str) -> str:
     t = unicodedata.normalize("NFKD", t.lower())
     t = "".join(c for c in t if not unicodedata.combining(c))
     t = re.sub(r"[^\w\s]", " ", t)
-    t = re.sub(r"\b(jarvis|entao|ah|e|ai)\b", " ", t)
+    t = re.sub(r"\b(vision|entao|ah|e|ai)\b", " ", t)
     return re.sub(r"\s+", " ", t).strip()
 
 

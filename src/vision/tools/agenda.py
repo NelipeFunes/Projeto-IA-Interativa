@@ -10,10 +10,10 @@ import json
 from datetime import date, datetime, timedelta
 from typing import Any
 
-from jarvis import tempo
-from jarvis.config import Config
-from jarvis.tools.base import ComDados, ErroFerramenta, Ferramenta, esquema, numero, texto
-from jarvis.tools.mcp_host import HostMCP
+from vision import tempo
+from vision.config import Config
+from vision.tools.base import ComDados, ErroFerramenta, Ferramenta, esquema, numero, texto
+from vision.tools.mcp_host import HostMCP
 
 SEM_LOGIN = ("No valid Google account tokens", "invalid_grant", "No authenticated accounts", "Token has been expired")
 
@@ -38,7 +38,7 @@ class Agenda:
         if not r.ok:
             if any(s in r.texto for s in SEM_LOGIN) or "OAuth" in r.texto or "indisponível" in r.texto:
                 raise ErroFerramenta(
-                    "A agenda do Google está sem login. Diga ao Felipe para rodar `jarvis google-login`."
+                    "A agenda do Google está sem login. Diga ao Felipe para rodar `vision google-login`."
                     f" (detalhe: {r.texto[:200]})"
                 )
             raise ErroFerramenta(f"A agenda do Google deu erro: {r.texto[:300]}")

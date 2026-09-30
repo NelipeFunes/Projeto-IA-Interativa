@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import Any
 
-from jarvis.brain.llm import ChamadaFerramenta, RespostaLLM
+from vision.brain.llm import ChamadaFerramenta, RespostaLLM
 
 
 class LLMFalso:

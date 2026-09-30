@@ -1,4 +1,4 @@
-"""Casos de avaliação: frases reais do dia a dia do Felipe, com o que se espera do Jarvis.
+"""Casos de avaliação: frases reais do dia a dia do Felipe, com o que se espera do Vision.
 
 Cada `checar` devolve a lista de falhas (vazia = passou). As datas são relativas a hoje.
 """
@@ -14,7 +14,7 @@ from typing import Any
 @dataclass
 class Contexto:
     hoje: date
-    respostas: list[Any]           # jarvis.brain.agent.Resposta, uma por fala
+    respostas: list[Any]           # vision.brain.agent.Resposta, uma por fala
     agenda: Any                    # servidor de agenda falso (tem .eventos)
     orbit: Any                     # servidor Orbit falso (tem .lancados, .tarefas)
     memorias: Any
@@ -120,7 +120,7 @@ def _e(*listas: list[str]) -> list[str]:
 
 CASOS: list[Caso] = [
     # --- agenda: leitura
-    Caso("agenda_hoje", "agenda", ["Jarvis, qual minha agenda de hoje?"],
+    Caso("agenda_hoje", "agenda", ["Vision, qual minha agenda de hoje?"],
          lambda c: _e(usou(c, "agenda_listar"), arg(c, "agenda_listar", "data_inicio", c.dia(0)), contem(c, "cálculo", "calculo"))),
     Caso("agenda_amanha", "agenda", ["O que eu tenho amanhã?"],
          lambda c: _e(usou(c, "agenda_listar"), arg(c, "agenda_listar", "data_inicio", c.dia(1)), contem(c, "dentista"))),
@@ -185,7 +185,7 @@ CASOS: list[Caso] = [
     Caso("memoria_esquecer", "memoria", ["Esquece aquilo de eu ser alérgico a camarão, era brincadeira"],
          lambda c: _e(usou(c, "esquecer"), pendente(c)), memorias=["O Felipe é alérgico a camarão."]),
     # --- conversa (sem ferramenta)
-    Caso("conversa_oi", "conversa", ["Oi Jarvis, tudo bem?"], sem_ferramenta),
+    Caso("conversa_oi", "conversa", ["Oi Vision, tudo bem?"], sem_ferramenta),
     Caso("conversa_conta", "conversa", ["Quanto é 15 por cento de 200?"],
          lambda c: _e(sem_ferramenta(c), contem(c, "30", "trinta"))),  # no canal de voz pode vir por extenso
     Caso("conversa_piada", "conversa", ["Me conta uma piada rápida"], sem_ferramenta),

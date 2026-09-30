@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from jarvis.tools.base import ErroFerramenta, Ferramenta, esquema, numero, texto
-from jarvis.tools.mcp_host import HostMCP
+from vision.tools.base import ErroFerramenta, Ferramenta, esquema, numero, texto
+from vision.tools.mcp_host import HostMCP
 
 
 def _reais(v: Any) -> str:

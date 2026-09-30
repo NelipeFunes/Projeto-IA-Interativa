@@ -31,13 +31,13 @@ def atalho() -> Path:
 
 
 def alvo() -> tuple[Path, str]:
-    """O que o atalho executa: o jarvisw.exe do ambiente (sem console) ou, na falta, pythonw -m jarvis.nucleo."""
+    """O que o atalho executa: o visionw.exe do ambiente (sem console) ou, na falta, pythonw -m vision.nucleo."""
     scripts = Path(sys.executable).parent
-    jarvisw = scripts / "jarvisw.exe"
-    if jarvisw.exists():
-        return jarvisw, ""
+    visionw = scripts / "visionw.exe"
+    if visionw.exists():
+        return visionw, ""
     pythonw = scripts / "pythonw.exe"
-    return (pythonw if pythonw.exists() else Path(sys.executable)), "-m jarvis.nucleo"
+    return (pythonw if pythonw.exists() else Path(sys.executable)), "-m vision.nucleo"
 
 
 def ativo() -> bool:

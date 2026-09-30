@@ -4,10 +4,10 @@ from datetime import timedelta
 
 from fakes.llm_falso import LLMFalso, chama
 
-from jarvis import tempo
-from jarvis.brain.agent import Agente
-from jarvis.tools.agenda import Agenda
-from jarvis.tools.base import Registro
+from vision import tempo
+from vision.brain.agent import Agente
+from vision.tools.agenda import Agenda
+from vision.tools.base import Registro
 
 
 def test_apelidos_de_parametros(cfg, host):
@@ -47,7 +47,7 @@ async def test_anunciou_sem_fazer_leva_puxao(cfg, host, servidor_agenda):
 
 
 def test_detecta_anuncio():
-    from jarvis.brain.intencao import anunciou_sem_fazer
+    from vision.brain.intencao import anunciou_sem_fazer
 
     assert anunciou_sem_fazer("Vou verificar sua agenda da semana que vem.")
     assert anunciou_sem_fazer("Certo, Felipe. Já cancelo o dentista de amanhã às 14h.")
@@ -60,7 +60,7 @@ def test_detecta_anuncio():
 
 
 def test_regras_sem_orbit():
-    from jarvis.brain.prompt import regras
+    from vision.brain.prompt import regras
 
     sem = regras({"agenda_listar", "agenda_criar", "guardar_memoria"})
     assert "tarefas_criar" not in sem and "`agenda_criar` (dia inteiro" in sem and "DESLIGADAS" in sem

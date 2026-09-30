@@ -8,7 +8,7 @@ from pathlib import Path
 
 import numpy as np
 
-from jarvis.config import Config
+from vision.config import Config
 
 TAXA = 16000
 

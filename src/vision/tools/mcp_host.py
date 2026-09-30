@@ -16,7 +16,7 @@ from typing import Any
 
 from mcp import Client, StdioServerParameters, stdio_client
 
-from jarvis.config import Config
+from vision.config import Config
 
 log = logging.getLogger(__name__)
 

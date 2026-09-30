@@ -4,8 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from jarvis.memory.store import Memorias
-from jarvis.tools.base import ComDados, ErroFerramenta, Ferramenta, esquema, texto
+from vision.memory.store import Memorias
+from vision.tools.base import ComDados, ErroFerramenta, Ferramenta, esquema, texto
 
 CATEGORIAS = ["rotina", "preferencia", "pessoa", "meta", "saude", "estudo", "trabalho", "financas", "geral"]
 

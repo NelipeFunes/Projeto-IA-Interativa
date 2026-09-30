@@ -3,11 +3,11 @@ from datetime import timedelta
 import pytest
 from fakes.llm_falso import LLMFalso, chama, fala
 
-from jarvis import tempo
-from jarvis.brain.agent import Agente
-from jarvis.tools.agenda import Agenda
-from jarvis.tools.base import Registro
-from jarvis.tools.memoria import FerramentasMemoria
+from vision import tempo
+from vision.brain.agent import Agente
+from vision.tools.agenda import Agenda
+from vision.tools.base import Registro
+from vision.tools.memoria import FerramentasMemoria
 
 
 @pytest.fixture
@@ -28,7 +28,7 @@ def agente(llm, registro, memorias, tmp_path):
 
 async def test_conversa_sem_ferramenta(registro, memorias, tmp_path):
     llm = LLMFalso([fala("Oi, Felipe!")])
-    r = await agente(llm, registro, memorias, tmp_path).responder("oi jarvis")
+    r = await agente(llm, registro, memorias, tmp_path).responder("oi vision")
     assert r.texto == "Oi, Felipe!" and not r.ferramentas and not r.insistiu
 
 
@@ -110,7 +110,7 @@ async def test_log_de_conversa(registro, memorias, tmp_path):
     llm = LLMFalso([fala("Oi!")])
     await agente(llm, registro, memorias, tmp_path).responder("oi")
     arquivos = list((tmp_path / "conv").glob("*.jsonl"))
-    assert len(arquivos) == 1 and '"jarvis": "Oi!"' in arquivos[0].read_text(encoding="utf-8")
+    assert len(arquivos) == 1 and '"vision": "Oi!"' in arquivos[0].read_text(encoding="utf-8")
 
 
 async def test_prazo_estourado_guarda_resposta(registro, memorias, tmp_path):

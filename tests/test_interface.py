@@ -6,8 +6,8 @@ import urllib.request
 
 import pytest
 
-from jarvis import interface
-from jarvis.interface import servir
+from vision import interface
+from vision.interface import servir
 
 
 @pytest.fixture

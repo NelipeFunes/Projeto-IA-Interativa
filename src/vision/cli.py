@@ -1,4 +1,4 @@
-"""Linha de comando: uv run jarvis <comando>."""
+"""Linha de comando: uv run vision <comando>."""
 
 from __future__ import annotations
 
@@ -7,7 +7,7 @@ import asyncio
 import logging
 import sys
 
-from jarvis import config
+from vision import config
 
 
 def _silenciar_logs() -> None:
@@ -17,8 +17,8 @@ def _silenciar_logs() -> None:
 
 
 async def _chat(cfg: config.Config) -> None:
-    from jarvis.google_login import aviso_login
-    from jarvis.montagem import montar
+    from vision.google_login import aviso_login
+    from vision.montagem import montar
 
     nome = cfg.get("assistente.nome", "Vision")
     async with montar(cfg) as j:
@@ -63,7 +63,7 @@ async def _dormir(cfg: config.Config, dormir: bool) -> None:
 
 
 async def _memorias(cfg: config.Config) -> None:
-    from jarvis.montagem import criar_memorias
+    from vision.montagem import criar_memorias
 
     m = criar_memorias(cfg)
     todas = m.todas()
@@ -77,11 +77,11 @@ def _abrir(cfg: config.Config) -> int:
     """Pede ao núcleo que já roda para abrir a janela; se não houver núcleo, liga um (sem console) já com ela."""
     import subprocess
 
-    from jarvis.nucleo import pedir_janela
+    from vision.nucleo import pedir_janela
 
     if pedir_janela(cfg):
         return 0
-    from jarvis.inicializacao import alvo
+    from vision.inicializacao import alvo
 
     exe, extra = alvo()
     subprocess.Popen([str(exe), *extra.split(), "--abrir"], cwd=cfg.raiz, close_fds=True,
@@ -92,7 +92,7 @@ def _abrir(cfg: config.Config) -> int:
 
 def main(argv: list[str] | None = None) -> int:
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
-    ap = argparse.ArgumentParser(prog="jarvis", description="Assistente pessoal local do Felipe")
+    ap = argparse.ArgumentParser(prog="vision", description="Assistente pessoal local do Felipe")
     ap.add_argument("--modelo", help="sobrescreve modelo.nome (ex.: qwen3.5:9b)")
     sub = ap.add_subparsers(dest="comando", required=True)
     sub.add_parser("chat", help="conversa por texto no terminal")
@@ -123,37 +123,37 @@ def main(argv: list[str] | None = None) -> int:
     if args.comando == "chat":
         asyncio.run(_chat(cfg))
     elif args.comando == "voz":
-        from jarvis.voice.loop import rodar_voz
+        from vision.voice.loop import rodar_voz
 
         asyncio.run(rodar_voz(cfg, com_ativacao=not args.sem_ativacao))
     elif args.comando == "servidor":
-        from jarvis.server import rodar
+        from vision.server import rodar
 
         rodar(cfg)
     elif args.comando == "nucleo":
-        from jarvis.nucleo import main as nucleo
+        from vision.nucleo import main as nucleo
 
         return nucleo(["--abrir"] * args.abrir + ["--sem-voz"] * args.sem_voz, console=True)
     elif args.comando == "abrir":
         return _abrir(cfg)
     elif args.comando == "interface":
         if args.nucleo:
-            from jarvis.interface import abrir_no_nucleo
+            from vision.interface import abrir_no_nucleo
 
             abrir_no_nucleo(cfg)
             return 0
         if not args.demo:
-            print("A janela de verdade é aberta pelo núcleo: use `jarvis abrir`. A demonstração: jarvis interface --demo")
+            print("A janela de verdade é aberta pelo núcleo: use `vision abrir`. A demonstração: vision interface --demo")
             return 1
-        from jarvis.interface import abrir
+        from vision.interface import abrir
 
         abrir(cfg, demo=True)
     elif args.comando == "teste":
-        from jarvis.diagnostico import diagnosticar
+        from vision.diagnostico import diagnosticar
 
         return asyncio.run(diagnosticar(cfg, args.parte))
     elif args.comando == "google-login":
-        from jarvis.google_login import fazer_login
+        from vision.google_login import fazer_login
 
         return fazer_login(cfg)
     elif args.comando in ("dormir", "acordar"):
@@ -161,7 +161,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.comando == "memorias":
         asyncio.run(_memorias(cfg))
     elif args.comando == "falar":
-        from jarvis.voice.tts import falar_texto
+        from vision.voice.tts import falar_texto
 
         falar_texto(cfg, " ".join(args.texto))
     return 0

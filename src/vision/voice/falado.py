@@ -1,11 +1,11 @@
-"""Deixa o texto do Jarvis bom de ouvir: '14:30' → '14 e 30', 'sex 02/10' → 'sexta, dia 2 de outubro',
+"""Deixa o texto do Vision bom de ouvir: '14:30' → '14 e 30', 'sex 02/10' → 'sexta, dia 2 de outubro',
 'R$ 52,90' → '52 reais e 90 centavos', tira markdown, emojis e ids."""
 
 from __future__ import annotations
 
 import re
 
-from jarvis.tempo import MESES
+from vision.tempo import MESES
 
 DIAS_POR_EXTENSO = {
     "seg": "segunda", "ter": "terça", "qua": "quarta", "qui": "quinta", "sex": "sexta", "sáb": "sábado", "dom": "domingo",

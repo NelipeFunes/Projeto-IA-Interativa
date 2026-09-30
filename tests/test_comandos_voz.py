@@ -2,7 +2,7 @@
 
 import pytest
 
-from jarvis.voice.comandos import achar_ativacao, e_despedida
+from vision.voice.comandos import achar_ativacao, e_despedida
 
 
 @pytest.mark.parametrize("ouvido,resto", [

@@ -4,9 +4,9 @@ import httpx
 import pytest
 from fakes.llm_falso import LLMFalso, chama, fala
 
-from jarvis import tempo
-from jarvis.montagem import montar
-from jarvis.server import criar_app
+from vision import tempo
+from vision.montagem import montar
+from vision.server import criar_app
 
 
 @pytest.fixture
@@ -18,8 +18,8 @@ async def cliente_e_agenda(cfg, host, memorias, servidor_agenda):
         fala("Sim o quê?"),
     ])
     async with montar(cfg, llm=llm, host=host, memorias=memorias) as j:
-        app = criar_app(cfg, jarvis=j, token="segredo-de-teste")
-        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://jarvis",
+        app = criar_app(cfg, vision=j, token="segredo-de-teste")
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://vision",
                                      headers={"Authorization": "Bearer segredo-de-teste"}) as c:
             yield c, servidor_agenda
 

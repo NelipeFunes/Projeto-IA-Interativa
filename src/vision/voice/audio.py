@@ -11,7 +11,7 @@ from pathlib import Path
 
 import numpy as np
 
-from jarvis.config import Config
+from vision.config import Config
 
 TAXA = 16000
 BLOCO = 1280  # 80 ms: o tamanho que o openWakeWord espera
@@ -87,7 +87,7 @@ class SaidaArquivo:
         self.interromper = threading.Event()
 
     def tocar(self, audio: np.ndarray, taxa: int) -> bool:
-        from jarvis.voice.stt import reamostrar
+        from vision.voice.stt import reamostrar
 
         self.trechos.append(reamostrar(audio, taxa, self.taxa))
         return True
@@ -151,7 +151,7 @@ class Microfone:
             self._stream.close()
 
     def descartar(self) -> None:
-        """Joga fora o áudio acumulado enquanto o Jarvis pensava/falava."""
+        """Joga fora o áudio acumulado enquanto o Vision pensava/falava."""
         while not self._fila.empty():
             try:
                 self._fila.get_nowait()
@@ -172,7 +172,7 @@ class ArquivoComoMicrofone:
     def __init__(self, audios: list[np.ndarray | Path], silencio_final_s: float = 2.0):
         import soundfile as sf
 
-        from jarvis.voice.stt import reamostrar
+        from vision.voice.stt import reamostrar
 
         partes = []
         for a in audios:
@@ -192,7 +192,7 @@ class ArquivoComoMicrofone:
         pass
 
     def descartar(self) -> None:
-        pass  # no arquivo, nada chega enquanto o Jarvis fala
+        pass  # no arquivo, nada chega enquanto o Vision fala
 
     async def blocos(self) -> AsyncIterator[np.ndarray]:
         for i in range(0, len(self.pcm) - BLOCO + 1, BLOCO):

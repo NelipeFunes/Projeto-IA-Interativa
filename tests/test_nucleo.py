@@ -8,12 +8,12 @@ import numpy as np
 import pytest
 from fakes.llm_falso import LLMFalso, chama, fala
 
-from jarvis import inicializacao, tempo
-from jarvis.brain.agent import Agente
-from jarvis.eventos import Barramento
-from jarvis.tools.agenda import Agenda
-from jarvis.tools.base import ComDados, Registro
-from jarvis.voice.loop import envelope, nivel_do_bloco
+from vision import inicializacao, tempo
+from vision.brain.agent import Agente
+from vision.eventos import Barramento
+from vision.tools.agenda import Agenda
+from vision.tools.base import ComDados, Registro
+from vision.voice.loop import envelope, nivel_do_bloco
 
 # ------------------------------------------------------------------ o agente conta o que faz
 
@@ -183,7 +183,7 @@ def test_atalho_de_inicializacao_sem_montar_comando_com_texto(monkeypatch, tmp_p
 
 @pytest.mark.skipif(sys.platform != "win32", reason="mutex do Windows")
 def test_so_um_nucleo_por_vez():
-    from jarvis.nucleo import InstanciaUnica
+    from vision.nucleo import InstanciaUnica
 
     nome = "Local\\VisionTeste-7f3a"
     primeiro = InstanciaUnica(nome)
@@ -194,7 +194,7 @@ def test_so_um_nucleo_por_vez():
 @pytest.mark.parametrize("estado", ["ocioso", "ouvindo", "pensando", "falando", "dormindo", "jogo", "desconhecido"])
 @pytest.mark.parametrize("tamanho", [16, 32, 64])
 def test_icone_da_bandeja_desenha_em_todo_estado(estado, tamanho):
-    from jarvis.bandeja import desenhar_icone
+    from vision.bandeja import desenhar_icone
 
     img = desenhar_icone(estado, tamanho)
     assert img.size == (tamanho, tamanho)
@@ -229,7 +229,7 @@ async def test_sessao_que_expira_com_pendencia_avisa_a_tela(agente_com_eventos):
 def test_acesso_de_nucleo_morto_nao_vale(cfg):
     import json
 
-    from jarvis.nucleo import ler_acesso
+    from vision.nucleo import ler_acesso
 
     arq = cfg.dados / "nucleo.json"
     arq.write_text(json.dumps({"porta": 8765, "token": "x", "pid": 2**31 - 7}), encoding="utf-8")
@@ -242,7 +242,7 @@ def test_acesso_de_nucleo_morto_nao_vale(cfg):
 
 @pytest.mark.skipif(sys.platform != "win32", reason="mutex do Windows")
 def test_ver_se_o_nucleo_roda_nao_cria_o_mutex():
-    from jarvis.nucleo import InstanciaUnica, nucleo_rodando
+    from vision.nucleo import InstanciaUnica, nucleo_rodando
 
     nome = r"Local\VisionTeste-olhar-7f3a"
     assert nucleo_rodando(nome) is False
@@ -253,10 +253,10 @@ def test_ver_se_o_nucleo_roda_nao_cria_o_mutex():
 def test_transcricoes_nao_vao_para_o_log_em_info(caplog):
     import logging
 
-    from jarvis.nucleo import escritor_do_log
+    from vision.nucleo import escritor_do_log
 
     escrever = escritor_do_log("Vision")
-    with caplog.at_level(logging.INFO, logger="jarvis.nucleo"):
+    with caplog.at_level(logging.INFO, logger="vision.nucleo"):
         escrever("Você: marca o dentista")
         escrever("Vision: Feito.")
         escrever("Microfone: Logi C920e")
