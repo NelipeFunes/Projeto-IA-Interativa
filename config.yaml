@@ -61,13 +61,21 @@ voz:
   # Com a sua voz (30/09) os dois transcreveram igual ("…quanto eu gastei com iFood esse mês?"), mas o
   # base carrega em 3,2 s contra 7,7 s e transcreve mais rápido. Fica o base.
   stt: parakeet-base-int8
+  # Como ele acorda: "transcricao" = "Hey Vision" achado no texto do começo de cada fala curta (sem modelo pronto
+  # para esse nome); "modelo" = openWakeWord com a palavra abaixo (o "Hey Jarvis" de antes).
+  ativacao: transcricao
   palavra_ativacao: hey_jarvis
   # Inglês nativo dá 0,99; vozes sintéticas PT-BR dizendo "Hey Jarvis" deram 0,11–0,75; frases comuns ~0,00.
   # Sua voz (30/09, microfone da webcam, porque o HyperX estava mudo): 0,47 e 0,86. O limiar 0,3 pega as duas.
   # Recalibre com: jarvis teste voz
   limiar_ativacao: 0.3
   atalho: ctrl+alt+j
-  janela_conversa_s: 8        # depois de cada resposta, ouve sem "Hey Jarvis" por esse tempo
+  # Conversa: "Hey Vision" abre; tudo o que você fala vai para ele até "Beleza, Vision, pode desligar"
+  # ou esse tempo sem ninguém falar (pedido de 30/09: antes a janela de 8 s pegava conversa que não era com ele).
+  conversa_silencio_max_s: 120
+  confirmacao_prazo_s: 30     # "sim" por voz só vale até esse tempo depois do "Confirma?" (TV/fundo não confirma)
+  saudacao: Oi, Felipe. Pode falar.
+  despedida: Beleza. Até mais.
   silencio_fim_ms: 800        # quanto silêncio encerra a sua fala
   maximo_fala_s: 20
 

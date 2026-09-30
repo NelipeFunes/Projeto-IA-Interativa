@@ -124,6 +124,13 @@ class Agente:
     def _expirada(self, s: Sessao) -> bool:
         return time.monotonic() - s.ultima > self.expira_s and not s.trava.locked()
 
+    def cancelar_pendente(self, canal: str, sessao: str) -> None:
+        """Descarta a confirmação em aberto dessa sessão (ex.: a conversa por voz foi encerrada) e avisa a tela."""
+        s = self.sessoes.get((canal, sessao))
+        if s is not None and s.pendente is not None and not s.trava.locked():
+            self._emitir("pendente_resolvido", id=s.pendente.id, resultado="cancelada")
+            s.pendente = None
+
     def esquecer_sessao(self, canal: str, sessao: str) -> None:
         self.sessoes.pop((canal, sessao), None)
 
@@ -148,7 +155,8 @@ class Agente:
 
         async with s.trava:
             inicio = time.perf_counter()
-            r = await self._tratar_confirmacao(s, texto, ao_texto) if s.pendente is not None else None
+            r = (await self._tratar_confirmacao(s, texto, ao_texto, estrito=canal == "voz")
+                 if s.pendente is not None else None)
             if r is None:
                 r = await self._pensar(s, texto, canal, ao_texto)
             r.segundos = time.perf_counter() - inicio
@@ -190,11 +198,11 @@ class Agente:
     # ------------------------------------------------------------------ confirmação
 
     async def _tratar_confirmacao(
-        self, s: Sessao, texto: str, ao_texto: Callable[[str], None] | None
+        self, s: Sessao, texto: str, ao_texto: Callable[[str], None] | None, estrito: bool = False
     ) -> Resposta | None:
         p = s.pendente
         assert p is not None
-        tipo = confirmacao.classificar(texto)
+        tipo = confirmacao.classificar(texto, estrito)
         if tipo == "outro":
             # O Felipe corrigiu ou mudou de assunto: o modelo decide de novo. Sem esta nota, o modelo
             # achava que o evento já existia e tentava "alterar" (visto na avaliação de 30/09).
