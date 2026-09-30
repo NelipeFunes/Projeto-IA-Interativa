@@ -10,3 +10,4 @@ evals/saidas/
 *.log
 node/node_modules/
 RELATORIO-MANHA.md
+.python/
