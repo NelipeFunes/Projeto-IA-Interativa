@@ -29,6 +29,13 @@ def test_chamados_que_acordam(ouvido, resto):
     "O filme tem uma visual incrível",
     "",
     "Fiz um marca babiro amanhã",
+    # falsos positivos achados na revisão do PR 3
+    "É visão de futuro isso aí",
+    "E visão, né, cara",
+    "Ok, visão geral do projeto",
+    "Aí, visão turva hoje",
+    "Visionário demais esse cara",
+    "Revision do código",
 ])
 def test_falas_que_nao_acordam(ouvido):
     assert achar_ativacao(ouvido) is None
@@ -56,6 +63,16 @@ def test_despedidas(ouvido):
     "Beleza, Vision, pode marcar o dentista",
     "Beleza Vision pode me falar",
     "Beleza, pode ser amanhã",  # sem o nome: é conversa normal
+    # falsos positivos achados na revisão do PR 3
+    "Me lembra de desligar",
+    "Que horas eu preciso dormir?",
+    "A que horas devo encerrar",
+    "Não desliga",
+    "Não, não desliga agora",
+    "Tchau Vision, marca dentista amanhã",
+    "Beleza Vision pode continuar",
+    "Certo, Vision, pode repetir",
+    "Ok Vision, pode excluir",
     "Tchau pra você também, a reunião acabou cedo",  # tchau sem o nome, frase longa
     "Me explica como a gente vai desligar o servidor antigo sem perder os dados de ninguém",
     "",

@@ -78,6 +78,7 @@ class LoopVoz:
         bipes: bool = True,
         ativacao_por_texto: bool = True,
         silencio_max_s: float = 120.0,
+        prazo_confirmacao_s: float = 30.0,
         saudacao: str = "Oi, Felipe. Pode falar.",
         despedida: str = "Beleza. Até mais.",
         ao_evento: Callable[[dict[str, Any]], None] | None = None,
@@ -105,6 +106,9 @@ class LoopVoz:
         self.blocos_silencio_max = int(silencio_max_s / BLOCO_S)
         self.silencio = 0
         self.voz_seguida = 0
+        # Confirmação por voz tem prazo: um "beleza" da TV 5 min depois não pode virar "sim" (revisão do PR 3).
+        self.prazo_confirmacao_s = prazo_confirmacao_s
+        self.pergunta_em: float | None = None
         self.pre_fala: deque[np.ndarray] = deque(maxlen=4)  # 320 ms antes do início, para não cortar a 1ª sílaba
         # Para a tela: estado do orbe e volumes (microfone quando ouve, a própria voz quando fala).
         self.ao_evento = ao_evento
@@ -116,8 +120,11 @@ class LoopVoz:
         if self.ao_evento is not None:
             self.ao_evento(evento)
 
+    def _pausado(self) -> bool:
+        return self.jogando or bool(self.flag_dormindo and self.flag_dormindo.exists())
+
     def _mostrar(self, estado: str) -> None:
-        if estado == "ocioso" and self.em_conversa:
+        if estado == "ocioso" and self.em_conversa and not self._pausado():
             estado = "ouvindo"  # conversa aberta: ele está te ouvindo
         elif estado == "ocioso" and self.jogando:
             estado = "jogo"
@@ -141,7 +148,7 @@ class LoopVoz:
 
     def escuta_ligada(self) -> bool:
         """Se o "Hey Vision" pode acordar agora (não no jogo, não com a escuta pausada na bandeja)."""
-        if self.jogando or (self.flag_dormindo and self.flag_dormindo.exists()):
+        if self._pausado():
             return False
         return self.ativacao_por_texto or self.ativacao is not None
 
@@ -174,6 +181,14 @@ class LoopVoz:
                 continue
 
             gravado.append(bloco)
+            if origem == "candidato" and self.acionar.is_set():
+                # Atalho no meio de uma fala qualquer: vira gravação para ele, sem perder o que você já disse.
+                self.acionar.clear()
+                origem = "atalho"
+                if not self._pausado():
+                    self._abrir_conversa()
+                self.escrever("…ouvindo")
+                self._mostrar("ouvindo")
             if origem != "candidato":
                 self._emitir({"tipo": "nivel", "fonte": "mic", "valor": nivel_do_bloco(bloco)})
             if origem == "candidato" and len(gravado) * BLOCO_S > MAXIMO_CANDIDATO_S:
@@ -182,26 +197,37 @@ class LoopVoz:
             if not self.detector.bloco(bloco):
                 continue
             pcm = np.concatenate(gravado) if self.detector.falou else np.zeros(0, np.int16)
+            self.pre_fala.clear()  # o começo desta fala não pode entrar na próxima
             if origem == "candidato":
                 await self._candidato(pcm)
+                if self.em_conversa:  # acordou e falou: o que tocou no alto-falante não é você
+                    self.entrada.descartar()
+                # Se não era com ele, a fila fica: um "Hey Vision" dito enquanto ele transcrevia não se perde.
+            elif origem == "conversa" and self._pausado():
+                pass  # pausou (bandeja ou jogo) enquanto você falava: não vai para ninguém
             else:
                 self._mostrar("pensando")
                 self._emitir({"tipo": "nivel", "fonte": "mic", "valor": 0.0})
                 await self._fala_na_conversa(pcm)
-            self.entrada.descartar()
+                self.entrada.descartar()  # o que tocou enquanto ele falava (a própria voz) não é você
             if self.ativacao is not None:
                 self.ativacao.zerar()
             self.estado = "ocioso"
-            self.silencio = self.voz_seguida = 0
+            self.voz_seguida = 0
             self._mostrar("ocioso")
             if limite is not None and self.feitas >= limite:
                 return
 
     async def _esperando(self, bloco: np.ndarray) -> str:
         """Um bloco sem gravação em andamento. Devolve de onde vem a próxima gravação ("" = nenhuma)."""
+        if self.em_conversa and self._pausado():
+            # Pausou a escuta na bandeja ou abriu o jogo: a conversa acaba na hora (revisão do PR 3).
+            self.escrever("(conversa encerrada: escuta pausada ou modo jogo)")
+            await self._fechar_conversa(falar=False)
+            return ""
         if self.acionar.is_set():  # atalho: acorda (se precisar) e já ouve
             self.acionar.clear()
-            if not self.em_conversa:
+            if not self.em_conversa and not self._pausado():  # no jogo, vale só uma fala, sem abrir conversa
                 self._abrir_conversa()
             return "atalho"
         if self.em_conversa:
@@ -235,6 +261,7 @@ class LoopVoz:
 
     async def _fechar_conversa(self, falar: bool) -> None:
         self.em_conversa = False
+        self.pergunta_em = None
         # Uma confirmação no ar não sobrevive ao fim da conversa (e o cartão some da tela).
         self.agente.cancelar_pendente("voz", "voz")
         if falar:
@@ -252,10 +279,15 @@ class LoopVoz:
         resto = achar_ativacao(texto)
         if resto is None:
             return  # não era com ele: nada é guardado nem mostrado
-        if pcm.size > comeco.size:  # a fala continua: o pedido vem inteiro
-            resto = achar_ativacao(await asyncio.to_thread(self.stt.transcrever, pcm, TAXA)) or resto
+        if pcm.size > comeco.size:  # a fala continua: o pedido vem inteiro (nunca o trecho cortado em 2,5 s)
+            inteiro = await asyncio.to_thread(self.stt.transcrever, pcm, TAXA)
+            resto = achar_ativacao(inteiro)
+            if resto is None:
+                resto = inteiro.strip()
+        if resto and e_despedida(resto):
+            return  # "Hey Vision, pode desligar" com a conversa já fechada: nada a fazer
         self._abrir_conversa()
-        if not resto or e_despedida(resto):
+        if not resto:
             await self._dizer(self.saudacao)
             return
         self._mostrar("pensando")
@@ -271,7 +303,11 @@ class LoopVoz:
         if not texto.strip():
             self.escrever("(não entendi o áudio)")
             return
+        self.silencio = 0  # só fala de verdade reinicia os 2 min (tosse, porta e ruído não)
         self.escrever(f"Você: {texto}")
+        if self.pergunta_em is not None and time.monotonic() - self.pergunta_em > self.prazo_confirmacao_s:
+            self.agente.cancelar_pendente("voz", "voz")  # demorou demais: o que vier agora não é resposta
+            self.pergunta_em = None
         if e_despedida(texto):
             self.escrever("(conversa encerrada. Para voltar: 'Hey Vision')")
             await self._fechar_conversa(falar=True)
@@ -321,6 +357,7 @@ class LoopVoz:
         if r is None:
             self.historico.append({"felipe": texto, "jarvis": FALA_DE_ERRO, "erro": True})
             return
+        self.pergunta_em = time.monotonic() if r.aguardando_confirmacao else None
         usadas = ", ".join(f["nome"] for f in r.ferramentas)
         ate_falar = (primeira_fala[0] - t1) if primeira_fala else 0.0
         self.escrever(f"{self.agente.nome_assistente}: {r.texto}")
@@ -430,6 +467,7 @@ def preparar_voz(
                        flag_dormindo=cfg.dados / "dormindo.flag", escrever=escrever, ao_evento=ao_evento,
                        ativacao_por_texto=com_ativacao and por_texto,
                        silencio_max_s=float(cfg.get("voz.conversa_silencio_max_s", 120)),
+                       prazo_confirmacao_s=float(cfg.get("voz.confirmacao_prazo_s", 30)),
                        saudacao=cfg.get("voz.saudacao", f"Oi, {agente.nome}. Pode falar."),
                        despedida=cfg.get("voz.despedida", "Beleza. Até mais."))
         loop = asyncio.get_running_loop()

@@ -253,3 +253,48 @@ async def test_erro_do_modelo_nao_mata_a_voz(pecas, registro, tmp_path):
     await laco.rodar()
     assert laco.historico[0].get("erro") and laco.historico[1]["jarvis"] == "Agora sim."
     assert any(e == {"tipo": "resposta", "texto": laco.historico[0]["jarvis"]} for e in eventos)
+
+
+@pytest.mark.parametrize("como", ["bandeja", "jogo"])
+async def test_pausar_no_meio_da_conversa_encerra_ela(pecas, registro, tmp_path, como):
+    """Revisão do PR 3: com a conversa aberta, pausar a escuta ou abrir o jogo era ignorado."""
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5),
+        _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),  # depois da pausa: não vai a ninguém
+    ], tmp_path)
+    eventos = []
+
+    def ao_evento(ev):
+        eventos.append(ev)
+        if ev == {"tipo": "resposta", "texto": "Oi, Felipe. Pode falar."}:  # conversa aberta: pausa agora
+            if como == "bandeja":
+                (tmp_path / "dormindo.flag").touch()
+            else:
+                laco.jogando = True
+
+    laco.ao_evento = ao_evento
+    await laco.rodar()  # o LLM falso não tem roteiro: se a fala chegasse ao modelo, quebraria
+    assert laco.historico == [] and not laco.em_conversa
+    assert eventos[-1]["valor"] == ("dormindo" if como == "bandeja" else "jogo")
+
+
+async def test_confirmacao_que_demorou_nao_vale(pecas, registro, tmp_path, servidor_agenda):
+    amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
+    llm = LLMFalso([chama("agenda_criar", titulo="Barbeiro", data=amanha, hora_inicio="16:00"), fala("Certo.")])
+    antes = len(servidor_agenda.eventos)
+    laco = _loop(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5),
+        _fala(pecas["pt"], "Marca barbeiro amanhã às quatro da tarde."), _silencio(1.2),
+        _fala(pecas["pt"], "Sim, pode."), _silencio(1.5),  # "tarde demais" com prazo zero
+    ], tmp_path, prazo_confirmacao_s=0.0)
+    await laco.rodar()
+    assert laco.historico[0]["jarvis"].endswith("Confirma?")
+    assert len(servidor_agenda.eventos) == antes  # o "sim" atrasado não executou nada
+
+
+async def test_hey_vision_pode_desligar_com_a_conversa_fechada_nao_faz_nada(pecas, registro, tmp_path):
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(0.2), _fala(pecas["pt"], "Beleza, pode desligar."), _silencio(1.5),
+    ], tmp_path)
+    await laco.rodar()
+    assert not laco.em_conversa and laco.saida.trechos == []
