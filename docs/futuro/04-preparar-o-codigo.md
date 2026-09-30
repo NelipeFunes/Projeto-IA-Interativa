@@ -30,7 +30,7 @@ Mudanças pequenas que podem ser feitas **aos poucos, já agora**, para que o se
 |---|---|---|---|
 | 13 | **Política de confirmação por ferramenta**, e não só "escrita ou não": `confirmar="sempre" / "nunca" / "se_ambiguo"` | `tools/base.py`, `brain/agent.py` | Luzes sem "Confirma?", acessos físicos sempre com. Para acesso físico, "sempre" quer dizer confirmação pela interface autenticada (ou PIN), **nunca pela voz**, e nunca quando o turno leu conteúdo de fora ou veio pelo caminho A |
 | 14 | **Origem por turno:** se o turno leu conteúdo de fora (agenda, memória, resultado de ferramenta externa), toda ferramenta `casa_*` passa a exigir confirmação, até as de `"nunca"`. A regra fica no código, não no prompt | `brain/agent.py` | Um texto da agenda nunca aciona nada na casa |
-| 15 | Ferramentas `casa_*` com um HA falso nos testes (como o `calendario_falso.py`) | `tools/casa.py`, `tests/fakes/ha_falso.py` | Desenvolver sem mexer na casa de verdade |
+| 15 | Ferramentas `casa_*` com um HA falso nos testes (como o `calendario_falso.py`). `tools/casa.py` só aceita entidades listadas em `data/casa.yaml` (o usuário do HA não basta), e `casa_acesso` usa outra credencial, chamável só pela interface autenticada | `tools/casa.py`, `tests/fakes/ha_falso.py` | Desenvolver sem mexer na casa de verdade, e sem a ferramenta alcançar o que não devia |
 | 16 | Apelidos dos dispositivos em arquivo próprio, editável (`data/casa.yaml`) | novo | O modelo vê "luz da sala", não `light.sala_teto` |
 
 ## O que já está pronto e ajuda

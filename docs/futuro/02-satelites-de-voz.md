@@ -91,4 +91,4 @@ satélite ESPHome ──(API nativa do ESPHome)──► Vision (vira o "servido
 
 - Quantos cômodos? Isso define se uma GPU dá conta de conversas simultâneas.
 - Num cômodo com TV ou som ligado, o INMP441 sozinho vai ouvir bem de longe? Talvez precise de dois microfones com cancelamento de eco.
-- Onde fica o alto-falante bom da casa? Talvez a resposta devesse tocar numa caixa de som já existente.
+- Se houver uma caixa de som boa, a resposta poderia tocar nela em vez do alto-falante pequeno do satélite.

@@ -37,11 +37,11 @@ Depende de **como** cada luz é controlada. Primeiro é preciso descobrir o tipo
 Se um dia fizer sentido, os caminhos possíveis são:
 
 1. **A integração da marca no HA**, se o módulo tiver uma: o caminho mais limpo.
-2. **Um relé com ESP32 + ESPHome** ligado à central do motor, simulando o botão do controle. É barato e 100% local, mas mexe na instalação elétrica: é preciso fazer com cuidado ou com um eletricista. O relé liga **desligado** (`restore_mode: ALWAYS_OFF`, num pino que não pulsa no boot nem na atualização OTA), em pulso curto, e a botoeira física continua funcionando.
+2. **Um relé com ESP32 + ESPHome** ligado ao atuador. É barato e 100% local, mas mexe na instalação elétrica: é preciso fazer com cuidado ou com um eletricista. O relé liga **desligado** (`restore_mode: ALWAYS_OFF`, num pino que não pulsa no boot nem na atualização OTA), em pulso curto, e o acionamento manual continua funcionando.
 
 **Regras próprias**, porque é a única ação com risco físico real:
 - **Nunca só pela voz.** Um "sim" falado pode vir da TV, de um vídeo ou de alguém de fora. O acionamento exige a interface autenticada (botão na janela do PC ou no celular) ou um segundo fator (PIN).
-- **Só "abrir" remoto.** Fechar sem ver pode ferir alguém ou um veículo: o fechamento fica com a central do motor (automático, com fotocélula).
+- **Só "abrir" remoto.** Fechar sem ver pode ferir alguém: o fechamento fica com o sistema de segurança do próprio atuador.
 - Nunca por pedido vindo de texto de fora (evento da agenda, memória, resposta de ferramenta).
 - Nunca pelo caminho A dos satélites (o HA no meio, plano 02), nem por nenhum satélite.
 - Registrar em log cada acionamento: quando, de qual aparelho e por qual caminho (sem áudio).
