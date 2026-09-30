@@ -81,6 +81,8 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("voz", help="modo voz: 'Hey Jarvis' ou o atalho")
     v.add_argument("--sem-ativacao", action="store_true", help="só o atalho, sem palavra de ativação")
     sub.add_parser("servidor", help="cérebro como serviço HTTP em 127.0.0.1")
+    i = sub.add_parser("interface", help="abre a janela gráfica")
+    i.add_argument("--demo", action="store_true", help="roda o roteiro de demonstração (Fase A)")
     t = sub.add_parser("teste", help="checagem geral do ambiente")
     t.add_argument("parte", nargs="?", default="tudo", choices=["tudo", "ollama", "agenda", "orbit", "voz"])
     sub.add_parser("google-login", help="refaz o login do Google Agenda (a cada 7 dias)")
@@ -105,6 +107,13 @@ def main(argv: list[str] | None = None) -> int:
         from jarvis.server import rodar
 
         rodar(cfg)
+    elif args.comando == "interface":
+        if not args.demo:
+            print("Por enquanto só existe a demonstração (a interface ligada ao cérebro vem na Fase C): jarvis interface --demo")
+            return 1
+        from jarvis.interface import abrir
+
+        abrir(cfg, demo=True)
     elif args.comando == "teste":
         from jarvis.diagnostico import diagnosticar
 

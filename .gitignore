@@ -11,3 +11,5 @@ evals/saidas/
 node/node_modules/
 RELATORIO-MANHA.md
 .python/
+ui/node_modules/
+ui/dist/
