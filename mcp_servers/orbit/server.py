@@ -1,6 +1,6 @@
 """Servidor MCP do Orbit: finanças e tarefas do Felipe.
 
-Roda por stdio (o Jarvis sobe sozinho) e também serve para qualquer cliente MCP.
+Roda por stdio (o Vision sobe sozinho) e também serve para qualquer cliente MCP.
 Credenciais vêm do .env do projeto: ORBIT_TOKEN, ou ORBIT_EMAIL + ORBIT_PASSWORD.
 """
 

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from jarvis import tempo
+from vision import tempo
 
 ESTILO = {
     "texto": "Canal: texto no terminal. Seja breve; listas simples são ok. Evite emojis.",

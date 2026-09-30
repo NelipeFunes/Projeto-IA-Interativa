@@ -6,17 +6,17 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
 
-from jarvis.brain.agent import Agente
-from jarvis.brain.llm import LLM, OllamaLLM
-from jarvis.config import Config
-from jarvis.memory.store import EmbedderOllama, Memorias
-from jarvis.tools.agenda import Agenda
-from jarvis.tools.base import Registro
-from jarvis.tools.mcp_host import HostMCP
-from jarvis.tools.memoria import FerramentasMemoria
+from vision.brain.agent import Agente
+from vision.brain.llm import LLM, OllamaLLM
+from vision.config import Config
+from vision.memory.store import EmbedderOllama, Memorias
+from vision.tools.agenda import Agenda
+from vision.tools.base import Registro
+from vision.tools.mcp_host import HostMCP
+from vision.tools.memoria import FerramentasMemoria
 
 PERFIL_INICIAL = """# Perfil
-<!-- Este texto entra em TODA conversa com o Jarvis. Mantenha curto (até ~25 linhas):
+<!-- Este texto entra em TODA conversa com o Vision. Mantenha curto (até ~25 linhas):
      quem você é, sua rotina e as regras que ele deve respeitar. Troque os exemplos pelos seus. -->
 
 - Moro no Brasil (fuso de São Paulo). Estudo e trabalho.
@@ -27,7 +27,7 @@ PERFIL_INICIAL = """# Perfil
 
 
 @dataclass
-class Jarvis:
+class Vision:
     cfg: Config
     agente: Agente
     registro: Registro
@@ -69,7 +69,7 @@ async def montar(
     host: HostMCP | None = None,
     memorias: Memorias | None = None,
     com_memoria: bool = True,
-) -> AsyncIterator[Jarvis]:
+) -> AsyncIterator[Vision]:
     garantir_perfil(cfg)
     host = host or HostMCP.da_config(cfg)
     if memorias is None and com_memoria:
@@ -80,7 +80,7 @@ async def montar(
     if memorias is not None:
         registro.adicionar(*FerramentasMemoria(memorias).ferramentas())
     if "orbit" in host.conexoes:
-        from jarvis.tools.orbit import FerramentasOrbit
+        from vision.tools.orbit import FerramentasOrbit
 
         registro.adicionar(*FerramentasOrbit(host).ferramentas())
     agente = Agente(
@@ -98,7 +98,7 @@ async def montar(
     )
     async with host:
         try:
-            yield Jarvis(cfg, agente, registro, host, memorias)
+            yield Vision(cfg, agente, registro, host, memorias)
         finally:
             if memorias is not None:
                 memorias.fechar()

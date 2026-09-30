@@ -2,9 +2,9 @@ from datetime import timedelta
 
 import pytest
 
-from jarvis import tempo
-from jarvis.tools.agenda import Agenda
-from jarvis.tools.base import ErroFerramenta
+from vision import tempo
+from vision.tools.agenda import Agenda
+from vision.tools.base import ErroFerramenta
 
 
 @pytest.fixture
@@ -74,7 +74,7 @@ async def test_data_invalida_vira_erro_legivel(agenda):
 
 
 async def test_servidor_fora_explica_login(cfg):
-    from jarvis.tools.mcp_host import ConexaoMCP, HostMCP
+    from vision.tools.mcp_host import ConexaoMCP, HostMCP
 
     h = HostMCP({"google-calendar": ConexaoMCP("google-calendar", None, 1)})  # nunca iniciado
     ag = Agenda(cfg, h)

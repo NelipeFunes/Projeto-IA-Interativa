@@ -2,7 +2,7 @@
 
 ATENÇÃO: em 30/09/2026 o Orbit estava SUSPENSO no Render (`x-render-routing: suspend`), então
 o formato exato das respostas ainda não foi visto. Este cliente é tolerante: aceita lista pura ou
-envelopes ({data: [...]}) e procura campos por vários nomes. `jarvis teste orbit` grava o formato
+envelopes ({data: [...]}) e procura campos por vários nomes. `vision teste orbit` grava o formato
 real em data/orbit-formato.json para ajustar os nomes em CAMPOS abaixo.
 """
 

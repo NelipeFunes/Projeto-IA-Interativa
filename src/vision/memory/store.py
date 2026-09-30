@@ -1,6 +1,6 @@
 """Memória de longo prazo: SQLite + embeddings do Ollama.
 
-É o jeito de "alimentar o Jarvis aos poucos": cada fato vira uma linha que você pode abrir,
+É o jeito de "alimentar o Vision aos poucos": cada fato vira uma linha que você pode abrir,
 editar ou apagar (data/memoria.db). A busca é por similaridade de cosseno em numpy, que para
 algumas milhares de memórias é instantânea.
 """
@@ -15,7 +15,7 @@ from typing import Any, Protocol
 
 import numpy as np
 
-from jarvis import tempo
+from vision import tempo
 
 # Prefixos recomendados pelo EmbeddingGemma para busca assimétrica.
 PREFIXO_CONSULTA = "task: search result | query: "

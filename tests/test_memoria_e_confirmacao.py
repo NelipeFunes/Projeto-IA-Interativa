@@ -1,7 +1,7 @@
 import pytest
 
-from jarvis.brain import confirmacao, intencao
-from jarvis.tools.memoria import FerramentasMemoria
+from vision.brain import confirmacao, intencao
+from vision.tools.memoria import FerramentasMemoria
 
 
 async def test_lembrar_buscar_esquecer(memorias):
@@ -25,7 +25,7 @@ async def test_quase_duplicata_atualiza(memorias):
 async def test_memoria_persiste_entre_sessoes(tmp_path):
     from conftest import EmbedderFalso
 
-    from jarvis.memory.store import Memorias
+    from vision.memory.store import Memorias
 
     m1 = Memorias(tmp_path / "m.db", EmbedderFalso())
     await m1.lembrar("O Felipe corre às quintas.")
@@ -38,7 +38,7 @@ async def test_memoria_persiste_entre_sessoes(tmp_path):
 @pytest.mark.parametrize(
     "frase,esperado",
     [
-        ("sim", "sim"), ("Sim, pode.", "sim"), ("pode sim, Jarvis", "sim"), ("beleza", "sim"), ("isso mesmo!", "sim"),
+        ("sim", "sim"), ("Sim, pode.", "sim"), ("pode sim, Vision", "sim"), ("beleza", "sim"), ("isso mesmo!", "sim"),
         ("não", "nao"), ("Não.", "nao"), ("cancela", "nao"), ("deixa pra lá", "nao"),
         ("não, às 17h", "outro"), ("na verdade muda pra sexta", "outro"), ("qual minha agenda?", "outro"),
     ],

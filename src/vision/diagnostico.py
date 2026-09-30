@@ -1,4 +1,4 @@
-"""`jarvis teste [tudo|ollama|agenda|orbit|voz]`: checagem do ambiente, com diagnóstico em português."""
+"""`vision teste [tudo|ollama|agenda|orbit|voz]`: checagem do ambiente, com diagnóstico em português."""
 
 from __future__ import annotations
 
@@ -9,7 +9,7 @@ import sys
 import time
 from typing import Any
 
-from jarvis.config import Config
+from vision.config import Config
 
 OK, ERRO, AVISO = "[ok]  ", "[ERRO]", "[aviso]"
 
@@ -63,8 +63,8 @@ async def _ollama(cfg: Config) -> bool:
 
 
 async def _agenda(cfg: Config) -> bool:
-    from jarvis.google_login import dias_desde_login
-    from jarvis.tools.mcp_host import HostMCP
+    from vision.google_login import dias_desde_login
+    from vision.tools.mcp_host import HostMCP
 
     s = cfg.get("mcp.google-calendar") or {}
     cred = cfg.caminho((s.get("env") or {}).get("GOOGLE_OAUTH_CREDENTIALS", "data/google-oauth.json"))
@@ -74,14 +74,14 @@ async def _agenda(cfg: Config) -> bool:
     _p(OK, "credenciais OAuth encontradas")
     dias = dias_desde_login(cfg)
     if dias is None:
-        _p(AVISO, "nunca rodou 'jarvis google-login' por aqui")
+        _p(AVISO, "nunca rodou 'vision google-login' por aqui")
     else:
         _p(OK if dias < 6 else AVISO, f"último login há {dias:.1f} dia(s) (vence com 7)")
     host = HostMCP.da_config(cfg)
     host.conexoes = {k: v for k, v in host.conexoes.items() if k == "google-calendar"}
     async with host:
-        from jarvis import tempo
-        from jarvis.tools.agenda import Agenda
+        from vision import tempo
+        from vision.tools.agenda import Agenda
 
         try:
             saida = await Agenda(cfg, host).listar({"data_inicio": tempo.agora().date().isoformat()})
@@ -148,7 +148,7 @@ async def _orbit(cfg: Config) -> bool:
 
 
 async def _voz(cfg: Config) -> bool:
-    from jarvis.voice import diagnostico_voz
+    from vision.voice import diagnostico_voz
 
     return await diagnostico_voz.rodar(cfg, _p, OK, ERRO, AVISO)
 

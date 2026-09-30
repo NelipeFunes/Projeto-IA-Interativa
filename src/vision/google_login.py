@@ -6,8 +6,8 @@ import os
 import subprocess
 from datetime import datetime
 
-from jarvis import tempo
-from jarvis.config import Config
+from vision import tempo
+from vision.config import Config
 
 ARQUIVO_DATA = "google-login.txt"
 
@@ -29,7 +29,7 @@ def fazer_login(cfg: Config) -> int:
     r = subprocess.run(comando, env=env, cwd=cfg.raiz)
     if r.returncode == 0:
         (cfg.dados / ARQUIVO_DATA).write_text(tempo.agora().isoformat(timespec="seconds"), encoding="utf-8")
-        print("Login feito. Vale por 7 dias (o Jarvis avisa no 6º).")
+        print("Login feito. Vale por 7 dias (o Vision avisa no 6º).")
     return r.returncode
 
 
@@ -42,15 +42,15 @@ def dias_desde_login(cfg: Config) -> float | None:
 
 
 def aviso_login(cfg: Config) -> str | None:
-    """Frase para o Jarvis dizer ao iniciar, se o login estiver para vencer ou nunca foi feito."""
+    """Frase para o Vision dizer ao iniciar, se o login estiver para vencer ou nunca foi feito."""
     if not _servidor(cfg).get("ativo", True):
         return None
     dias = dias_desde_login(cfg)
     limite = float(cfg.get("agenda.aviso_login_dias", 6))
     if dias is None:
-        return "Felipe, a agenda do Google ainda não está conectada. Rode: jarvis google-login"
+        return "Felipe, a agenda do Google ainda não está conectada. Rode: vision google-login"
     if dias >= 7:
-        return "Felipe, o login do Google venceu. Rode: jarvis google-login"
+        return "Felipe, o login do Google venceu. Rode: vision google-login"
     if dias >= limite:
-        return "Felipe, o login do Google vence amanhã. Quando puder, rode: jarvis google-login"
+        return "Felipe, o login do Google vence amanhã. Quando puder, rode: vision google-login"
     return None

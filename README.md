@@ -1,6 +1,6 @@
 # Vision
 
-Assistente pessoal local do Felipe (o pacote e o comando ainda se chamam `jarvis`): agenda (Google), finanças e tarefas (Orbit) e memória, por texto ou voz,
+Assistente pessoal local do Felipe (comando `vision`): agenda (Google), finanças e tarefas (Orbit) e memória, por texto ou voz,
 100% no PC, sem pagar tokens. Cérebro: Qwen3.5 no Ollama (GPU). Ouvido: Parakeet (CPU). Voz: Piper (CPU).
 
 ## Instalação (Windows)
@@ -8,8 +8,8 @@ Assistente pessoal local do Felipe (o pacote e o comando ainda se chamam `jarvis
 Precisa de: GPU NVIDIA com 6+ GB de VRAM, [Ollama](https://ollama.com), [uv](https://docs.astral.sh/uv/), Node.js e git.
 
 ```bash
-git clone https://github.com/NelipeFunes/Projeto-IA-Interativa.git jarvis
-cd jarvis
+git clone https://github.com/NelipeFunes/Projeto-IA-Interativa.git vision
+cd vision
 uv sync --python 3.12
 ollama pull qwen3.5:4b
 ollama pull embeddinggemma
@@ -18,17 +18,17 @@ npm install --prefix node
 npm install --prefix ui && npm run build --prefix ui
 ```
 
-Depois, ponha a pasta do projeto no PATH para o comando `jarvis` (o `jarvis.cmd`) funcionar de qualquer pasta.
+Depois, ponha a pasta do projeto no PATH para o comando `vision` (o `vision.cmd`) funcionar de qualquer pasta.
 Para conectar o Google Agenda, veja `docs/guia-google-cloud.md`.
 
 ## No dia a dia: em segundo plano
 
-O **núcleo** (`jarvisw`, sem console) junta tudo: voz, a janela com o orbe, o ícone na bandeja e o servidor local.
+O **núcleo** (`visionw`, sem console) junta tudo: voz, a janela com o orbe, o ícone na bandeja e o servidor local.
 Na primeira vez que roda, ele se coloca na pasta Inicializar do Windows (desliga pela bandeja).
 
 ```bash
-jarvis abrir             # abre a janela (liga o núcleo se ele não estiver rodando)
-jarvis nucleo            # o mesmo núcleo, com log no console (para ver o que acontece)
+vision abrir             # abre a janela (liga o núcleo se ele não estiver rodando)
+vision nucleo            # o mesmo núcleo, com log no console (para ver o que acontece)
 ```
 
 - **Bandeja:** abrir, falar agora, pausar escuta, iniciar com o Windows, sair. O ícone muda de cor com o estado.
@@ -42,18 +42,18 @@ jarvis nucleo            # o mesmo núcleo, com log no console (para ver o que a
 ## Comandos (de qualquer pasta)
 
 ```bash
-jarvis chat              # conversa por texto
-jarvis voz               # "Hey Vision" (ou ctrl+alt+j) abre a conversa; "Beleza, Vision, pode desligar" fecha
-jarvis teste             # checagem geral (ollama, agenda, orbit, voz)
-jarvis teste voz         # testa o "Hey Vision" e o "pode desligar" com a sua voz
-jarvis google-login      # a cada 7 dias (app do Google em modo teste)
-jarvis memorias          # o que o Jarvis lembra de você
-jarvis dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Vision"
-jarvis acordar
-jarvis falar "Oi, Felipe"   # testa a voz
-jarvis servidor          # só o cérebro como API em 127.0.0.1:8765 (token em data/nucleo.json)
-jarvis interface --demo  # a demonstração da tela, com dados de exemplo
-jarvis --modelo qwen3.5:9b chat   # troca de modelo sem mexer no config
+vision chat              # conversa por texto
+vision voz               # "Hey Vision" (ou ctrl+alt+j) abre a conversa; "Beleza, Vision, pode desligar" fecha
+vision teste             # checagem geral (ollama, agenda, orbit, voz)
+vision teste voz         # testa o "Hey Vision" e o "pode desligar" com a sua voz
+vision google-login      # a cada 7 dias (app do Google em modo teste)
+vision memorias          # o que o Vision lembra de você
+vision dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Vision"
+vision acordar
+vision falar "Oi, Felipe"   # testa a voz
+vision servidor          # só o cérebro como API em 127.0.0.1:8765 (token em data/nucleo.json)
+vision interface --demo  # a demonstração da tela, com dados de exemplo
+vision --modelo qwen3.5:9b chat   # troca de modelo sem mexer no config
 ```
 
 Na pasta do projeto:
@@ -76,7 +76,7 @@ microfone → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? abre a co
                   └── guardar_memoria / buscar_memoria / esquecer → data/memoria.db
 ```
 
-- **Ferramentas simples em português** (src/jarvis/tools): o modelo pequeno não vê os esquemas enormes dos
+- **Ferramentas simples em português** (src/vision/tools): o modelo pequeno não vê os esquemas enormes dos
   MCPs; cada ferramenta traduz para o MCP.
 - **Escrita sempre confirmada:** criar, alterar, apagar, lançar ou esquecer só roda depois de um "sim".
   A frase de confirmação é montada pelo código, não pelo modelo.
@@ -84,7 +84,7 @@ microfone → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? abre a co
   o agente insiste uma vez.
 - **Memória:** `data/perfil.md` entra em toda conversa (edite à mão); `data/memoria.db` guarda fatos, e os
   3 mais parecidos com cada fala entram no prompt.
-- **Modo jogo:** com o `cs2.exe` aberto, o modelo sai da VRAM e o "Hey Jarvis" pausa (o atalho continua).
+- **Modo jogo:** com o `cs2.exe` aberto, o modelo sai da VRAM e o "Hey Vision" pausa (o atalho continua).
 
 ## Arquivos que você edita
 

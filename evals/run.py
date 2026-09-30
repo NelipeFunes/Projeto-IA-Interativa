@@ -1,4 +1,4 @@
-"""Avaliação do Jarvis com servidores falsos (agenda + Orbit) e modelo de verdade.
+"""Avaliação do Vision com servidores falsos (agenda + Orbit) e modelo de verdade.
 
 uv run python evals/run.py --modelos qwen3.5:4b,qwen3.5:9b [--pensar] [--so agenda_hoje,...]
 Gera evals/resultado-<nome>.md e evals/saidas/<modelo>.json
@@ -22,14 +22,14 @@ sys.path.insert(0, str(RAIZ / "evals"))
 from casos import CASOS, Caso, Contexto  # noqa: E402
 from fakes import calendario_falso, orbit_falso  # noqa: E402
 
-from jarvis import config, tempo  # noqa: E402
-from jarvis.brain.agent import Agente  # noqa: E402
-from jarvis.montagem import criar_llm, criar_memorias  # noqa: E402
-from jarvis.tools.agenda import Agenda  # noqa: E402
-from jarvis.tools.base import Registro  # noqa: E402
-from jarvis.tools.mcp_host import ConexaoMCP, HostMCP  # noqa: E402
-from jarvis.tools.memoria import FerramentasMemoria  # noqa: E402
-from jarvis.tools.orbit import FerramentasOrbit  # noqa: E402
+from vision import config, tempo  # noqa: E402
+from vision.brain.agent import Agente  # noqa: E402
+from vision.montagem import criar_llm, criar_memorias  # noqa: E402
+from vision.tools.agenda import Agenda  # noqa: E402
+from vision.tools.base import Registro  # noqa: E402
+from vision.tools.mcp_host import ConexaoMCP, HostMCP  # noqa: E402
+from vision.tools.memoria import FerramentasMemoria  # noqa: E402
+from vision.tools.orbit import FerramentasOrbit  # noqa: E402
 
 
 async def rodar_caso(cfg, llm, caso: Caso) -> dict:
@@ -40,7 +40,7 @@ async def rodar_caso(cfg, llm, caso: Caso) -> dict:
         "google-calendar": ConexaoMCP("google-calendar", agenda_srv, 20),
         "orbit": ConexaoMCP("orbit", orbit_srv, 20),
     })
-    pasta = Path(tempfile.mkdtemp(prefix="jarvis-eval-"))
+    pasta = Path(tempfile.mkdtemp(prefix="vision-eval-"))
     cfg.dados = pasta
     memorias = criar_memorias(cfg)
     for fato in caso.memorias:
@@ -117,7 +117,7 @@ def _rotulo(av: dict) -> str:
 def relatorio(avaliacoes: list[dict]) -> str:
     ids = list(dict.fromkeys(r["id"] for r in avaliacoes[0]["resultados"]))
     reps = max(r.get("rep", 0) for r in avaliacoes[0]["resultados"]) + 1
-    linhas = ["# Avaliação do Jarvis", "",
+    linhas = ["# Avaliação do Vision", "",
               f"Gerado em {tempo.agora():%d/%m/%Y %H:%M} · {len(ids)} casos × {reps} rodada(s) · canal voz · "
               "agenda e Orbit falsos · memória com embeddinggemma real", ""]
     linhas += ["## Resumo", "", "| Modelo | Acertos | Tempo médio | p90 | 1ª palavra (média) | Insistências | VRAM |",

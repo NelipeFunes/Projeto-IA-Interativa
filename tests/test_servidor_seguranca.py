@@ -4,8 +4,8 @@ import pytest
 from starlette.testclient import TestClient
 from starlette.websockets import WebSocketDisconnect
 
-from jarvis.eventos import Barramento
-from jarvis.server import Controle, criar_app
+from vision.eventos import Barramento
+from vision.server import Controle, criar_app
 
 TOKEN = "segredo-de-teste"
 ORIGEM = "http://127.0.0.1:8765"

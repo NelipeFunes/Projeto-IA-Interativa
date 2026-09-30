@@ -1,6 +1,6 @@
-# Conectar o Google Agenda ao Jarvis (~10 min, uma vez)
+# Conectar o Google Agenda ao Vision (~10 min, uma vez)
 
-O Jarvis usa o servidor MCP `@cocal/google-calendar-mcp` (já instalado em `node/`). Ele precisa de um
+O Vision usa o servidor MCP `@cocal/google-calendar-mcp` (já instalado em `node/`). Ele precisa de um
 "cliente OAuth" seu no Google Cloud. É grátis e não precisa de cartão.
 
 ## Passo a passo
@@ -17,20 +17,20 @@ O Jarvis usa o servidor MCP `@cocal/google-calendar-mcp` (já instalado em `node
    tipo de aplicativo **App para computador (Desktop app)** → nome `jarvis-pc` → *Criar*.
    - Tem que ser **Desktop app**. "Aplicativo da Web" não funciona com esse servidor.
 6. Clique em **Baixar JSON** e salve como:
-   `C:\Users\User\jarvis\data\google-oauth.json`
+   `C:\Users\User\vision\data\google-oauth.json`
 7. No terminal, na pasta do projeto:
 
    ```bash
-   jarvis google-login
+   vision google-login
    ```
 
    O navegador abre. Escolha a conta e aceite. Como o app está em teste, aparece o aviso "O Google não
    verificou este app" → *Continuar*. Esse aviso é esperado para um app pessoal.
-8. Teste: `jarvis teste agenda` e depois `jarvis chat` → "qual minha agenda de hoje?".
+8. Teste: `vision teste agenda` e depois `vision chat` → "qual minha agenda de hoje?".
 
 ## A cada 7 dias
 
-Rode `jarvis google-login` de novo. O Jarvis avisa no 6º dia ao iniciar. Se esquecer, ele diz
+Rode `vision google-login` de novo. O Vision avisa no 6º dia ao iniciar. Se esquecer, ele diz
 "a agenda está sem login" quando você perguntar da agenda.
 
 Para acabar com isso um dia: tela de consentimento → *Publicar app* → "Em produção". Para uso pessoal

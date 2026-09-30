@@ -11,9 +11,9 @@ sys.path.insert(0, str(RAIZ / "tests"))
 
 from fakes.calendario_falso import criar_servidor  # noqa: E402
 
-from jarvis import config, tempo  # noqa: E402
-from jarvis.memory.store import Memorias  # noqa: E402
-from jarvis.tools.mcp_host import ConexaoMCP, HostMCP  # noqa: E402
+from vision import config, tempo  # noqa: E402
+from vision.memory.store import Memorias  # noqa: E402
+from vision.tools.mcp_host import ConexaoMCP, HostMCP  # noqa: E402
 
 
 class EmbedderFalso:

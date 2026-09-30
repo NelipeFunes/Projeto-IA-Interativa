@@ -10,10 +10,10 @@ import numpy as np
 import pytest
 from fakes.llm_falso import LLMFalso, chama, fala
 
-from jarvis import config, tempo
-from jarvis.brain.agent import Agente
-from jarvis.tools.agenda import Agenda
-from jarvis.tools.base import Registro
+from vision import config, tempo
+from vision.brain.agent import Agente
+from vision.tools.agenda import Agenda
+from vision.tools.base import Registro
 
 MODELOS = config.RAIZ / "modelos"
 pytestmark = [
@@ -24,8 +24,8 @@ pytestmark = [
 
 @pytest.fixture(scope="module")
 def pecas():
-    from jarvis.voice.stt import Transcritor
-    from jarvis.voice.tts import Voz
+    from vision.voice.stt import Transcritor
+    from vision.voice.tts import Voz
 
     return {
         "pt": Voz(MODELOS / "piper" / "pt_BR-faber-medium.onnx", deterministico=True),
@@ -35,7 +35,7 @@ def pecas():
 
 
 def _fala(voz, texto: str) -> np.ndarray:
-    from jarvis.voice.stt import reamostrar
+    from vision.voice.stt import reamostrar
 
     return reamostrar(voz.sintetizar(texto, normalizar=False), voz.taxa, 16000)
 
@@ -50,9 +50,9 @@ def _chama(pecas):
 
 
 def _loop(pecas, agente, audios, tmp_path, **opcoes):
-    from jarvis.voice.audio import ArquivoComoMicrofone, SaidaArquivo
-    from jarvis.voice.loop import LoopVoz
-    from jarvis.voice.wake import DetectorFala, PalavraAtivacao
+    from vision.voice.audio import ArquivoComoMicrofone, SaidaArquivo
+    from vision.voice.loop import LoopVoz
+    from vision.voice.wake import DetectorFala, PalavraAtivacao
 
     pasta = MODELOS / "openwakeword"
     por_modelo = opcoes.get("ativacao_por_texto") is False
@@ -134,7 +134,7 @@ async def test_conversa_continua_ate_pode_desligar(pecas, registro, tmp_path):
     laco.ao_evento = eventos.append
     await laco.rodar()
     assert [h.get("despedida", False) for h in laco.historico] == [False, False, True]
-    assert laco.historico[1]["jarvis"].startswith("Hoje você tem aula")
+    assert laco.historico[1]["vision"].startswith("Hoje você tem aula")
     assert not laco.em_conversa
     estados = [e["valor"] for e in eventos if e["tipo"] == "estado"]
     assert estados[:4] == ["ocioso", "ouvindo", "falando", "ouvindo"]  # acordou, cumprimentou, ouvindo
@@ -160,8 +160,8 @@ async def test_confirmacao_por_voz_dentro_da_conversa(pecas, registro, tmp_path,
         _fala(pecas["pt"], "Sim, pode."), _silencio(1.5),
     ], tmp_path)
     await laco.rodar()
-    assert laco.historico[0]["jarvis"].endswith("Confirma?")
-    assert laco.historico[1]["jarvis"].startswith("Feito. Criei 'Barbeiro'")
+    assert laco.historico[0]["vision"].endswith("Confirma?")
+    assert laco.historico[1]["vision"].startswith("Feito. Criei 'Barbeiro'")
     assert any(e["summary"] == "Barbeiro" for e in servidor_agenda.eventos)
 
 
@@ -251,8 +251,8 @@ async def test_erro_do_modelo_nao_mata_a_voz(pecas, registro, tmp_path):
     eventos = []
     laco.ao_evento = eventos.append
     await laco.rodar()
-    assert laco.historico[0].get("erro") and laco.historico[1]["jarvis"] == "Agora sim."
-    assert any(e == {"tipo": "resposta", "texto": laco.historico[0]["jarvis"]} for e in eventos)
+    assert laco.historico[0].get("erro") and laco.historico[1]["vision"] == "Agora sim."
+    assert any(e == {"tipo": "resposta", "texto": laco.historico[0]["vision"]} for e in eventos)
 
 
 @pytest.mark.parametrize("como", ["bandeja", "jogo"])
@@ -288,7 +288,7 @@ async def test_confirmacao_que_demorou_nao_vale(pecas, registro, tmp_path, servi
         _fala(pecas["pt"], "Sim, pode."), _silencio(1.5),  # "tarde demais" com prazo zero
     ], tmp_path, prazo_confirmacao_s=0.0)
     await laco.rodar()
-    assert laco.historico[0]["jarvis"].endswith("Confirma?")
+    assert laco.historico[0]["vision"].endswith("Confirma?")
     assert len(servidor_agenda.eventos) == antes  # o "sim" atrasado não executou nada
 
 
@@ -320,7 +320,7 @@ async def test_hey_vision_sim_nao_confirma_pendencia_de_antes_da_conversa(pecas,
 
     laco._responder = responder_e_sair_do_jogo
     await laco.rodar()
-    assert laco.historico[0]["jarvis"].endswith("Confirma?")
+    assert laco.historico[0]["vision"].endswith("Confirma?")
     assert len(laco.historico) == 2 and laco.em_conversa  # o "Hey Vision, sim" chegou e abriu a conversa
     assert len(servidor_agenda.eventos) == antes  # mas não confirmou nada
 
@@ -344,7 +344,7 @@ async def test_hey_jarvis_sim_nao_confirma_pendencia_de_antes(pecas, registro, t
 
     laco._responder = responder_e_sair_do_jogo
     await laco.rodar()
-    assert laco.historico[0]["jarvis"].endswith("Confirma?")
+    assert laco.historico[0]["vision"].endswith("Confirma?")
     assert len(laco.historico) == 2 and laco.em_conversa  # acordou pelo modelo e ouviu o "sim"
     assert len(servidor_agenda.eventos) == antes  # mas não confirmou nada
 
@@ -371,7 +371,7 @@ async def test_stt_que_falha_na_fala_inteira_mantem_o_pedido_do_comeco(pecas, re
 
 
 async def test_despedida_configurada_fala_e_depois_bipa(pecas, registro, tmp_path):
-    from jarvis.voice.audio import bipe_desligar
+    from vision.voice.audio import bipe_desligar
 
     laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
         _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Beleza, Vision, pode desligar."),
@@ -386,7 +386,7 @@ async def test_despedida_configurada_fala_e_depois_bipa(pecas, registro, tmp_pat
 
 
 async def test_pode_desligar_so_da_o_bipe_sem_falar(pecas, registro, tmp_path):
-    from jarvis.voice.audio import bipe_desligar
+    from vision.voice.audio import bipe_desligar
 
     laco = _loop(pecas, Agente(LLMFalso([fala("Tudo certo.")]), registro, None), [
         _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Tudo bem?"), _silencio(1.5),
@@ -400,4 +400,4 @@ async def test_pode_desligar_so_da_o_bipe_sem_falar(pecas, registro, tmp_path):
     assert np.array_equal(laco.saida.trechos[-1], bipe_desligar())  # o último som é o bipe de desligar
     # As falas do próprio laço (fora do modelo) foram só a saudação: nenhuma despedida falada nem escrita.
     assert [e["texto"] for e in eventos if e["tipo"] == "resposta"] == ["Oi, Felipe. Pode falar."]
-    assert laco.historico[-1]["jarvis"] == ""
+    assert laco.historico[-1]["vision"] == ""

@@ -1,4 +1,4 @@
-"""`jarvis teste voz`: arquivos, dispositivos, nível do microfone e (se você estiver no terminal)
+"""`vision teste voz`: arquivos, dispositivos, nível do microfone e (se você estiver no terminal)
 calibração da palavra de ativação e comparação dos dois Parakeet com a sua voz."""
 
 from __future__ import annotations
@@ -9,7 +9,7 @@ from collections.abc import Callable
 
 import numpy as np
 
-from jarvis.config import Config
+from vision.config import Config
 
 
 def _gravar(dispositivo, segundos: float) -> np.ndarray:
@@ -26,7 +26,7 @@ def _dbfs(pcm: np.ndarray) -> float:
 
 
 async def rodar(cfg: Config, p: Callable[[str, str], None], OK: str, ERRO: str, AVISO: str) -> bool:
-    from jarvis.voice.audio import achar_dispositivo, escolher_microfone
+    from vision.voice.audio import achar_dispositivo, escolher_microfone
 
     ok = True
     voz_nome = cfg.get("voz.voz_piper", "pt_BR-faber-medium")
@@ -63,7 +63,7 @@ async def rodar(cfg: Config, p: Callable[[str, str], None], OK: str, ERRO: str, 
         return False
 
     t = time.perf_counter()
-    from jarvis.voice.tts import carregar_voz
+    from vision.voice.tts import carregar_voz
 
     voz = carregar_voz(cfg)
     frase = "Oi, Felipe. Amanhã você tem dentista às 14:00."
@@ -81,7 +81,7 @@ async def rodar(cfg: Config, p: Callable[[str, str], None], OK: str, ERRO: str, 
 
 
 async def _calibrar(cfg, p, OK, ERRO, AVISO, ok, mic, nome_alto, voz, audio) -> bool:
-    from jarvis.voice.audio import BLOCO, Saida, bipe
+    from vision.voice.audio import BLOCO, Saida, bipe
 
     saida = Saida(cfg)
     print("\nVou tocar um bipe e uma frase no alto-falante.")
@@ -95,7 +95,7 @@ async def _calibrar(cfg, p, OK, ERRO, AVISO, ok, mic, nome_alto, voz, audio) -> 
         ok = _calibrar_nome(cfg, p, OK, AVISO, ok, mic)
         return _comparar_stt(cfg, p, OK, ERRO, mic, ok)
 
-    from jarvis.voice.wake import PalavraAtivacao
+    from vision.voice.wake import PalavraAtivacao
 
     ativ = PalavraAtivacao(cfg.modelos / "openwakeword", limiar=1.0)
 
@@ -134,7 +134,7 @@ async def _calibrar(cfg, p, OK, ERRO, AVISO, ok, mic, nome_alto, voz, audio) -> 
           f"pegaria {pegou} de {len(scores)}; sugerido: {sugerido}")
     preferido = (cfg.get("voz.microfone") or [None])[0]
     if preferido:
-        from jarvis.voice.audio import achar_dispositivo
+        from vision.voice.audio import achar_dispositivo
 
         disp_preferido, _ = achar_dispositivo([preferido], entrada=True)
         if disp_preferido is not None and mic != disp_preferido:
@@ -146,8 +146,8 @@ async def _calibrar(cfg, p, OK, ERRO, AVISO, ok, mic, nome_alto, voz, audio) -> 
 
 def _calibrar_nome(cfg, p, OK, AVISO, ok, mic) -> bool:
     """Ativação por transcrição: você diz "Hey Vision" 3 vezes e vê o que o Parakeet entendeu."""
-    from jarvis.voice.comandos import achar_ativacao, e_despedida
-    from jarvis.voice.stt import carregar_transcritor
+    from vision.voice.comandos import achar_ativacao, e_despedida
+    from vision.voice.stt import carregar_transcritor
 
     nome = cfg.get("assistente.nome", "Vision")
     stt = carregar_transcritor(cfg)
@@ -169,7 +169,7 @@ def _calibrar_nome(cfg, p, OK, AVISO, ok, mic) -> bool:
 
 
 def _comparar_stt(cfg, p, OK, ERRO, mic, ok) -> bool:
-    from jarvis.voice.stt import Transcritor
+    from vision.voice.stt import Transcritor
 
     nome = cfg.get("assistente.nome", "Vision")
     input(f"\nAperte Enter e diga: '{nome}, quanto eu gastei com iFood esse mês?' (5 s)...")

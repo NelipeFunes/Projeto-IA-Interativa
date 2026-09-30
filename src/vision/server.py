@@ -10,7 +10,7 @@ POST   /conversa     {"texto": "...", "canal": "texto|voz|alexa", "sessao": "id"
 GET    /status       modelo, MCPs, memórias, ferramentas
 GET    /estado       foto da tela (evento "painel")
 GET    /memorias     lista; DELETE /memorias/{id} apaga (clique na tela = você decidiu, sem perguntar de novo)
-POST   /janela       {"acao": "mostrar"}: abre a janela (usado quando você roda `jarvis` com o núcleo já ligado)
+POST   /janela       {"acao": "mostrar"}: abre a janela (usado quando você roda `vision` com o núcleo já ligado)
 WS     /ws           eventos do núcleo → tela; comandos da tela → núcleo (texto, confirmar, ouvir, parar_fala)
 GET    /app/...      a interface (arquivos estáticos de ui/dist, sem segredo)
 """
@@ -36,9 +36,9 @@ from starlette.routing import Mount, Route, WebSocketRoute
 from starlette.staticfiles import StaticFiles
 from starlette.websockets import WebSocket, WebSocketDisconnect
 
-from jarvis.config import Config
-from jarvis.eventos import Barramento
-from jarvis.montagem import Jarvis, montar
+from vision.config import Config
+from vision.eventos import Barramento
+from vision.montagem import Vision, montar
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +48,7 @@ PRAZO_OLA_S = 3.0
 
 @dataclass
 class Controle:
-    """O que a tela pode pedir ao núcleo. Sem núcleo (`jarvis servidor`), só as rotas HTTP funcionam."""
+    """O que a tela pode pedir ao núcleo. Sem núcleo (`vision servidor`), só as rotas HTTP funcionam."""
 
     texto: Callable[[str], Awaitable[None]] | None = None
     confirmar: Callable[[str, bool], Awaitable[None]] | None = None
@@ -68,14 +68,14 @@ def _token_confere(recebido: str, token: str) -> bool:
 
 def criar_app(
     cfg: Config,
-    jarvis: Jarvis | None = None,
+    vision: Vision | None = None,
     *,
     token: str | None = None,
     barramento: Barramento | None = None,
     controle: Controle | None = None,
     pasta_app: Path | None = None,
 ) -> Starlette:
-    estado: dict[str, Jarvis] = {"j": jarvis} if jarvis is not None else {}
+    estado: dict[str, Vision] = {"j": vision} if vision is not None else {}
     token = token or secrets.token_urlsafe(32)
     origens = origens_permitidas(int(cfg.get("servidor.porta", 8765)))
     controle = controle or Controle()
@@ -83,7 +83,7 @@ def criar_app(
 
     @asynccontextmanager
     async def ciclo(_app):
-        if jarvis is not None:
+        if vision is not None:
             yield
             return
         async with montar(cfg) as j:
@@ -259,7 +259,7 @@ def _comando(msg: Any, controle: Controle, tarefas: set[asyncio.Task]) -> None:
 
 
 def gravar_acesso(cfg: Config, porta: int, token: str) -> Path:
-    """data/nucleo.json: como outro processo seu (a janela, o `jarvis` de novo) acha o núcleo."""
+    """data/nucleo.json: como outro processo seu (a janela, o `vision` de novo) acha o núcleo."""
     arquivo = cfg.dados / "nucleo.json"
     arquivo.parent.mkdir(parents=True, exist_ok=True)
     arquivo.write_text(json.dumps({"porta": porta, "token": token, "pid": os.getpid()}), encoding="utf-8")
@@ -272,7 +272,7 @@ def rodar(cfg: Config) -> None:
     host = cfg.get("servidor.host", "127.0.0.1")
     if host not in ("127.0.0.1", "localhost", "::1"):
         raise SystemExit("Por segurança o servidor só escuta em 127.0.0.1. Exponha via túnel quando for plugar a Alexa.")
-    from jarvis.nucleo import nucleo_rodando
+    from vision.nucleo import nucleo_rodando
 
     if nucleo_rodando():
         # O núcleo já serve esta mesma API (e é dono do data/nucleo.json): subir outro só quebraria o dele.

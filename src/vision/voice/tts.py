@@ -7,8 +7,8 @@ from pathlib import Path
 
 import numpy as np
 
-from jarvis.config import Config
-from jarvis.voice.falado import para_fala
+from vision.config import Config
+from vision.voice.falado import para_fala
 
 
 class Voz:
@@ -38,8 +38,8 @@ def carregar_voz(cfg: Config, nome: str | None = None) -> Voz:
 
 
 def falar_texto(cfg: Config, texto: str) -> None:
-    """`jarvis falar ...`: sintetiza e toca no alto-falante configurado."""
-    from jarvis.voice.audio import Saida
+    """`vision falar ...`: sintetiza e toca no alto-falante configurado."""
+    from vision.voice.audio import Saida
 
     t = time.perf_counter()
     voz = carregar_voz(cfg)

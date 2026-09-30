@@ -14,7 +14,7 @@ from pathlib import Path
 
 import pytest
 
-from jarvis.config import RAIZ
+from vision.config import RAIZ
 
 TERMOS = RAIZ / "data" / "termos-privados.txt"
 HOOK = RAIZ / ".githooks" / "pre-push"

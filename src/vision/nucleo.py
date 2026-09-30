@@ -7,7 +7,7 @@
 - a janela, que é OUTRO processo (pywebview quer a thread principal; se ela travar, a voz continua).
   O núcleo sobe a janela escondida, reinicia se ela cair e manda comandos pela entrada padrão dela.
 
-Entradas: `jarvisw` (sem console, é o que o atalho de inicialização roda) e `jarvis nucleo` (com console,
+Entradas: `visionw` (sem console, é o que o atalho de inicialização roda) e `vision nucleo` (com console,
 para ver o que acontece). Só um núcleo por vez: rodar de novo só abre a janela do que já está rodando.
 Log em data/logs/nucleo.log.
 """
@@ -31,11 +31,11 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from jarvis import config, inicializacao
-from jarvis.eventos import Barramento
-from jarvis.voice.loop import FALA_DE_ERRO
+from vision import config, inicializacao
+from vision.eventos import Barramento
+from vision.voice.loop import FALA_DE_ERRO
 
-log = logging.getLogger("jarvis.nucleo")
+log = logging.getLogger("vision.nucleo")
 
 NOME_MUTEX = "Local\\VisionNucleo"
 ATUALIZAR_PAINEL_S = 300  # a agenda muda por fora (celular): a tela recebe uma foto nova a cada 5 min
@@ -82,7 +82,7 @@ class InstanciaUnica:
 
 
 def nucleo_rodando(nome: str = NOME_MUTEX) -> bool:
-    """Só olha se o mutex existe, sem criar (o `jarvis servidor` usa para não brigar com o núcleo)."""
+    """Só olha se o mutex existe, sem criar (o `vision servidor` usa para não brigar com o núcleo)."""
     if sys.platform != "win32":
         return False
     k32 = ctypes.WinDLL("kernel32", use_last_error=True)
@@ -146,7 +146,7 @@ class Janela:
         saida = (self.cfg.dados / "logs" / "janela.log").open("a", encoding="utf-8")
         try:
             self.proc = subprocess.Popen(
-                [sys.executable, "-m", "jarvis.cli", "interface", "--nucleo"],
+                [sys.executable, "-m", "vision.cli", "interface", "--nucleo"],
                 stdin=subprocess.PIPE, stdout=saida, stderr=subprocess.STDOUT, env=env, cwd=self.cfg.raiz,
                 text=True, encoding="utf-8", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
@@ -223,7 +223,7 @@ class Nucleo:
     # ---------- o que a tela pode pedir ----------
 
     def _controle(self):
-        from jarvis.server import Controle
+        from vision.server import Controle
 
         async def texto(t: str) -> None:
             try:
@@ -256,7 +256,7 @@ class Nucleo:
 
     async def painel(self) -> dict[str, Any]:
         """Foto da tela: agenda de hoje, memórias recentes e status."""
-        from jarvis.google_login import dias_desde_login
+        from vision.google_login import dias_desde_login
 
         agenda: list[dict[str, Any]] = []
         if self.agenda is not None:
@@ -317,7 +317,7 @@ class Nucleo:
         self.loop.call_soon_threadsafe(fn, *args)
 
     def _iniciar_bandeja(self) -> None:
-        from jarvis.bandeja import Acoes, Bandeja
+        from vision.bandeja import Acoes, Bandeja
 
         flag = self.cfg.dados / "dormindo.flag"
 
@@ -358,11 +358,11 @@ class Nucleo:
     async def rodar(self) -> None:
         import uvicorn
 
-        from jarvis.google_login import aviso_login
-        from jarvis.montagem import montar
-        from jarvis.server import criar_app, gravar_acesso
-        from jarvis.tools.agenda import Agenda
-        from jarvis.voice.wake import Atalho
+        from vision.google_login import aviso_login
+        from vision.montagem import montar
+        from vision.server import criar_app, gravar_acesso
+        from vision.tools.agenda import Agenda
+        from vision.voice.wake import Atalho
 
         self.loop = asyncio.get_running_loop()
         self.parar = asyncio.Event()
@@ -388,7 +388,7 @@ class Nucleo:
                     sock.bind(("127.0.0.1", self.porta))
                 except OSError as e:
                     sock.close()
-                    self.bandeja.avisar(f"A porta {self.porta} está ocupada (outro `jarvis servidor`?).")
+                    self.bandeja.avisar(f"A porta {self.porta} está ocupada (outro `vision servidor`?).")
                     await asyncio.sleep(3)  # dá tempo de a notificação aparecer
                     raise RuntimeError(f"porta {self.porta} ocupada") from e
                 pilha.callback(sock.close)
@@ -400,7 +400,7 @@ class Nucleo:
                         break
                     await asyncio.sleep(0.1)
                 if not servidor.started:
-                    self.bandeja.avisar(f"A porta {self.porta} está ocupada (outro `jarvis servidor`?). Veja o log.")
+                    self.bandeja.avisar(f"A porta {self.porta} está ocupada (outro `vision servidor`?). Veja o log.")
                     raise RuntimeError(f"servidor não subiu na porta {self.porta}")
                 acesso = gravar_acesso(self.cfg, self.porta, self.token)
                 log.info("servidor em http://127.0.0.1:%s", self.porta)
@@ -432,7 +432,7 @@ class Nucleo:
                         acesso.unlink(missing_ok=True)
 
     async def _subir_voz(self, pilha: contextlib.ExitStack, tarefas: list[asyncio.Task]) -> None:
-        from jarvis.voice.loop import preparar_voz, vigiar_jogos_se_ligado
+        from vision.voice.loop import preparar_voz, vigiar_jogos_se_ligado
 
         try:
             self.laco, _ = pilha.enter_context(preparar_voz(
@@ -467,7 +467,7 @@ def escritor_do_log(nome_assistente: str):
 
 
 def main(argv: list[str] | None = None, *, console: bool = False) -> int:
-    """`jarvisw` (sem console) e `jarvis nucleo` (console=True)."""
+    """`visionw` (sem console) e `vision nucleo` (console=True)."""
     argv = sys.argv[1:] if argv is None else argv
     cfg = config.carregar()
     arquivo_log = configurar_log(cfg, console=console)

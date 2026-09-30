@@ -1,4 +1,4 @@
-# Avaliação do Jarvis
+# Avaliação do Vision
 
 Gerado em 30/09/2026 02:04 · 28 casos × 2 rodada(s) · canal voz · agenda e Orbit falsos · memória com embeddinggemma real
 

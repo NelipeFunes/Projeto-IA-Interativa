@@ -28,10 +28,10 @@ from typing import Any
 
 import numpy as np
 
-from jarvis.brain.agent import Agente
-from jarvis.voice.audio import TAXA, bipe, bipe_desligar
-from jarvis.voice.comandos import achar_ativacao, e_despedida
-from jarvis.voice.wake import DetectorFala, PalavraAtivacao
+from vision.brain.agent import Agente
+from vision.voice.audio import TAXA, bipe, bipe_desligar
+from vision.voice.comandos import achar_ativacao, e_despedida
+from vision.voice.wake import DetectorFala, PalavraAtivacao
 
 log = logging.getLogger(__name__)
 
@@ -315,7 +315,7 @@ class LoopVoz:
         if e_despedida(texto):
             self.escrever("(conversa encerrada. Para voltar: 'Hey Vision')")
             await self._fechar_conversa(falar=True)
-            self.historico.append({"felipe": texto, "jarvis": self.despedida, "despedida": True})
+            self.historico.append({"felipe": texto, "vision": self.despedida, "despedida": True})
             self.feitas += 1
             return
         await self._bipe(subindo=False)
@@ -372,7 +372,7 @@ class LoopVoz:
             fila.put_nowait(None)
             await falador
         if r is None:
-            self.historico.append({"felipe": texto, "jarvis": FALA_DE_ERRO, "erro": True})
+            self.historico.append({"felipe": texto, "vision": FALA_DE_ERRO, "erro": True})
             return
         self.pergunta_em = time.monotonic() if r.aguardando_confirmacao else None
         usadas = ", ".join(f["nome"] for f in r.ferramentas)
@@ -380,7 +380,7 @@ class LoopVoz:
         self.escrever(f"{self.agente.nome_assistente}: {r.texto}")
         self.escrever(f"  [ouvir {t_stt:.1f}s · pensar {r.segundos:.1f}s · 1ª palavra {ate_falar:.1f}s"
                       f"{' · ' + usadas if usadas else ''}]")
-        self.historico.append({"felipe": texto, "jarvis": r.texto, "ferramentas": usadas,
+        self.historico.append({"felipe": texto, "vision": r.texto, "ferramentas": usadas,
                                "stt_s": t_stt, "pensar_s": r.segundos, "ate_falar_s": ate_falar})
 
     async def _falador(self, fila: asyncio.Queue[str | None], primeira_fala: list[float]) -> None:
@@ -454,14 +454,14 @@ def preparar_voz(
     escrever: Callable[[str], None] = print,
     ao_evento: Callable[[dict[str, Any]], None] | None = None,
 ) -> Iterator[tuple[LoopVoz, Any]]:
-    """Carrega voz, transcrição, ativação e microfone e monta o LoopVoz (usado pelo `jarvis voz` e pelo núcleo).
+    """Carrega voz, transcrição, ativação e microfone e monta o LoopVoz (usado pelo `vision voz` e pelo núcleo).
 
     Devolve (laço, atalho). O microfone e o atalho são fechados na saída.
     """
-    from jarvis.voice.audio import Microfone, Saida
-    from jarvis.voice.stt import carregar_transcritor
-    from jarvis.voice.tts import carregar_voz
-    from jarvis.voice.wake import Atalho
+    from vision.voice.audio import Microfone, Saida
+    from vision.voice.stt import carregar_transcritor
+    from vision.voice.tts import carregar_voz
+    from vision.voice.wake import Atalho
 
     t = time.perf_counter()
     voz = carregar_voz(cfg)
@@ -506,8 +506,8 @@ def vigiar_jogos_se_ligado(cfg, laco: LoopVoz) -> asyncio.Task | None:
 
 
 async def rodar_voz(cfg, com_ativacao: bool = True) -> None:
-    from jarvis.google_login import aviso_login
-    from jarvis.montagem import montar
+    from vision.google_login import aviso_login
+    from vision.montagem import montar
 
     nome = cfg.get("assistente.nome", "Vision")
     async with montar(cfg) as j:
