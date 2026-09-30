@@ -138,7 +138,7 @@ async def test_conversa_continua_ate_pode_desligar(pecas, registro, tmp_path):
     assert not laco.em_conversa
     estados = [e["valor"] for e in eventos if e["tipo"] == "estado"]
     assert estados[:4] == ["ocioso", "ouvindo", "falando", "ouvindo"]  # acordou, cumprimentou, ouvindo
-    assert estados[-2:] == ["falando", "ocioso"]  # despediu e voltou a esperar
+    assert estados[-2:] == ["pensando", "ocioso"]  # sem falar nada: bipe e volta a esperar
 
 
 async def test_conversa_fecha_sozinha_depois_do_silencio(pecas, registro, tmp_path):
@@ -323,3 +323,19 @@ async def test_hey_vision_sim_nao_confirma_pendencia_de_antes_da_conversa(pecas,
     assert laco.historico[0]["jarvis"].endswith("Confirma?")
     assert len(laco.historico) == 2 and laco.em_conversa  # o "Hey Vision, sim" chegou e abriu a conversa
     assert len(servidor_agenda.eventos) == antes  # mas não confirmou nada
+async def test_pode_desligar_so_da_o_bipe_sem_falar(pecas, registro, tmp_path):
+    from jarvis.voice.audio import bipe_desligar
+
+    laco = _loop(pecas, Agente(LLMFalso([fala("Tudo certo.")]), registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Tudo bem?"), _silencio(1.5),
+        _fala(pecas["pt"], "Beleza, Vision, pode desligar."), _silencio(1.5),
+    ], tmp_path)
+    laco.bipes = True
+    eventos = []
+    laco.ao_evento = eventos.append
+    await laco.rodar()
+    assert not laco.em_conversa and laco.historico[-1]["despedida"]
+    assert np.array_equal(laco.saida.trechos[-1], bipe_desligar())  # o último som é o bipe de desligar
+    # As falas do próprio laço (fora do modelo) foram só a saudação: nenhuma despedida falada nem escrita.
+    assert [e["texto"] for e in eventos if e["tipo"] == "resposta"] == ["Oi, Felipe. Pode falar."]
+    assert laco.historico[-1]["jarvis"] == ""

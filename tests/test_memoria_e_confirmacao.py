@@ -53,9 +53,15 @@ def test_por_voz_fala_solta_da_tv_nao_confirma(frase):
     assert confirmacao.classificar(frase, estrito=True) == "outro"  # por voz, não
 
 
-@pytest.mark.parametrize("frase", ["Sim.", "Sim, pode.", "Pode sim.", "Confirmo.", "Pode criar.", "Sim, Vision"])
+@pytest.mark.parametrize("frase", ["Sim.", "Sim, pode.", "Pode sim.", "Confirmo.", "Pode criar.", "Sim, Vision", "Pode.",
+                                   "Sim, por favor.", "Sim, claro."])
 def test_por_voz_confirmacao_explicita_vale(frase):
     assert confirmacao.classificar(frase, estrito=True) == "sim"
+
+
+@pytest.mark.parametrize("frase", ["Sim, cancela", "Sim mas às 17h", "sim, vou ali buscar"])
+def test_por_voz_sim_seguido_de_outra_coisa_nao_confirma(frase):
+    assert confirmacao.classificar(frase, estrito=True) == "outro"
 
 
 @pytest.mark.parametrize(

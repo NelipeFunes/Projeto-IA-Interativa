@@ -29,7 +29,7 @@ from typing import Any
 import numpy as np
 
 from jarvis.brain.agent import Agente
-from jarvis.voice.audio import TAXA, bipe
+from jarvis.voice.audio import TAXA, bipe, bipe_desligar
 from jarvis.voice.comandos import achar_ativacao, e_despedida
 from jarvis.voice.wake import DetectorFala, PalavraAtivacao
 
@@ -80,7 +80,7 @@ class LoopVoz:
         silencio_max_s: float = 120.0,
         prazo_confirmacao_s: float = 30.0,
         saudacao: str = "Oi, Felipe. Pode falar.",
-        despedida: str = "Beleza. Até mais.",
+        despedida: str = "",
         ao_evento: Callable[[dict[str, Any]], None] | None = None,
     ):
         self.agente = agente
@@ -241,6 +241,8 @@ class LoopVoz:
             return ""
         if not self.ativacao_por_texto:  # openWakeWord ("Hey Jarvis")
             if self.ativacao is not None and self.ativacao.ouvir(bloco):
+                self.agente.cancelar_pendente("voz", "voz")  # como no "Hey Vision": nada de antes é confirmado
+                self.pergunta_em = None
                 self._abrir_conversa()
                 await self._dizer(self.saudacao)
                 self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
@@ -265,10 +267,10 @@ class LoopVoz:
         self.pergunta_em = None
         # Uma confirmação no ar não sobrevive ao fim da conversa (e o cartão some da tela).
         self.agente.cancelar_pendente("voz", "voz")
-        if falar:
+        if falar and self.despedida:  # por padrão não fala nada: o bipe de desligar basta (pedido de 30/09)
             await self._dizer(self.despedida)
-        else:
-            await self._bipe(subindo=False)
+        if self.bipes:
+            await asyncio.to_thread(self.saida.tocar, bipe_desligar(), 22050)
         self._mostrar("ocioso")
 
     async def _candidato(self, pcm: np.ndarray) -> None:
@@ -282,9 +284,10 @@ class LoopVoz:
             return  # não era com ele: nada é guardado nem mostrado
         if pcm.size > comeco.size:  # a fala continua: o pedido vem inteiro (nunca o trecho cortado em 2,5 s)
             inteiro = await self._transcrever(pcm)
-            resto = achar_ativacao(inteiro)
-            if resto is None:
-                resto = inteiro.strip()
+            if inteiro.strip():  # se o STT falhou só aqui, fica o que já foi ouvido no começo
+                resto = achar_ativacao(inteiro)
+                if resto is None:
+                    resto = inteiro.strip()
         if resto and e_despedida(resto):
             return  # "Hey Vision, pode desligar" com a conversa já fechada: nada a fazer
         # Pendência de antes da conversa (atalho no modo jogo) nunca é respondida por um "Hey Vision, sim".
@@ -483,7 +486,7 @@ def preparar_voz(
                        silencio_max_s=float(cfg.get("voz.conversa_silencio_max_s", 120)),
                        prazo_confirmacao_s=float(cfg.get("voz.confirmacao_prazo_s", 30)),
                        saudacao=cfg.get("voz.saudacao", f"Oi, {agente.nome}. Pode falar."),
-                       despedida=cfg.get("voz.despedida", "Beleza. Até mais."))
+                       despedida=cfg.get("voz.despedida") or "")
         loop = asyncio.get_running_loop()
         atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
         for nota in mic.notas:

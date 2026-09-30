@@ -75,7 +75,7 @@ voz:
   conversa_silencio_max_s: 120
   confirmacao_prazo_s: 30     # "sim" por voz só vale até esse tempo depois do "Confirma?" (TV/fundo não confirma)
   saudacao: Oi, Felipe. Pode falar.
-  despedida: Beleza. Até mais.
+  despedida: ""               # "pode desligar" só dá o bipe de desligar; um texto aqui é falado antes dele
   silencio_fim_ms: 800        # quanto silêncio encerra a sua fala
   maximo_fala_s: 20
 

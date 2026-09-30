@@ -47,6 +47,13 @@ def bipe(subindo: bool = True, taxa: int = 22050) -> np.ndarray:
     return np.concatenate(partes).astype(np.float32)
 
 
+def bipe_desligar(taxa: int = 22050) -> np.ndarray:
+    """Três notas descendo: 'conversa encerrada' (no lugar de falar uma despedida)."""
+    t = np.linspace(0, 0.09, int(taxa * 0.09), endpoint=False)
+    partes = [0.25 * np.sin(2 * np.pi * f * t) * np.hanning(t.size) for f in (880, 660, 440)]
+    return np.concatenate(partes).astype(np.float32)
+
+
 class Saida:
     def __init__(self, cfg: Config):
         self.dispositivo, self.nome = achar_dispositivo(cfg.get("voz.alto_falante", []), entrada=False)
