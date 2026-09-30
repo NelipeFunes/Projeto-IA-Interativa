@@ -602,6 +602,41 @@ input {
 
 /* controles da demonstração */
 
+/* ---------- aviso (login vencendo, voz desligada, sem conexão) ---------- */
+
+.aviso {
+  position: fixed;
+  top: 4px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: min(640px, 70vw);
+  padding: 4px 6px 4px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 107, 139, 0.35);
+  background: rgba(30, 10, 28, 0.82);
+  color: var(--texto);
+  font-size: 12px;
+}
+
+.aviso button {
+  border: 0;
+  background: transparent;
+  color: var(--texto-suave);
+  cursor: pointer;
+  border-radius: 999px;
+  width: 22px;
+  height: 22px;
+}
+
+.aviso button:hover {
+  background: rgba(255, 255, 255, 0.08);
+  color: var(--texto);
+}
+
 .controles-demo {
   position: fixed;
   left: 50%;

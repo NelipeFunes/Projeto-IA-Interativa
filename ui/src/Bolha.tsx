@@ -1,8 +1,9 @@
 // Bolha flutuante: aparece no canto quando você fala com a janela fechada e some sozinha.
 import { AnimatePresence, motion } from "motion/react";
-import { useEffect, useReducer } from "react";
+import { useCallback, useEffect, useReducer, useState } from "react";
+import { NUCLEO, useNucleo } from "./App";
 import { Orbe } from "./componentes/Orbe";
-import { inicial, reduzir } from "./estado";
+import { type Acao, inicial, reduzir } from "./estado";
 import { niveis } from "./niveis";
 import { chamar, noApp } from "./ponte";
 import { ROTULO_ESTADO } from "./rotulos";
@@ -17,6 +18,8 @@ const ROTEIRO: [number, Evento][] = [
   [3200, { tipo: "estado", valor: "ocioso" }],
 ];
 
+const SOME_DEPOIS_MS = 6000;
+
 declare global {
   interface Window {
     __reiniciarBolha?: () => void;
@@ -24,21 +27,45 @@ declare global {
 }
 
 export function Bolha() {
-  const [s, emitir] = useReducer(reduzir, inicial);
+  const [s, despachar] = useReducer(reduzir, inicial);
+  const emitir = useCallback((ev: Acao) => {
+    if (ev.tipo === "nivel") niveis[ev.fonte] = ev.valor;
+    else despachar(ev);
+  }, []);
+  useNucleo(NUCLEO, emitir);
 
+  // Núcleo: cada vez que a bolha aparece, começa com a conversa limpa (só a nova) e some 6 s depois
+  // de o assistente voltar ao repouso, mesmo que nada tenha sido ouvido.
+  const [aparecida, setAparecida] = useState(0);
   useEffect(() => {
+    if (!NUCLEO) return;
+    window.__reiniciarBolha = () => {
+      emitir({ tipo: "limpar_conversa" });
+      setAparecida((n) => n + 1);
+    };
+  }, [emitir]);
+  const repouso = s.estado === "ocioso" || s.estado === "dormindo" || s.estado === "jogo";
+  useEffect(() => {
+    if (!NUCLEO || !aparecida || !repouso) return;
+    const t = setTimeout(() => chamar("esconder_bolha"), SOME_DEPOIS_MS);
+    return () => clearTimeout(t);
+  }, [aparecida, repouso]);
+
+  // Demonstração: um roteiro curto que se repete.
+  useEffect(() => {
+    if (NUCLEO) return;
     let timers: ReturnType<typeof setTimeout>[] = [];
     const tocar = () => {
       timers.forEach(clearTimeout);
       timers = [];
-      emitir({ tipo: "painel" });
+      emitir({ tipo: "reiniciar" });
       let t = 0;
       for (const [espera, ev] of ROTEIRO) {
         t += espera;
         timers.push(setTimeout(() => emitir(ev), t));
       }
       // Some 6 s depois da última fala (no app, a janela se esconde; no navegador, repete).
-      timers.push(setTimeout(() => (noApp() ? chamar("esconder_bolha") : tocar()), t + 6000));
+      timers.push(setTimeout(() => (noApp() ? chamar("esconder_bolha") : tocar()), t + SOME_DEPOIS_MS));
     };
     window.__reiniciarBolha = tocar;
     tocar();
@@ -49,7 +76,7 @@ export function Bolha() {
       timers.forEach(clearTimeout);
       clearInterval(onda);
     };
-  }, []);
+  }, [emitir]);
 
   const fala = [...s.conversa].reverse().find((m) => m.autor === "voce")?.texto;
   const resposta = [...s.conversa].reverse().find((m) => m.autor === "assistente")?.texto;

@@ -95,3 +95,45 @@ describe("roteiro de demonstração", () => {
     expect(texto).not.toMatch(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i); // nada de e-mail no roteiro
   });
 });
+
+describe("eventos do núcleo", () => {
+  const cartao = { id: "p1", ferramenta: "agenda_criar", descricao: "Vou criar…", evento: { id: "p1", titulo: "Barbeiro", inicio: "16:00" } };
+
+  it("criar confirmado: o evento real entra UMA vez, com o id do Google, e mantém o voo do cartão", () => {
+    const real = { id: "google123", titulo: "Barbeiro", inicio: "16:00", fim: "17:00" };
+    const s = aplicar([
+      { tipo: "painel", agenda: AGENDA_EXEMPLO },
+      { tipo: "pendente", pendente: cartao },
+      { tipo: "ferramenta_fim", nome: "agenda_criar", ok: true, dados: real }, // chega antes do resolvido
+      { tipo: "pendente_resolvido", id: "p1", resultado: "executada", evento: real },
+    ]);
+    const barbeiros = s.agenda.filter((e) => e.titulo === "Barbeiro");
+    expect(barbeiros).toHaveLength(1);
+    expect(barbeiros[0]).toMatchObject({ id: "google123", anima: "p1" });
+  });
+
+  it("criado sem cartão na tela (outro canal) entra direto", () => {
+    const s = aplicar([{ tipo: "ferramenta_fim", nome: "agenda_criar", ok: true, dados: { id: "g1", titulo: "X", inicio: "10:00" } }]);
+    expect(s.agenda.map((e) => e.id)).toEqual(["g1"]);
+  });
+
+  it("alterado para outro dia sai do painel; esquecer tira a memória", () => {
+    const s = aplicar([
+      { tipo: "painel", agenda: AGENDA_EXEMPLO, memorias: [{ id: 1, texto: "a" }, { id: 2, texto: "b" }] },
+      { tipo: "ferramenta_fim", nome: "agenda_alterar", ok: true, args: { evento_id: AGENDA_EXEMPLO[0].id }, dados: null },
+      { tipo: "ferramenta_fim", nome: "esquecer", ok: true, dados: { id: 1 } },
+    ]);
+    expect(s.agenda.find((e) => e.id === AGENDA_EXEMPLO[0].id)).toBeUndefined();
+    expect(s.memorias.map((m) => m.id)).toEqual([2]);
+  });
+
+  it("limpar a conversa (bolha reaparecendo) não mexe no estado do orbe", () => {
+    const s = aplicar([
+      { tipo: "fala_usuario", texto: "oi", canal: "voz" },
+      { tipo: "estado", valor: "ouvindo" },
+    ]);
+    const limpo = reduzir(s, { tipo: "limpar_conversa" });
+    expect(limpo.conversa).toEqual([]);
+    expect(limpo.estado).toBe("ouvindo");
+  });
+});

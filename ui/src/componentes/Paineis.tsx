@@ -55,14 +55,14 @@ export function PainelAgenda({ agenda, varredura, pendente }: {
               <motion.li
                 key={ev.id}
                 layout
-                layoutId={`evt-${ev.id}`}
+                layoutId={`evt-${ev.anima ?? ev.id}`}
                 className={`agenda-item ${ev.id === alvoApagar ? "alvo-apagar" : ""} ${i === indiceAgora ? "depois-de-agora" : ""}`}
                 initial={{ opacity: 0, scale: 0.9 }}
                 animate={{ opacity: 1, scale: 1, boxShadow: ["0 0 0px rgba(64,196,255,0)", "0 0 26px rgba(64,196,255,0.55)", "0 0 0px rgba(64,196,255,0)"] }}
                 exit={{ opacity: 0, scale: 1.12, filter: "blur(12px)", transition: { duration: 0.7 } }}
                 transition={mola}
               >
-                <span className="agenda-hora">{ev.inicio}</span>
+                <span className="agenda-hora">{ev.diaInteiro ? "dia" : ev.inicio}</span>
                 <span className="agenda-texto">
                   <strong>{ev.titulo}</strong>
                   {(ev.fim || ev.local) && (
