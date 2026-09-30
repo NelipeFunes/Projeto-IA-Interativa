@@ -32,27 +32,32 @@ def servir(pasta: Path) -> tuple[ThreadingHTTPServer, int]:
 
 
 class Api:
-    """Métodos que o JavaScript chama por window.pywebview.api.*"""
+    """Métodos que o JavaScript chama por window.pywebview.api.*
+
+    O pywebview expõe ao JavaScript todo atributo PÚBLICO deste objeto, recursivamente. As janelas ficam
+    em atributos privados (_principal, _bolha): públicas, ele tentava atravessar os objetos nativos do
+    .NET e entrava em recursão infinita. De quebra, o JavaScript só enxerga os métodos abaixo.
+    """
 
     def __init__(self) -> None:
-        self.principal: Any = None
-        self.bolha: Any = None
+        self._principal: Any = None
+        self._bolha: Any = None
 
     def minimizar(self) -> None:
-        self.principal.minimize()
+        self._principal.minimize()
 
     def fechar(self) -> None:
         # Fase A (demonstração): fechar encerra. Na Fase B, fechar só esconde e o núcleo continua.
-        for janela in (self.bolha, self.principal):
+        for janela in (self._bolha, self._principal):
             if janela is not None:
                 janela.destroy()
 
     def mostrar_bolha(self) -> None:
-        self.bolha.show()
-        self.bolha.evaluate_js("window.__reiniciarBolha && window.__reiniciarBolha()")
+        self._bolha.show()
+        self._bolha.evaluate_js("window.__reiniciarBolha && window.__reiniciarBolha()")
 
     def esconder_bolha(self) -> None:
-        self.bolha.hide()
+        self._bolha.hide()
 
 
 def abrir(cfg: Config, demo: bool = True) -> None:
@@ -66,13 +71,13 @@ def abrir(cfg: Config, demo: bool = True) -> None:
     nome = cfg.get("assistente.nome", "Jarvis")
 
     api = Api()
-    api.principal = webview.create_window(
+    api._principal = webview.create_window(
         nome, base, js_api=api, width=1280, height=800, min_size=(1040, 680),
         frameless=True, easy_drag=False, background_color="#05040d",
     )
     tela = webview.screens[0]
     largura, altura = 400, 104
-    api.bolha = webview.create_window(
+    api._bolha = webview.create_window(
         f"{nome} (bolha)", base + "&janela=bolha", js_api=api,
         width=largura, height=altura, x=tela.width - largura - 20, y=tela.height - altura - 64,
         frameless=True, easy_drag=False, resizable=False, on_top=True, focus=False, hidden=True,
