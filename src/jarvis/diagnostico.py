@@ -155,6 +155,9 @@ async def _voz(cfg: Config) -> bool:
 
 async def diagnosticar(cfg: Config, parte: str = "tudo") -> int:
     partes = ["ollama", "agenda", "orbit", "voz"] if parte == "tudo" else [parte]
+    if parte == "tudo" and not (cfg.get("mcp.orbit") or {}).get("ativo", True):
+        partes.remove("orbit")
+        print("(orbit desligado no config.yaml: pulado)")
     funcoes = {"ollama": _ollama, "agenda": _agenda, "orbit": _orbit, "voz": _voz}
     falhas = []
     for p in partes:

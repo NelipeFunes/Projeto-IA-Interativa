@@ -38,7 +38,10 @@ async def _chat(cfg: config.Config) -> None:
                 continue
             print("Jarvis: ", end="", flush=True)
             r = await j.agente.responder(texto, "texto", "terminal", ao_texto=lambda t: print(t, end="", flush=True))
-            usadas = ", ".join(f"{f['nome']}{'' if f['ok'] else ' (falhou)'}" for f in r.ferramentas)
+            usadas = ", ".join(
+                f"{f['nome']}{' (cancelada)' if f.get('cancelada') else '' if f['ok'] else ' (falhou)'}"
+                for f in r.ferramentas
+            )
             print(f"\n  [{r.segundos:.1f}s{' · ' + usadas if usadas else ''}]")
 
 

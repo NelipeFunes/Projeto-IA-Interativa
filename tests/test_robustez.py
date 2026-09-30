@@ -59,6 +59,15 @@ def test_detecta_anuncio():
     assert not anunciou_sem_fazer("Por que o livro de matemática ficou triste? Porque tinha muitos problemas.")
 
 
+def test_regras_sem_orbit():
+    from jarvis.brain.prompt import regras
+
+    sem = regras({"agenda_listar", "agenda_criar", "guardar_memoria"})
+    assert "tarefas_criar" not in sem and "`agenda_criar` (dia inteiro" in sem and "DESLIGADAS" in sem
+    com = regras({"agenda_criar", "tarefas_criar", "financas_resumo_mes"})
+    assert "`tarefas_criar`" in com and "DESLIGADAS" not in com
+
+
 async def test_correcao_avisa_que_nada_foi_criado(cfg, host):
     r = Registro()
     r.adicionar(*Agenda(cfg, host).ferramentas())

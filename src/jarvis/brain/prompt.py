@@ -18,13 +18,30 @@ ESTILO = {
     ),
 }
 
-REGRAS = """REGRAS:
-1. Agenda, finanças, tarefas e memória: SEMPRE chame a ferramenta antes de responder. Nunca invente compromissos, valores, datas ou fatos. Se a ferramenta falhar, diga que não conseguiu e por quê.
-2. Para criar, alterar, apagar ou lançar algo, chame a ferramenta direto. O sistema pede a confirmação ao Felipe; não pergunte "quer que eu crie?" antes.
-3. Quando o Felipe contar um fato que vale para o futuro (rotina, preferência, pessoa, meta), guarde com `guardar_memoria`. Coisa a fazer ou lembrete ("me lembra de pagar X até dia 10") é tarefa: `tarefas_criar`.
-4. Conhecimento geral: pode responder se tiver certeza; se não tiver, diga que não sabe. Nunca invente números.
-5. Datas nas ferramentas: AAAA-MM-DD, tiradas da tabela abaixo. Horas: HH:MM, 24h.
-6. Responda só o que foi perguntado, em português do Brasil."""
+def regras(ferramentas: set[str] | None = None) -> str:
+    """As regras citam só ferramentas que existem: com o Orbit desligado, lembrete vira evento na agenda."""
+    tem = (lambda nome: True) if ferramentas is None else (lambda nome: nome in ferramentas)
+    if tem("tarefas_criar"):
+        lembrete = "Coisa a fazer ou lembrete (\"me lembra de pagar X até dia 10\") é tarefa: `tarefas_criar`."
+    else:
+        lembrete = ("Coisa a fazer ou lembrete (\"me lembra de pagar X até dia 10\") vira evento na agenda com "
+                    "`agenda_criar` (dia inteiro, se não tiver hora).")
+    linhas = [
+        "REGRAS:",
+        "1. Agenda, finanças, tarefas e memória: SEMPRE chame a ferramenta antes de responder. Nunca invente "
+        "compromissos, valores, datas ou fatos. Se a ferramenta falhar, diga que não conseguiu e por quê.",
+        "2. Para criar, alterar, apagar ou lançar algo, chame a ferramenta direto. O sistema pede a confirmação ao "
+        "Felipe; não pergunte \"quer que eu crie?\" antes.",
+        "3. Quando o Felipe contar um fato que vale para o futuro (rotina, preferência, pessoa, meta), guarde com "
+        f"`guardar_memoria`. {lembrete}",
+        "4. Conhecimento geral: pode responder se tiver certeza; se não tiver, diga que não sabe. Nunca invente números.",
+        "5. Datas nas ferramentas: AAAA-MM-DD, tiradas da tabela abaixo. Horas: HH:MM, 24h.",
+        "6. Responda só o que foi perguntado, em português do Brasil.",
+    ]
+    if ferramentas is not None and not any(n.startswith("financas_") for n in ferramentas):
+        linhas.append("7. Finanças e tarefas (app Orbit) estão DESLIGADAS por enquanto. Se o Felipe perguntar de "
+                      "gastos, saldo ou tarefas, diga isso em uma frase; não invente valores.")
+    return "\n".join(linhas)
 
 
 def montar(
@@ -33,13 +50,14 @@ def montar(
     momento: datetime,
     perfil: str,
     memorias: str,
+    ferramentas: set[str] | None = None,
 ) -> str:
     partes = [
         f"Você é o Jarvis, assistente pessoal do {nome_usuario}, rodando no PC dele. "
         f"Trate-o por \"{nome_usuario}\". Jeito: direto, organizado, simpático, com humor leve.",
         f"AGORA: {tempo.descrever_momento(momento)} (fuso America/Sao_Paulo).",
         "TABELA DE DATAS:\n" + tempo.tabela_de_datas(momento.date()),
-        REGRAS,
+        regras(ferramentas),
         ESTILO.get(canal, ESTILO["texto"]),
     ]
     if perfil.strip():

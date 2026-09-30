@@ -44,7 +44,7 @@ mcp:
       ENABLED_TOOLS: list-events,search-events,get-event,create-event,update-event,delete-event
     timeout_s: 30
   orbit:
-    ativo: true
+    ativo: false            # desligado em 30/09: Orbit suspenso no Render até virar o mês (01/10). Religue aqui.
     comando: ".venv\\Scripts\\python.exe"
     args: ["mcp_servers/orbit/server.py"]
     timeout_s: 100          # o Render leva ~1 min para acordar

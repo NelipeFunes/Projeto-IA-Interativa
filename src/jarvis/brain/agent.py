@@ -194,7 +194,7 @@ class Agente:
                 memorias = Memorias.formatar(achadas)
             except Exception as e:  # noqa: BLE001 - memória fora do ar não pode travar a conversa
                 log.warning("memória indisponível: %s", e)
-        return prompt.montar(self.nome, canal, self.relogio(), perfil, memorias)
+        return prompt.montar(self.nome, canal, self.relogio(), perfil, memorias, set(self.registro.ferramentas))
 
     def _historico(self, s: Sessao) -> list[dict[str, Any]]:
         turnos = s.turnos[-self.turnos_historico :]
