@@ -1,4 +1,4 @@
-"""Servidor MCP falso com os mesmos nomes e o mesmo formato de resposta do @cocal/google-calendar-mcp.
+﻿"""Servidor MCP falso com os mesmos nomes e o mesmo formato de resposta do @cocal/google-calendar-mcp.
 
 Usado nos testes e nas avaliações, enquanto o login do Google não existe. Roda em memória
 (`mcp.Client(servidor)`) ou por stdio (`python calendario_falso.py`).
@@ -12,6 +12,7 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from mcp.server.mcpserver import MCPServer
+from mcp.server.mcpserver.exceptions import ToolError
 
 FERIADOS = "pt-br.brazilian#holiday@group.v.calendar.google.com"
 
@@ -81,7 +82,7 @@ def criar_servidor(hoje: date | None = None) -> MCPServer:
         for e in eventos:
             if e["id"] == eventId:
                 return json.dumps({"event": e})
-        raise ValueError(f"Event not found: {eventId}")
+        raise ToolError(f"Event not found: {eventId}")
 
     @srv.tool(name="create-event")
     def create_event(
@@ -113,7 +114,7 @@ def criar_servidor(hoje: date | None = None) -> MCPServer:
                     e["start"] = {chave: start + ("-03:00" if chave == "dateTime" else "")}
                     e["end"] = {chave: end + ("-03:00" if chave == "dateTime" else "")}
                 return json.dumps({"event": e})
-        raise ValueError(f"Event not found: {eventId}")
+        raise ToolError(f"Event not found: {eventId}")
 
     @srv.tool(name="delete-event")
     def delete_event(calendarId: str, eventId: str) -> str:
@@ -121,7 +122,7 @@ def criar_servidor(hoje: date | None = None) -> MCPServer:
             if e["id"] == eventId:
                 eventos.pop(i)
                 return json.dumps({"success": True, "eventId": eventId, "message": "Event deleted successfully"})
-        raise ValueError(f"Event not found: {eventId}")
+        raise ToolError(f"Event not found: {eventId}")
 
     return srv
 

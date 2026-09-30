@@ -11,9 +11,10 @@ import json
 import logging
 import os
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any
 
-from mcp import Client, StdioServerParameters
+from mcp import Client, StdioServerParameters, stdio_client
 
 from jarvis.config import Config
 
@@ -30,10 +31,11 @@ class ResultadoMCP:
 
 
 class ConexaoMCP:
-    def __init__(self, nome: str, alvo: Any, timeout_s: float = 30):
+    def __init__(self, nome: str, alvo: Any, timeout_s: float = 30, pasta_logs: Path | None = None):
         self.nome = nome
         self.alvo = alvo  # StdioServerParameters ou um MCPServer em memória (testes)
         self.timeout_s = timeout_s
+        self.pasta_logs = pasta_logs  # stderr do servidor vai para lá em vez de sujar o terminal
         self.cliente: Client | None = None
         self.erro: str | None = None
         self._pronto = asyncio.Event()
@@ -50,18 +52,28 @@ class ConexaoMCP:
             self.erro = f"servidor '{self.nome}' não respondeu em {self.timeout_s:.0f}s"
 
     async def _rodar(self) -> None:
+        errlog = None
+        alvo = self.alvo
         try:
-            async with Client(self.alvo, read_timeout_seconds=self.timeout_s) as c:
+            if isinstance(alvo, StdioServerParameters) and self.pasta_logs is not None:
+                self.pasta_logs.mkdir(parents=True, exist_ok=True)
+                errlog = open(self.pasta_logs / f"mcp-{self.nome}.log", "a", encoding="utf-8")  # noqa: SIM115
+                alvo = stdio_client(alvo, errlog=errlog)
+            async with Client(alvo, read_timeout_seconds=self.timeout_s) as c:
                 self.cliente = c
                 self.erro = None
                 self._pronto.set()
                 await self._fechar.wait()
         except BaseException as e:  # noqa: BLE001 - inclui ExceptionGroup do anyio
             self.erro = _resumir_erro(e)
-            log.warning("MCP %s caiu: %s", self.nome, self.erro)
+            if errlog is not None:
+                self.erro += f" (detalhes em {errlog.name})"
+            log.info("MCP %s caiu: %s", self.nome, self.erro)
         finally:
             self.cliente = None
             self._pronto.set()
+            if errlog is not None:
+                errlog.close()
 
     async def fechar(self) -> None:
         self._fechar.set()
@@ -114,7 +126,7 @@ class HostMCP:
                 env=env,
                 cwd=str(cfg.raiz),
             )
-            conexoes[nome] = ConexaoMCP(nome, params, float(s.get("timeout_s", 30)))
+            conexoes[nome] = ConexaoMCP(nome, params, float(s.get("timeout_s", 30)), cfg.dados / "logs")
         return cls(conexoes)
 
     async def __aenter__(self) -> HostMCP:
