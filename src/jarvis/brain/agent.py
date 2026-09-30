@@ -51,6 +51,7 @@ class Sessao:
     ultima: float = field(default_factory=time.monotonic)
     trava: asyncio.Lock = field(default_factory=asyncio.Lock)
     atrasada: asyncio.Task | None = None
+    nota: str | None = None  # aviso de sistema para a próxima volta (ex.: pendente descartada)
 
 
 @dataclass
@@ -154,7 +155,13 @@ class Agente:
         assert p is not None
         tipo = confirmacao.classificar(texto)
         if tipo == "outro":
-            s.pendente = None  # o Felipe corrigiu ou mudou de assunto: o modelo decide de novo
+            # O Felipe corrigiu ou mudou de assunto: o modelo decide de novo. Sem esta nota, o modelo
+            # achava que o evento já existia e tentava "alterar" (visto na avaliação de 30/09).
+            s.pendente = None
+            s.nota = (
+                f"A ação '{p.descricao}' NÃO foi executada e foi descartada; nada foi criado nem alterado. "
+                f"Se o {self.nome} está corrigindo algum dado, chame {p.ferramenta} de novo com os dados corrigidos."
+            )
             return None
         s.pendente = None
         if tipo == "nao":
@@ -203,7 +210,9 @@ class Agente:
     async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None) -> Resposta:
         sistema = await self._contexto(texto, canal)
         turno: list[dict[str, Any]] = [{"role": "user", "content": texto}]
-        mensagens = [{"role": "system", "content": sistema}, *self._historico(s), *turno]
+        nota = [{"role": "system", "content": s.nota}] if s.nota else []
+        s.nota = None
+        mensagens = [{"role": "system", "content": sistema}, *self._historico(s), *nota, *turno]
         ferramentas = self.registro.para_ollama()
         usadas: list[dict[str, Any]] = []
         grupos = [g for g in intencao.detectar(texto) if self.registro.nomes_do_grupo(g)]
@@ -213,23 +222,28 @@ class Agente:
         for volta in range(MAX_VOLTAS):
             transmitir = ao_texto if volta > 0 else None  # a 1ª volta decide ferramentas; não fala antes
             r: RespostaLLM = await self.llm.conversar(mensagens, ferramentas, transmitir)
+            transmitido = transmitir is not None
 
-            if not r.chamadas and volta == 0 and grupos and not insistiu:
+            anunciou = not r.chamadas and intencao.anunciou_sem_fazer(r.texto)
+            if not r.chamadas and not insistiu and ((volta == 0 and grupos) or anunciou):
                 insistiu = True
-                nomes = ", ".join(n for g in grupos for n in self.registro.nomes_do_grupo(g))
-                mensagens.append(
-                    {
-                        "role": "system",
-                        "content": f"ATENÇÃO: para responder isso você PRECISA chamar uma ferramenta ({nomes}). "
-                        "Chame a ferramenta agora. Não responda de cabeça.",
-                    }
-                )
-                r = await self.llm.conversar(mensagens, ferramentas, None)
-                mensagens.pop()
+                if anunciou:
+                    # O modelo disse "vou marcar..." e parou: mostra a fala dele e cobra a ação.
+                    extra = [{"role": "assistant", "content": r.texto}]
+                    puxao = ("ATENÇÃO: você disse que ia fazer ou verificar algo, mas não chamou nenhuma ferramenta. "
+                             "Chame a ferramenta certa agora; o sistema é quem pede a confirmação ao "
+                             f"{self.nome}. Nunca escreva 'Confirma?' você mesmo.")
+                else:
+                    extra = []
+                    nomes = ", ".join(n for g in grupos for n in self.registro.nomes_do_grupo(g))
+                    puxao = (f"ATENÇÃO: para responder isso você PRECISA chamar uma ferramenta ({nomes}). "
+                             "Chame a ferramenta agora. Não responda de cabeça.")
+                r = await self.llm.conversar([*mensagens, *extra, {"role": "system", "content": puxao}], ferramentas, None)
+                transmitido = False
 
             if not r.chamadas:
                 final = r.texto.strip()
-                if transmitir is None and ao_texto and final:
+                if not transmitido and ao_texto and final:
                     ao_texto(final)
                 break
 
@@ -243,6 +257,8 @@ class Agente:
             nova_pendente: Pendente | None = None
             for c in r.chamadas:
                 f = self.registro.get(c.nome)
+                if f is not None:
+                    c.args = f.normalizar_args(c.args)
                 if f is not None and f.escrita:
                     if nova_pendente is not None:
                         ok, resultado = False, "Só uma alteração por vez; esta foi ignorada."

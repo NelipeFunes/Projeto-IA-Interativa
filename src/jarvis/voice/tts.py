@@ -12,14 +12,16 @@ from jarvis.voice.falado import para_fala
 
 
 class Voz:
-    def __init__(self, arquivo_modelo: Path, velocidade: float = 1.0):
+    def __init__(self, arquivo_modelo: Path, velocidade: float = 1.0, deterministico: bool = False):
         from piper import PiperVoice, SynthesisConfig
 
         if not arquivo_modelo.exists():
             raise FileNotFoundError(f"voz não encontrada: {arquivo_modelo} (rode scripts/baixar_modelos.py)")
         self.voz = PiperVoice.load(arquivo_modelo)
         self.taxa = self.voz.config.sample_rate
-        self.cfg = SynthesisConfig(length_scale=velocidade)
+        # O Piper sorteia variações a cada síntese (mais natural); nos testes, o mesmo texto dá o mesmo áudio.
+        ruido = {"noise_scale": 0.0, "noise_w_scale": 0.0} if deterministico else {}
+        self.cfg = SynthesisConfig(length_scale=velocidade, **ruido)
 
     def sintetizar(self, texto: str, normalizar: bool = True) -> np.ndarray:
         """Devolve float32 mono em self.taxa Hz."""

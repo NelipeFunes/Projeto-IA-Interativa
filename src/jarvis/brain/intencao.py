@@ -20,7 +20,7 @@ PADROES = {
         r"quanto (eu )?(j[aá] )?(gastei|paguei)|lan[cç]a(r)?|sobrou|reserva)\b",
         re.IGNORECASE,
     ),
-    "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*)\b", re.IGNORECASE),
+    "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
     "memoria": re.compile(
         r"(\b(lembr[ae]|anot[ae]|guard[ae]) (que|isso|a[ií])\b|\bn[aã]o esque[cç]a\b|\bvoc[eê] (sabe|lembra)\b|"
         r"\b(esquece|apaga da mem[oó]ria)\b)",
@@ -31,3 +31,21 @@ PADROES = {
 
 def detectar(texto: str) -> list[str]:
     return [grupo for grupo, p in PADROES.items() if p.search(texto)]
+
+
+# O 9B tinha o vício de ANUNCIAR a ação ("Vou colocar na agenda...", "Já cancelo...") sem chamar a
+# ferramenta, e às vezes imitava a frase de confirmação do sistema ("... Confirma?") sem nada pendente.
+# Só futuro/presente ("vou marcar", "já cancelo", "estou buscando"); "já verifiquei" é resposta legítima.
+ANUNCIO = re.compile(
+    r"\b(vou|j[aá] vou|deixa eu|irei)\s+(te\s+)?(verificar|checar|olhar|consultar|criar|marcar|colocar|agendar|"
+    r"cancelar|apagar|alterar|mudar|lan[cç]ar|registrar|anotar|guardar|buscar|procurar)\b"
+    r"|\bj[aá]\s+(crio|marco|coloco|agendo|cancelo|apago|altero|mudo|lan[cç]o|registro|anoto|guardo)\b"
+    r"|\bestou\s+(verificando|checando|olhando|consultando|criando|marcando|agendando|cancelando|apagando|"
+    r"alterando|lan[cç]ando|buscando|procurando)\b"
+    r"|\bconfirma\?\s*$",
+    re.IGNORECASE,
+)
+
+
+def anunciou_sem_fazer(resposta: str) -> bool:
+    return bool(ANUNCIO.search(resposta.strip()))

@@ -1,4 +1,4 @@
-from datetime import timedelta
+﻿from datetime import timedelta
 
 import pytest
 from fakes.llm_falso import LLMFalso, chama, fala
@@ -90,7 +90,7 @@ async def test_correcao_depois_da_confirmacao_volta_ao_modelo(registro, memorias
 
 async def test_lembrar_nao_pede_confirmacao(registro, memorias, tmp_path):
     llm = LLMFalso([
-        chama("lembrar", fato="O Felipe prefere treinar de manhã.", categoria="preferencia"),
+        chama("guardar_memoria", fato="O Felipe prefere treinar de manhã.", categoria="preferencia"),
         fala("Anotado!"),
     ])
     r = await agente(llm, registro, memorias, tmp_path).responder("lembra que eu prefiro treinar de manhã")

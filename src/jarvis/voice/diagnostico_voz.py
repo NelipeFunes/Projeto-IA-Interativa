@@ -1,4 +1,4 @@
-"""`jarvis teste voz`: arquivos, dispositivos, nível do microfone e (se você estiver no terminal)
+﻿"""`jarvis teste voz`: arquivos, dispositivos, nível do microfone e (se você estiver no terminal)
 calibração do 'Hey Jarvis' e comparação dos dois Parakeet com a sua voz."""
 
 from __future__ import annotations
@@ -41,7 +41,7 @@ async def rodar(cfg: Config, p: Callable[[str, str], None], OK: str, ERRO: str, 
         p(OK if existe else ERRO, f"{nome}: {'ok' if existe else 'FALTANDO ' + str(caminho)}")
         ok &= existe
     if not ok:
-        p(AVISO, "rode: uv run python scripts/baixar_modelos.py")
+        p(AVISO, "rode: .venv\\Scripts\\python scripts\\baixar_modelos.py")
         return False
 
     mic, nome_mic, notas = escolher_microfone(cfg.get("voz.microfone", []))

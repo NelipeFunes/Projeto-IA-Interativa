@@ -1,4 +1,4 @@
-"""`jarvis teste [tudo|ollama|agenda|orbit|voz]`: checagem do ambiente, com diagnóstico em português."""
+﻿"""`jarvis teste [tudo|ollama|agenda|orbit|voz]`: checagem do ambiente, com diagnóstico em português."""
 
 from __future__ import annotations
 
@@ -74,7 +74,7 @@ async def _agenda(cfg: Config) -> bool:
     _p(OK, "credenciais OAuth encontradas")
     dias = dias_desde_login(cfg)
     if dias is None:
-        _p(AVISO, "nunca rodou 'uv run jarvis google-login' por aqui")
+        _p(AVISO, "nunca rodou '.\\jarvis google-login' por aqui")
     else:
         _p(OK if dias < 6 else AVISO, f"último login há {dias:.1f} dia(s) (vence com 7)")
     host = HostMCP.da_config(cfg)

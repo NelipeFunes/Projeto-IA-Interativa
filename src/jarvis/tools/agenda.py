@@ -1,4 +1,4 @@
-"""Ferramentas de agenda em português, por cima do MCP do Google Agenda (@cocal/google-calendar-mcp).
+﻿"""Ferramentas de agenda em português, por cima do MCP do Google Agenda (@cocal/google-calendar-mcp).
 
 O MCP real tem esquemas enormes (create-event tem ~30 parâmetros); modelo pequeno se perde.
 Aqui o modelo vê 5 ferramentas simples e este módulo traduz para o MCP.
@@ -38,7 +38,7 @@ class Agenda:
         if not r.ok:
             if any(s in r.texto for s in SEM_LOGIN) or "OAuth" in r.texto or "indisponível" in r.texto:
                 raise ErroFerramenta(
-                    "A agenda do Google está sem login. Diga ao Felipe para rodar `uv run jarvis google-login`."
+                    "A agenda do Google está sem login. Diga ao Felipe para rodar `.\\jarvis google-login`."
                     f" (detalhe: {r.texto[:200]})"
                 )
             raise ErroFerramenta(f"A agenda do Google deu erro: {r.texto[:300]}")

@@ -7,6 +7,8 @@ Usado nos testes e nas avaliações, enquanto o login do Google não existe. Rod
 from __future__ import annotations
 
 import json
+import re
+import unicodedata
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
@@ -67,13 +69,20 @@ def criar_servidor(hoje: date | None = None) -> MCPServer:
         achados.sort(key=lambda e: e["start"].get("dateTime") or e["start"]["date"])
         return json.dumps({"events": achados, "totalCount": len(achados)})
 
+    def _palavras(t: str) -> set[str]:
+        t = unicodedata.normalize("NFKD", t.lower())
+        t = "".join(c for c in t if not unicodedata.combining(c))
+        return {p for p in re.split(r"\W+", t) if len(p) > 2}  # o Google ignora "de", "a"...
+
     @srv.tool(name="search-events")
     def search_events(calendarId: Any, query: str, timeMin: str, timeMax: str, timeZone: str = "") -> str:
+        # Como o Google: casa se todas as palavras da busca aparecem (sem ligar para acento/ordem).
         cals = _cals(calendarId)
-        q = query.lower()
+        q = _palavras(query)
         achados = [
             e for e in eventos
-            if e["calendarId"] in cals and q in e["summary"].lower() and _no_periodo(e, timeMin, timeMax)
+            if e["calendarId"] in cals and q <= _palavras(e["summary"] + " " + e.get("location", ""))
+            and _no_periodo(e, timeMin, timeMax)
         ]
         return json.dumps({"events": achados, "totalCount": len(achados), "query": query})
 

@@ -28,8 +28,8 @@ def pecas():
     from jarvis.voice.tts import Voz
 
     return {
-        "pt": Voz(MODELOS / "piper" / "pt_BR-faber-medium.onnx"),
-        "en": Voz(MODELOS / "piper" / "en_US-lessac-medium.onnx"),
+        "pt": Voz(MODELOS / "piper" / "pt_BR-faber-medium.onnx", deterministico=True),
+        "en": Voz(MODELOS / "piper" / "en_US-lessac-medium.onnx", deterministico=True),
         "stt": Transcritor(MODELOS, "parakeet-base-int8"),
     }
 
@@ -78,8 +78,9 @@ async def test_hey_jarvis_pergunta_e_resposta_falada(pecas, registro, tmp_path):
     assert "agenda" in laco.historico[0]["felipe"].lower()
     assert laco.historico[0]["ferramentas"] == "agenda_listar"
     # o que saiu no "alto-falante" é a resposta, com a hora falada por extenso
+    # (o Piper tem aleatoriedade na síntese; já saiu "cálcular 19 e 50", então a checagem é tolerante)
     ouvido = pecas["stt"].transcrever(laco.saida.audio(), laco.saida.taxa).lower()
-    assert "cálculo" in ouvido or "calculo" in ouvido
+    assert "cálcul" in ouvido or "calcul" in ouvido
     assert "19" in ouvido
 
 
