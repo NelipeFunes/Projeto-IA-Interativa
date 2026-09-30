@@ -113,10 +113,16 @@ class Agente:
     def sessao(self, canal: str, sessao: str) -> Sessao:
         chave = (canal, sessao)
         s = self.sessoes.get(chave)
-        if s is None or (time.monotonic() - s.ultima > self.expira_s and not s.trava.locked()):
+        if s is None or self._expirada(s):
+            if s is not None and s.pendente is not None:
+                # A pendência morre com a sessão: a tela tira o cartão (senão ele ficava lá para sempre).
+                self._emitir("pendente_resolvido", id=s.pendente.id, resultado="cancelada")
             s = self.sessoes[chave] = Sessao()
         s.ultima = time.monotonic()
         return s
+
+    def _expirada(self, s: Sessao) -> bool:
+        return time.monotonic() - s.ultima > self.expira_s and not s.trava.locked()
 
     def esquecer_sessao(self, canal: str, sessao: str) -> None:
         self.sessoes.pop((canal, sessao), None)
@@ -172,6 +178,12 @@ class Agente:
         """Confirmar/Cancelar vindo da tela: responde "sim"/"não" na sessão que tem essa pendência."""
         for (canal, sessao), s in list(self.sessoes.items()):
             if s.pendente is not None and s.pendente.id == pendente_id:
+                if self._expirada(s):
+                    # Sem isto, o "sim" ia sozinho para o modelo numa sessão nova, sem a pendência.
+                    self.sessao(canal, sessao)  # troca a sessão e avisa a tela que o cartão caiu
+                    r = Resposta("Essa confirmação expirou. Se ainda quiser, me peça de novo.")
+                    self._emitir("resposta", texto=r.texto, aguardando_confirmacao=False)
+                    return r
                 return await self.responder("sim" if sim else "não", canal, sessao)
         return None
 

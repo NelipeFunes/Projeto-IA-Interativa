@@ -272,8 +272,16 @@ def rodar(cfg: Config) -> None:
     host = cfg.get("servidor.host", "127.0.0.1")
     if host not in ("127.0.0.1", "localhost", "::1"):
         raise SystemExit("Por segurança o servidor só escuta em 127.0.0.1. Exponha via túnel quando for plugar a Alexa.")
+    from jarvis.nucleo import nucleo_rodando
+
+    if nucleo_rodando():
+        # O núcleo já serve esta mesma API (e é dono do data/nucleo.json): subir outro só quebraria o dele.
+        raise SystemExit("O núcleo já está rodando e já serve a API em 127.0.0.1 (token em data/nucleo.json).")
     porta = int(cfg.get("servidor.porta", 8765))
     app = criar_app(cfg)
     arquivo = gravar_acesso(cfg, porta, app.state.token)
     print(f"Servidor em http://{host}:{porta} (token em {arquivo})")
-    uvicorn.run(app, host=host, port=porta, log_level="warning")
+    try:
+        uvicorn.run(app, host=host, port=porta, log_level="warning")
+    finally:
+        arquivo.unlink(missing_ok=True)

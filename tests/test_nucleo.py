@@ -200,3 +200,64 @@ def test_icone_da_bandeja_desenha_em_todo_estado(estado, tamanho):
     assert img.size == (tamanho, tamanho)
     assert img.getpixel((0, 0))[3] == 0  # canto transparente
     assert img.getpixel((tamanho // 2, tamanho // 2))[3] == 255  # centro pintado
+
+
+async def test_confirmar_pendencia_expirada_nao_manda_sim_solto_ao_modelo(agente_com_eventos, servidor_agenda):
+    amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
+    agente, ev = agente_com_eventos([chama("agenda_criar", titulo="Y", data=amanha, hora_inicio="9:00")])
+    await agente.responder("marca Y amanhã", "voz", "voz")
+    pid = next(e for e in ev if e["tipo"] == "pendente")["pendente"]["id"]
+    antes = len(servidor_agenda.eventos)
+    agente.sessoes[("voz", "voz")].ultima -= agente.expira_s + 1  # 10 min depois
+    ev.clear()
+    r = await agente.resolver_pendente(pid, True)  # o roteiro do LLM acabou: se o "sim" fosse ao modelo, quebraria
+    assert r is not None and "expirou" in r.texto
+    assert {"tipo": "pendente_resolvido", "id": pid, "resultado": "cancelada"} in ev  # a tela tira o cartão
+    assert len(servidor_agenda.eventos) == antes
+
+
+async def test_sessao_que_expira_com_pendencia_avisa_a_tela(agente_com_eventos):
+    amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
+    agente, ev = agente_com_eventos([chama("agenda_criar", titulo="Z", data=amanha), fala("Oi.")])
+    await agente.responder("marca Z amanhã", "texto", "t")
+    pid = next(e for e in ev if e["tipo"] == "pendente")["pendente"]["id"]
+    agente.sessoes[("texto", "t")].ultima -= agente.expira_s + 1
+    await agente.responder("oi", "texto", "t")
+    assert {"tipo": "pendente_resolvido", "id": pid, "resultado": "cancelada"} in ev
+
+
+def test_acesso_de_nucleo_morto_nao_vale(cfg):
+    import json
+
+    from jarvis.nucleo import ler_acesso
+
+    arq = cfg.dados / "nucleo.json"
+    arq.write_text(json.dumps({"porta": 8765, "token": "x", "pid": 2**31 - 7}), encoding="utf-8")
+    assert ler_acesso(cfg) is None
+    import os
+
+    arq.write_text(json.dumps({"porta": 8765, "token": "x", "pid": os.getpid()}), encoding="utf-8")
+    assert ler_acesso(cfg)["token"] == "x"
+
+
+@pytest.mark.skipif(sys.platform != "win32", reason="mutex do Windows")
+def test_ver_se_o_nucleo_roda_nao_cria_o_mutex():
+    from jarvis.nucleo import InstanciaUnica, nucleo_rodando
+
+    nome = r"Local\VisionTeste-olhar-7f3a"
+    assert nucleo_rodando(nome) is False
+    assert InstanciaUnica(nome).pegar() is True  # olhar não criou: o núcleo ainda consegue subir
+    assert nucleo_rodando(nome) is True
+
+
+def test_transcricoes_nao_vao_para_o_log_em_info(caplog):
+    import logging
+
+    from jarvis.nucleo import escritor_do_log
+
+    escrever = escritor_do_log("Vision")
+    with caplog.at_level(logging.INFO, logger="jarvis.nucleo"):
+        escrever("Você: marca o dentista")
+        escrever("Vision: Feito.")
+        escrever("Microfone: Logi C920e")
+    assert [r.getMessage() for r in caplog.records] == ["Microfone: Logi C920e"]

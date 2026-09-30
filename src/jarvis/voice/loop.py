@@ -7,6 +7,7 @@ O atalho durante a fala interrompe o Jarvis e começa a ouvir.
 from __future__ import annotations
 
 import asyncio
+import logging
 import re
 import time
 from collections import deque
@@ -21,6 +22,9 @@ from jarvis.brain.agent import Agente
 from jarvis.voice.audio import TAXA, bipe
 from jarvis.voice.wake import DetectorFala, PalavraAtivacao
 
+log = logging.getLogger(__name__)
+
+FALA_DE_ERRO = "Não consegui pensar agora. O modelo pode estar carregando; tenta de novo em um instante."
 FIM_DE_FRASE = re.compile(r"(?<=[.!?])\s+")
 PASSO_NIVEL_S = 1 / 15  # ~15 atualizações de volume por segundo para a tela
 
@@ -203,13 +207,23 @@ class LoopVoz:
 
         falador = asyncio.create_task(self._falador(fila, primeira_fala))
         t1 = time.perf_counter()
+        r = None
         try:
             r = await self.agente.responder(texto, canal="voz", sessao="voz", ao_texto=ao_texto)
+        except Exception:  # noqa: BLE001 - Ollama fora do ar (ex.: logo depois de ligar o PC) não pode matar a voz
+            log.exception("o agente falhou numa pergunta por voz")
+            pendente[0] = ""
+            fila.put_nowait(FALA_DE_ERRO)
+            self._emitir({"tipo": "resposta", "texto": FALA_DE_ERRO})
         finally:
             if pendente[0].strip():
                 fila.put_nowait(pendente[0])
             fila.put_nowait(None)
             await falador
+        if r is None:
+            self.historico.append({"felipe": texto, "jarvis": FALA_DE_ERRO, "erro": True})
+            self.janela = self.blocos_janela_conversa
+            return
         usadas = ", ".join(f["nome"] for f in r.ferramentas)
         ate_falar = (primeira_fala[0] - t1) if primeira_fala else 0.0
         self.escrever(f"{self.agente.nome_assistente}: {r.texto}")

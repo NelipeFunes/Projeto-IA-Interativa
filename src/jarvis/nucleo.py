@@ -22,6 +22,7 @@ import logging
 import math
 import os
 import secrets
+import socket
 import subprocess
 import sys
 import time
@@ -32,6 +33,7 @@ from typing import Any
 
 from jarvis import config, inicializacao
 from jarvis.eventos import Barramento
+from jarvis.voice.loop import FALA_DE_ERRO
 
 log = logging.getLogger("jarvis.nucleo")
 
@@ -79,12 +81,32 @@ class InstanciaUnica:
         return bool(self.handle) and ctypes.get_last_error() != ERROR_ALREADY_EXISTS
 
 
+def nucleo_rodando(nome: str = NOME_MUTEX) -> bool:
+    """Só olha se o mutex existe, sem criar (o `jarvis servidor` usa para não brigar com o núcleo)."""
+    if sys.platform != "win32":
+        return False
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.OpenMutexW.restype = ctypes.c_void_p
+    k32.OpenMutexW.argtypes = (ctypes.c_ulong, ctypes.c_bool, ctypes.c_wchar_p)
+    k32.CloseHandle.argtypes = (ctypes.c_void_p,)
+    SYNCHRONIZE = 0x00100000
+    h = k32.OpenMutexW(SYNCHRONIZE, False, nome)
+    if h:
+        k32.CloseHandle(h)
+    return bool(h)
+
+
 def ler_acesso(cfg: config.Config) -> dict[str, Any] | None:
     try:
         acesso = json.loads((cfg.dados / "nucleo.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         return None
-    return acesso if isinstance(acesso, dict) and "porta" in acesso and "token" in acesso else None
+    if not (isinstance(acesso, dict) and "porta" in acesso and "token" in acesso):
+        return None
+    import psutil
+
+    # Arquivo velho de um núcleo que morreu (queda de energia): não vale.
+    return acesso if psutil.pid_exists(int(acesso.get("pid", -1))) else None
 
 
 def pedir_janela(cfg: config.Config) -> bool:
@@ -204,10 +226,18 @@ class Nucleo:
         from jarvis.server import Controle
 
         async def texto(t: str) -> None:
-            await self.j.agente.responder(t, "texto", "tela")
+            try:
+                await self.j.agente.responder(t, "texto", "tela")
+            except Exception:  # noqa: BLE001 - Ollama fora do ar: a tela recebe uma resposta, não fica esperando
+                log.exception("o agente falhou numa mensagem da tela")
+                self.barramento.publicar({"tipo": "resposta", "texto": FALA_DE_ERRO})
 
         async def confirmar(pid: str, sim: bool) -> None:
-            await self.j.agente.resolver_pendente(pid, sim)
+            try:
+                await self.j.agente.resolver_pendente(pid, sim)
+            except Exception:  # noqa: BLE001
+                log.exception("o agente falhou ao confirmar pela tela")
+                self.barramento.publicar({"tipo": "resposta", "texto": FALA_DE_ERRO})
 
         def ouvir(segurando: bool) -> None:
             if segurando and self.laco is not None:
@@ -273,8 +303,12 @@ class Nucleo:
     async def _atualizar_painel(self) -> None:
         while True:
             await asyncio.sleep(ATUALIZAR_PAINEL_S)
-            if self.barramento.assinantes:
+            if not self.barramento.assinantes:
+                continue
+            try:
                 self.barramento.publicar(await self.painel())
+            except Exception:  # noqa: BLE001 - uma foto que falha não pode parar as próximas
+                log.exception("não consegui atualizar o painel")
 
     # ---------- bandeja (thread própria: tudo volta ao loop por call_soon_threadsafe) ----------
 
@@ -347,9 +381,20 @@ class Nucleo:
 
                 app = criar_app(self.cfg, j, token=self.token, barramento=self.barramento,
                                 controle=self._controle(), pasta_app=self.cfg.raiz / "ui" / "dist")
+                # A porta é aberta aqui: ocupada, vira aviso na bandeja. (Dentro do uvicorn, ele faria
+                # sys.exit no meio da tarefa e o núcleo sumiria sem dizer nada.)
+                sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                try:
+                    sock.bind(("127.0.0.1", self.porta))
+                except OSError as e:
+                    sock.close()
+                    self.bandeja.avisar(f"A porta {self.porta} está ocupada (outro `jarvis servidor`?).")
+                    await asyncio.sleep(3)  # dá tempo de a notificação aparecer
+                    raise RuntimeError(f"porta {self.porta} ocupada") from e
+                pilha.callback(sock.close)
                 servidor = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=self.porta,
                                                          log_level="warning", log_config=None))
-                tarefa_servidor = asyncio.create_task(servidor.serve())
+                tarefa_servidor = asyncio.create_task(servidor.serve(sockets=[sock]))
                 for _ in range(100):
                     if servidor.started or tarefa_servidor.done():
                         break
@@ -391,7 +436,7 @@ class Nucleo:
 
         try:
             self.laco, _ = pilha.enter_context(preparar_voz(
-                self.cfg, self.j.agente, escrever=log.info, ao_evento=self.barramento.publicar))
+                self.cfg, self.j.agente, escrever=escritor_do_log(self.nome), ao_evento=self.barramento.publicar))
         except Exception as e:  # noqa: BLE001 - sem voz, a tela e a bandeja continuam
             log.exception("voz indisponível")
             self.barramento.publicar({"tipo": "aviso", "texto": f"Voz desligada: {e}"})
@@ -408,6 +453,17 @@ class Nucleo:
         except Exception:  # noqa: BLE001
             log.exception("o laço de voz caiu")
             self.barramento.publicar({"tipo": "aviso", "texto": "A voz parou por um erro; veja data/logs/nucleo.log."})
+
+
+def escritor_do_log(nome_assistente: str):
+    """O que o laço de voz escreve vai para o log; o que você falou e a resposta ficam em debug (já estão em
+    data/conversas/, não precisam de uma segunda cópia em texto no log)."""
+    privadas = ("Você:", f"{nome_assistente}:")
+
+    def escrever(linha: str) -> None:
+        (log.debug if linha.startswith(privadas) else log.info)(linha)
+
+    return escrever
 
 
 def main(argv: list[str] | None = None, *, console: bool = False) -> int:

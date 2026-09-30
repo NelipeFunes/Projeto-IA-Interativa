@@ -194,3 +194,20 @@ async def test_voz_manda_estado_e_volume_para_a_tela(pecas, registro, tmp_path):
     (tmp_path / "dormindo.flag").touch()
     laco.reavaliar_estado()
     assert eventos[-1] == {"tipo": "estado", "valor": "dormindo"}
+
+
+async def test_erro_do_modelo_nao_mata_a_voz(pecas, registro, tmp_path):
+    def quebra(_msgs):
+        raise ConnectionError("Ollama fora do ar")
+
+    agente = Agente(LLMFalso([quebra, fala("Agora sim.")]), registro, None)
+    laco = _loop(pecas, agente, [
+        _silencio(0.5), _fala(pecas["en"], "Hey Jarvis"), _silencio(0.4),
+        _fala(pecas["pt"], "Tudo bem?"), _silencio(1.5),
+        _fala(pecas["pt"], "E agora?"), _silencio(1.5),  # dentro da janela de conversa: sem "Hey Jarvis"
+    ], tmp_path)
+    eventos = []
+    laco.ao_evento = eventos.append
+    await laco.rodar(limite=2)
+    assert laco.historico[0].get("erro") and laco.historico[1]["jarvis"] == "Agora sim."
+    assert any(e == {"tipo": "resposta", "texto": laco.historico[0]["jarvis"]} for e in eventos)
