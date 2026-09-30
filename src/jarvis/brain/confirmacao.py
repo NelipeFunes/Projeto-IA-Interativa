@@ -17,6 +17,7 @@ SIM_VOZ = {
     "sim", "s", "pode sim", "sim pode", "sim por favor", "confirma", "confirmo", "confirmado", "pode fazer",
     "pode criar", "pode apagar", "pode lancar", "pode mudar", "pode esquecer", "pode confirmar",
 }
+COMPLEMENTO_DO_SIM = {"sim", "pode", "por", "favor", "confirma", "confirmo", "vision", "visium", "claro"}
 NAO = {
     "nao", "n", "cancela", "cancelar", "deixa", "deixa pra la", "esquece", "esquece isso", "negativo", "para",
     "nao precisa", "melhor nao", "nao obrigado", "nao valeu", "deixa quieto", "nem", "nope",
@@ -40,7 +41,10 @@ def classificar(resposta: str, estrito: bool = False) -> str:
         return "nao"
     palavras = t.split()
     if palavras and palavras[0] == "sim" and len(palavras) <= 4:
-        return "sim"
+        # Por voz, "sim, cancela" e "sim, mas às 17h" não são um sim: só vale o que reforça o sim.
+        if not estrito or all(p in COMPLEMENTO_DO_SIM for p in palavras[1:]):
+            return "sim"
+        return "outro"
     if palavras and palavras[0] == "nao" and len(palavras) <= 2:
         return "nao"
     return "outro"
