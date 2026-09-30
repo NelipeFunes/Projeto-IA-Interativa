@@ -6,6 +6,7 @@ import { Orbe } from "./componentes/Orbe";
 import { type Acao, inicial, reduzir } from "./estado";
 import { niveis } from "./niveis";
 import { chamar, noApp } from "./ponte";
+import { realcar } from "./realce";
 import { ROTULO_ESTADO } from "./rotulos";
 import type { Evento } from "./tipos";
 
@@ -94,7 +95,7 @@ export function Bolha() {
           )}
           {resposta && (
             <motion.p key={resposta} className="bolha-resposta" initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }}>
-              {resposta}
+              {realcar(resposta)}
             </motion.p>
           )}
         </AnimatePresence>

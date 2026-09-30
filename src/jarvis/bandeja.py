@@ -30,13 +30,14 @@ def desenhar_icone(estado: str, tamanho: int = 64):
     centro, borda = CORES.get(estado, CORES["ocioso"])
     img = Image.new("RGBA", (tamanho, tamanho), (0, 0, 0, 0))
     d = ImageDraw.Draw(img)
-    passos = tamanho // 2
-    for i in range(passos, 0, -1):
-        t = i / passos  # 1 = borda, 0 = centro
-        cor = tuple(int(borda[k] * t + centro[k] * (1 - t) + 70 * (1 - t) ** 3) for k in range(3))
-        m = (passos - i)
-        d.ellipse((m + 2, m + 2, tamanho - m - 3, tamanho - m - 3), fill=(*[min(c, 255) for c in cor], 255))
-    d.ellipse((2, 2, tamanho - 3, tamanho - 3), outline=(232, 230, 255, 200), width=2)
+    meio = (tamanho - 1) / 2
+    raio = meio - 2
+    # Círculos do maior (cor da borda) para o menor (centro, um pouco mais claro): degradê radial.
+    for r in range(int(raio), 0, -1):
+        t = r / raio  # 1 = borda, 0 = centro
+        cor = tuple(min(255, int(borda[k] * t + centro[k] * (1 - t) + 70 * (1 - t) ** 3)) for k in range(3))
+        d.ellipse((meio - r, meio - r, meio + r, meio + r), fill=(*cor, 255))
+    d.ellipse((meio - raio, meio - raio, meio + raio, meio + raio), outline=(232, 230, 255, 200), width=2)
     return img
 
 

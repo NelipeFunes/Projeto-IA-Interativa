@@ -130,3 +130,49 @@ def test_texto_gigante_e_cortado(cfg):
         ws.receive_json()
         ws.send_json({"tipo": "texto", "texto": "a" * 50_000})
         assert ws.receive_json() == {"tipo": "eco", "tamanho": 2000}
+
+
+def test_ws_no_uvicorn_de_verdade(cfg):
+    """O TestClient não usa o servidor real; sem a biblioteca de WebSocket o uvicorn recusava tudo (30/09)."""
+    import asyncio
+    import json
+    import socket
+    import threading
+    import time
+
+    import uvicorn
+    import websockets
+
+    with socket.socket() as s:
+        s.bind(("127.0.0.1", 0))
+        porta = s.getsockname()[1]
+    cfg.bruto.setdefault("servidor", {})["porta"] = porta
+    app = TestClient(criar_app(cfg, token=TOKEN, barramento=Barramento(),
+                               controle=Controle(painel=_painel_fixo))).app
+    servidor = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=porta, log_level="error", lifespan="off"))
+    threading.Thread(target=servidor.run, daemon=True).start()
+    for _ in range(100):
+        if servidor.started:
+            break
+        time.sleep(0.05)
+
+    async def conversar():
+        url = f"ws://127.0.0.1:{porta}/ws"
+        async with websockets.connect(url, origin=f"http://127.0.0.1:{porta}") as ws:
+            await ws.send(json.dumps({"tipo": "ola", "token": TOKEN}))
+            assert json.loads(await ws.recv())["tipo"] == "painel"
+        try:
+            async with websockets.connect(url, origin="https://site-qualquer.com") as ws:
+                await ws.recv()
+            raise AssertionError("aceitou outra origem")
+        except websockets.InvalidStatus as e:
+            assert e.response.status_code == 403
+
+    try:
+        asyncio.run(conversar())
+    finally:
+        servidor.should_exit = True
+
+
+async def _painel_fixo():
+    return {"tipo": "painel", "nome": "Vision"}

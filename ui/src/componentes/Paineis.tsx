@@ -2,6 +2,7 @@
 import { AnimatePresence, motion } from "motion/react";
 import { forwardRef, useEffect, useRef } from "react";
 import type { Mensagem } from "../estado";
+import { realcar } from "../realce";
 import { agoraHHMM, hoje, rotuloFerramenta } from "../rotulos";
 import type { EventoAgenda, Memoria, Pendente, Status } from "../tipos";
 
@@ -133,7 +134,7 @@ export function PainelConversa({ conversa }: { conversa: Mensagem[] }) {
               transition={{ duration: 0.28 }}
             >
               <p>
-                {m.texto}
+                {m.autor === "assistente" ? realcar(m.texto) : m.texto}
                 {m.parcial && <span className="cursor" />}
               </p>
               {m.ferramentas && (

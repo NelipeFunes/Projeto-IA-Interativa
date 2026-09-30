@@ -189,3 +189,14 @@ def test_so_um_nucleo_por_vez():
     primeiro = InstanciaUnica(nome)
     assert primeiro.pegar() is True
     assert InstanciaUnica(nome).pegar() is False
+
+
+@pytest.mark.parametrize("estado", ["ocioso", "ouvindo", "pensando", "falando", "dormindo", "jogo", "desconhecido"])
+@pytest.mark.parametrize("tamanho", [16, 32, 64])
+def test_icone_da_bandeja_desenha_em_todo_estado(estado, tamanho):
+    from jarvis.bandeja import desenhar_icone
+
+    img = desenhar_icone(estado, tamanho)
+    assert img.size == (tamanho, tamanho)
+    assert img.getpixel((0, 0))[3] == 0  # canto transparente
+    assert img.getpixel((tamanho // 2, tamanho // 2))[3] == 255  # centro pintado

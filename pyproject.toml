@@ -25,6 +25,7 @@ dependencies = [
     "pywebview>=6.2.1",
     "pystray>=0.19",
     "pillow>=11",
+    "websockets>=13",
 ]
 
 [project.scripts]

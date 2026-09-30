@@ -1,6 +1,6 @@
-# Jarvis
+# Vision
 
-Assistente pessoal local do Felipe: agenda (Google), finanças e tarefas (Orbit) e memória, por texto ou voz,
+Assistente pessoal local do Felipe (o pacote e o comando ainda se chamam `jarvis`): agenda (Google), finanças e tarefas (Orbit) e memória, por texto ou voz,
 100% no PC, sem pagar tokens. Cérebro: Qwen3.5 no Ollama (GPU). Ouvido: Parakeet (CPU). Voz: Piper (CPU).
 
 ## Instalação (Windows)
@@ -15,10 +15,26 @@ ollama pull qwen3.5:4b
 ollama pull embeddinggemma
 .venv\Scripts\python scripts\baixar_modelos.py
 npm install --prefix node
+npm install --prefix ui && npm run build --prefix ui
 ```
 
 Depois, ponha a pasta do projeto no PATH para o comando `jarvis` (o `jarvis.cmd`) funcionar de qualquer pasta.
 Para conectar o Google Agenda, veja `docs/guia-google-cloud.md`.
+
+## No dia a dia: em segundo plano
+
+O **núcleo** (`jarvisw`, sem console) junta tudo: voz, a janela com o orbe, o ícone na bandeja e o servidor local.
+Na primeira vez que roda, ele se coloca na pasta Inicializar do Windows (desliga pela bandeja).
+
+```bash
+jarvis abrir             # abre a janela (liga o núcleo se ele não estiver rodando)
+jarvis nucleo            # o mesmo núcleo, com log no console (para ver o que acontece)
+```
+
+- **Bandeja:** abrir, falar agora, pausar escuta, iniciar com o Windows, sair. O ícone muda de cor com o estado.
+- **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.
+- **Janela fechada:** falando com ele, aparece uma bolha no canto, sem tirar o foco (não aparece no modo jogo).
+- **Log:** `data/logs/nucleo.log` e `data/logs/janela.log`.
 
 ## Comandos (de qualquer pasta)
 
@@ -32,14 +48,17 @@ jarvis memorias          # o que o Jarvis lembra de você
 jarvis dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Jarvis"
 jarvis acordar
 jarvis falar "Oi, Felipe"   # testa a voz
-jarvis servidor          # cérebro como API em 127.0.0.1:8765 (para a Alexa, depois)
+jarvis servidor          # só o cérebro como API em 127.0.0.1:8765 (token em data/nucleo.json)
+jarvis interface --demo  # a demonstração da tela, com dados de exemplo
 jarvis --modelo qwen3.5:9b chat   # troca de modelo sem mexer no config
 ```
 
 Na pasta do projeto:
 
 ```bash
-.venv\Scripts\python -m pytest      # 77 testes, sem precisar de login nem microfone
+.venv\Scripts\python -m pytest      # testes do Python, sem precisar de login nem microfone
+npm test --prefix ui                 # testes da tela
+git config core.hooksPath .githooks  # uma vez: barra push com termo de data/termos-privados.txt
 .venv\Scripts\python evals\run.py   # avaliação 4B × 9B com agenda e Orbit falsos
 ```
 

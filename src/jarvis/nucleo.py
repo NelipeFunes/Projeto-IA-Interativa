@@ -367,6 +367,7 @@ class Nucleo:
                                 lambda: self._no_loop(self.abrir_janela))
                 pilha.callback(atalho.fechar)
 
+                await asyncio.sleep(0.2)  # a janela começa a subir antes: carregar a voz trava o loop por uns segundos
                 if self.com_voz:
                     await self._subir_voz(pilha, tarefas)
                 if aviso := aviso_login(self.cfg):
