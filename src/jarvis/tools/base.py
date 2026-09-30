@@ -13,12 +13,27 @@ from typing import Any
 
 Manipulador = Callable[[dict[str, Any]], Awaitable[str]]
 Descritor = Callable[[dict[str, Any]], Awaitable[str]]
+Previa = Callable[[dict[str, Any]], "dict[str, Any] | None"]
 
 LIMITE_RESULTADO = 4000
 
 
 class ErroFerramenta(Exception):
     """Erro que deve ser contado ao Felipe (ex.: agenda sem login)."""
+
+
+class ComDados(str):
+    """Texto para o modelo que carrega junto dados para a tela (ex.: o evento criado).
+
+    É um `str` de verdade: quem só quer o texto (testes, diagnóstico) nem percebe a diferença.
+    """
+
+    dados: Any
+
+    def __new__(cls, texto: str, dados: Any = None) -> ComDados:
+        obj = super().__new__(cls, texto)
+        obj.dados = dados
+        return obj
 
 
 @dataclass
@@ -31,6 +46,8 @@ class Ferramenta:
     # Para escrita: frase que descreve a ação antes da confirmação ("Vou criar ...").
     descrever: Descritor | None = None
     grupo: str = "geral"
+    # Para escrita: como a tela mostra a ação pendente (ex.: o cartão do evento), sem chamar nada externo.
+    previa: Previa | None = None
 
     def para_ollama(self) -> dict[str, Any]:
         return {
@@ -105,15 +122,22 @@ class Registro:
 
     async def rodar(self, nome: str, args: dict[str, Any]) -> tuple[bool, str]:
         """Executa e devolve (ok, texto). Nunca levanta: erro vira texto para o modelo."""
+        ok, saida, _ = await self.rodar_com_dados(nome, args)
+        return ok, saida
+
+    async def rodar_com_dados(self, nome: str, args: dict[str, Any]) -> tuple[bool, str, Any]:
+        """Como `rodar`, mais os dados para a tela (None se a ferramenta não tiver)."""
         f = self.ferramentas.get(nome)
         if f is None:
-            return False, f"Ferramenta '{nome}' não existe. Use só as ferramentas listadas."
+            return False, f"Ferramenta '{nome}' não existe. Use só as ferramentas listadas.", None
         try:
             saida = await f.executar(f.normalizar_args(args))
         except ErroFerramenta as e:
-            return False, str(e)
+            return False, str(e), None
         except Exception as e:  # noqa: BLE001 - qualquer falha vira resposta, não derruba a conversa
-            return False, f"Erro ao executar {nome}: {type(e).__name__}: {e}"
+            return False, f"Erro ao executar {nome}: {type(e).__name__}: {e}", None
+        dados = saida.dados if isinstance(saida, ComDados) else None
+        saida = str(saida)
         if len(saida) > LIMITE_RESULTADO:
             saida = saida[:LIMITE_RESULTADO] + "\n[... resultado cortado]"
-        return True, saida
+        return True, saida, dados

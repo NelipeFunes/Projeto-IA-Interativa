@@ -73,6 +73,23 @@ async def _memorias(cfg: config.Config) -> None:
     m.fechar()
 
 
+def _abrir(cfg: config.Config) -> int:
+    """Pede ao núcleo que já roda para abrir a janela; se não houver núcleo, liga um (sem console) já com ela."""
+    import subprocess
+
+    from jarvis.nucleo import pedir_janela
+
+    if pedir_janela(cfg):
+        return 0
+    from jarvis.inicializacao import alvo
+
+    exe, extra = alvo()
+    subprocess.Popen([str(exe), *extra.split(), "--abrir"], cwd=cfg.raiz, close_fds=True,
+                     creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    print("Ligando o assistente; a janela abre em alguns segundos.")
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
     ap = argparse.ArgumentParser(prog="jarvis", description="Assistente pessoal local do Felipe")
@@ -82,8 +99,13 @@ def main(argv: list[str] | None = None) -> int:
     v = sub.add_parser("voz", help="modo voz: 'Hey Jarvis' ou o atalho")
     v.add_argument("--sem-ativacao", action="store_true", help="só o atalho, sem palavra de ativação")
     sub.add_parser("servidor", help="cérebro como serviço HTTP em 127.0.0.1")
+    n = sub.add_parser("nucleo", help="o assistente completo em segundo plano (voz, bandeja, janela), com log no console")
+    n.add_argument("--abrir", action="store_true", help="já abre a janela")
+    n.add_argument("--sem-voz", action="store_true", help="sem microfone nem fala (só tela e bandeja)")
+    sub.add_parser("abrir", help="abre a janela (liga o núcleo se ele não estiver rodando)")
     i = sub.add_parser("interface", help="abre a janela gráfica")
     i.add_argument("--demo", action="store_true", help="roda o roteiro de demonstração (Fase A)")
+    i.add_argument("--nucleo", action="store_true", help=argparse.SUPPRESS)  # o núcleo abre a janela assim
     t = sub.add_parser("teste", help="checagem geral do ambiente")
     t.add_argument("parte", nargs="?", default="tudo", choices=["tudo", "ollama", "agenda", "orbit", "voz"])
     sub.add_parser("google-login", help="refaz o login do Google Agenda (a cada 7 dias)")
@@ -108,9 +130,20 @@ def main(argv: list[str] | None = None) -> int:
         from jarvis.server import rodar
 
         rodar(cfg)
+    elif args.comando == "nucleo":
+        from jarvis.nucleo import main as nucleo
+
+        return nucleo(["--abrir"] * args.abrir + ["--sem-voz"] * args.sem_voz, console=True)
+    elif args.comando == "abrir":
+        return _abrir(cfg)
     elif args.comando == "interface":
+        if args.nucleo:
+            from jarvis.interface import abrir_no_nucleo
+
+            abrir_no_nucleo(cfg)
+            return 0
         if not args.demo:
-            print("Por enquanto só existe a demonstração (a interface ligada ao cérebro vem na Fase C): jarvis interface --demo")
+            print("A janela de verdade é aberta pelo núcleo: use `jarvis abrir`. A demonstração: jarvis interface --demo")
             return 1
         from jarvis.interface import abrir
 

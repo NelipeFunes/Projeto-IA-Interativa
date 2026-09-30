@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import itertools
 import json
 import logging
 import time
@@ -42,6 +43,7 @@ class Pendente:
     ferramenta: str
     args: dict[str, Any]
     descricao: str
+    id: str = ""
 
 
 @dataclass
@@ -79,6 +81,7 @@ class Agente:
         top_k: int = 3,
         similaridade_minima: float = 0.25,
         relogio: Callable[[], Any] = tempo.agora,
+        ao_evento: Callable[[dict[str, Any]], None] | None = None,
     ):
         self.llm = llm
         self.registro = registro
@@ -93,6 +96,17 @@ class Agente:
         self.sim_min = similaridade_minima
         self.relogio = relogio
         self.sessoes: dict[tuple[str, str], Sessao] = {}
+        # Quem quiser acompanhar o que acontece (a tela, pelo núcleo) recebe eventos aqui. Ver ui/src/tipos.ts.
+        self.ao_evento = ao_evento
+        self._ids_pendente = itertools.count(1)
+
+    def _emitir(self, tipo: str, **campos: Any) -> None:
+        if self.ao_evento is None:
+            return
+        try:
+            self.ao_evento({"tipo": tipo, **campos})
+        except Exception:  # noqa: BLE001 - a tela nunca pode derrubar a conversa
+            log.exception("falha ao emitir evento %s", tipo)
 
     # ------------------------------------------------------------------ sessão
 
@@ -117,18 +131,24 @@ class Agente:
         ao_texto: Callable[[str], None] | None = None,
     ) -> Resposta:
         s = self.sessao(canal, sessao)
+        self._emitir("fala_usuario", texto=texto, canal=canal)
+        if self.ao_evento is not None:
+            original = ao_texto
+
+            def ao_texto(parte: str) -> None:
+                self._emitir("resposta_parcial", texto=parte)
+                if original:
+                    original(parte)
+
         async with s.trava:
             inicio = time.perf_counter()
-            if s.pendente is not None:
-                r = await self._tratar_confirmacao(s, texto, ao_texto)
-                if r is not None:
-                    r.segundos = time.perf_counter() - inicio
-                    self._registrar(canal, sessao, texto, r)
-                    return r
-            r = await self._pensar(s, texto, canal, ao_texto)
+            r = await self._tratar_confirmacao(s, texto, ao_texto) if s.pendente is not None else None
+            if r is None:
+                r = await self._pensar(s, texto, canal, ao_texto)
             r.segundos = time.perf_counter() - inicio
             self._registrar(canal, sessao, texto, r)
-            return r
+        self._emitir("resposta", texto=r.texto, aguardando_confirmacao=r.aguardando_confirmacao)
+        return r
 
     async def responder_com_prazo(self, texto: str, canal: str, sessao: str, prazo_s: float) -> Resposta:
         """Para a Alexa (limite de ~8 s): se estourar, guarda o resultado para a próxima pergunta."""
@@ -148,6 +168,13 @@ class Agente:
             s.atrasada = tarefa
             return Resposta("Ainda estou buscando isso. Me pergunta de novo em um instante.")
 
+    async def resolver_pendente(self, pendente_id: str, sim: bool) -> Resposta | None:
+        """Confirmar/Cancelar vindo da tela: responde "sim"/"não" na sessão que tem essa pendência."""
+        for (canal, sessao), s in list(self.sessoes.items()):
+            if s.pendente is not None and s.pendente.id == pendente_id:
+                return await self.responder("sim" if sim else "não", canal, sessao)
+        return None
+
     # ------------------------------------------------------------------ confirmação
 
     async def _tratar_confirmacao(
@@ -160,6 +187,7 @@ class Agente:
             # O Felipe corrigiu ou mudou de assunto: o modelo decide de novo. Sem esta nota, o modelo
             # achava que o evento já existia e tentava "alterar" (visto na avaliação de 30/09).
             s.pendente = None
+            self._emitir("pendente_resolvido", id=p.id, resultado="cancelada")
             s.nota = (
                 f"A ação '{p.descricao}' NÃO foi executada e foi descartada; nada foi criado nem alterado. "
                 f"Se o {self.nome} está corrigindo algum dado, chame {p.ferramenta} de novo com os dados corrigidos."
@@ -169,9 +197,14 @@ class Agente:
         if tipo == "nao":
             resposta = "Beleza, cancelei."
             registro = [{"nome": p.ferramenta, "args": p.args, "ok": None, "cancelada": True}]
+            self._emitir("pendente_resolvido", id=p.id, resultado="cancelada")
         else:
-            ok, resultado = await self.registro.rodar(p.ferramenta, p.args)
+            ok, resultado, dados = await self.registro.rodar_com_dados(p.ferramenta, p.args)
             registro = [{"nome": p.ferramenta, "args": p.args, "ok": ok, "resultado": resultado[:300]}]
+            self._emitir("ferramenta_fim", nome=p.ferramenta, ok=ok, args=p.args, dados=dados)
+            # "evento" leva o resultado real (id de verdade do Google) para a tela trocar o cartão provisório.
+            self._emitir("pendente_resolvido", id=p.id, resultado="executada" if ok else "cancelada",
+                         evento=dados if ok and isinstance(dados, dict) and dados.get("inicio") else None)
             if ok:
                 resposta = _no_passado(p.descricao)
                 if "Atenção:" in resultado:
@@ -262,20 +295,22 @@ class Agente:
                 f = self.registro.get(c.nome)
                 if f is not None:
                     c.args = f.normalizar_args(c.args)
+                self._emitir("ferramenta_inicio", nome=c.nome, args=c.args)
                 if f is not None and f.escrita:
                     if nova_pendente is not None:
                         ok, resultado = False, "Só uma alteração por vez; esta foi ignorada."
                     else:
                         try:
                             descricao = await f.descrever(c.args) if f.descrever else f"Vou executar {c.nome}."
-                            nova_pendente = Pendente(c.nome, c.args, descricao)
+                            nova_pendente = Pendente(c.nome, c.args, descricao, f"p{next(self._ids_pendente)}")
                             ok, resultado = True, f"AGUARDANDO CONFIRMAÇÃO DO {self.nome.upper()}: {descricao}"
                         except ErroFerramenta as e:
                             ok, resultado = False, f"Não dá para fazer ainda: {e}"
                         except Exception as e:  # noqa: BLE001
                             ok, resultado = False, f"Erro preparando {c.nome}: {type(e).__name__}: {e}"
                 else:
-                    ok, resultado = await self.registro.rodar(c.nome, c.args)
+                    ok, resultado, dados = await self.registro.rodar_com_dados(c.nome, c.args)
+                    self._emitir("ferramenta_fim", nome=c.nome, ok=ok, args=c.args, dados=dados)
                 usadas.append({"nome": c.nome, "args": c.args, "ok": ok, "resultado": resultado[:300]})
                 msg_tool = {"role": "tool", "content": resultado, "tool_name": c.nome}
                 mensagens.append(msg_tool)
@@ -283,6 +318,7 @@ class Agente:
 
             if nova_pendente is not None:
                 s.pendente = nova_pendente
+                self._emitir("pendente", pendente=self._pendente_para_tela(nova_pendente))
                 final = f"{nova_pendente.descricao} Confirma?"
                 if ao_texto:
                     ao_texto(final)
@@ -301,6 +337,19 @@ class Agente:
         return Resposta(final, usadas, s.pendente is not None, insistiu=insistiu)
 
     # ------------------------------------------------------------------ utilidades
+
+    def _pendente_para_tela(self, p: Pendente) -> dict[str, Any]:
+        tela: dict[str, Any] = {"id": p.id, "ferramenta": p.ferramenta, "descricao": p.descricao}
+        f = self.registro.get(p.ferramenta)
+        if f is not None and f.previa is not None:
+            try:
+                evento = f.previa(p.args)
+            except Exception:  # noqa: BLE001 - sem prévia a tela só mostra a descrição
+                log.exception("prévia de %s falhou", p.ferramenta)
+                evento = None
+            if evento:
+                tela["evento"] = {"id": p.id, **evento}  # criar: id provisório; apagar: a prévia traz o id real
+        return tela
 
     async def descarregar(self) -> None:
         await self.llm.descarregar()

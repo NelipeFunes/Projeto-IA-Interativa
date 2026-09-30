@@ -25,6 +25,8 @@ from typing import Any
 from jarvis.config import Config
 
 _JANELAS: dict[str, Any] = {}
+# No núcleo (Fase B), fechar só esconde: a janela fica carregada e abre na hora da próxima vez.
+_MODO = {"nucleo": False, "principal_visivel": True}
 
 LARGURA_BOLHA, ALTURA_BOLHA = 400, 96
 
@@ -97,7 +99,10 @@ def minimizar() -> None:
 
 
 def fechar() -> None:
-    # Fase A (demonstração): fechar encerra. Na Fase B, fechar só esconde e o núcleo continua.
+    if _MODO["nucleo"]:
+        esconder_principal()
+        return
+    # Demonstração: fechar encerra.
     for nome in ("bolha", "principal"):
         janela = _JANELAS.pop(nome, None)
         if janela is not None:
@@ -125,7 +130,52 @@ def esconder_bolha() -> None:
         janela.hide()
 
 
+def mostrar_principal() -> None:
+    janela = _JANELAS.get("principal")
+    if janela is None:
+        return
+    esconder_bolha()
+    janela.show()
+    janela.restore()
+    _MODO["principal_visivel"] = True
+
+
+def esconder_principal() -> None:
+    janela = _JANELAS.get("principal")
+    if janela is not None:
+        janela.hide()
+    _MODO["principal_visivel"] = False
+
+
 FUNCOES_EXPOSTAS = (minimizar, fechar, mostrar_bolha, esconder_bolha)
+
+
+def executar_comando(linha: str) -> bool:
+    """Um comando do núcleo pela entrada padrão. Devolve False quando é para encerrar.
+
+    Só estas palavras existem; qualquer outra linha é ignorada.
+    """
+    comando = linha.strip()
+    if comando == "mostrar":
+        mostrar_principal()
+    elif comando == "bolha":
+        if not _MODO["principal_visivel"]:  # com a janela aberta, a bolha seria repetida
+            mostrar_bolha()
+    elif comando == "esconder_bolha":
+        esconder_bolha()
+    elif comando == "sair":
+        _MODO["nucleo"] = False
+        fechar()
+        return False
+    return True
+
+
+def _ouvir_nucleo(entrada: Any) -> None:
+    """Thread: lê os comandos do núcleo. Se o núcleo morrer (entrada fechada), a janela fecha junto."""
+    for linha in entrada:
+        if not executar_comando(linha):
+            return
+    executar_comando("sair")
 
 
 # ------------------------------------------------------------------ janelas
@@ -147,25 +197,36 @@ def _posicao_bolha(webview: Any) -> tuple[int, int]:
     return int(direita - LARGURA_BOLHA - 16), int(baixo - ALTURA_BOLHA - 16)
 
 
-def criar_janelas(webview: Any, url: str, nome: str) -> None:
+def criar_janelas(webview: Any, url: str, nome: str, *, escondida: bool = False, sufixo: str = "") -> None:
+    """`sufixo` vai depois dos parâmetros da URL (no núcleo, o `#t=<token>`, que nunca sai do navegador)."""
     principal = webview.create_window(
-        nome, url, width=1280, height=800, min_size=(1040, 680),
-        frameless=True, easy_drag=False, background_color="#05040d",
+        nome, url + sufixo, width=1280, height=800, min_size=(1040, 680),
+        frameless=True, easy_drag=False, background_color="#05040d", hidden=escondida,
     )
+    _MODO["principal_visivel"] = not escondida
     x, y = _posicao_bolha(webview)
     # Sem transparent=True de propósito: com ele o pywebview mostra e ativa a janela ao carregar,
     # ignorando hidden=True e focus=False (a bolha abria visível e roubava o foco).
     bolha = webview.create_window(
-        f"{nome} (bolha)", url + "&janela=bolha",
+        f"{nome} (bolha)", url + "&janela=bolha" + sufixo,
         width=LARGURA_BOLHA, height=ALTURA_BOLHA, x=x, y=y,
         frameless=True, easy_drag=False, resizable=False, on_top=True, focus=False, hidden=True,
         shadow=False, background_color="#0a081c",
     )
     for janela in (principal, bolha):
         janela.expose(*FUNCOES_EXPOSTAS)
-    # Alt+F4 ou "fechar janela" na barra de tarefas também encerram (senão a bolha escondida prendia o processo).
+    # No núcleo, Alt+F4 ou "fechar janela" na barra de tarefas só escondem.
+    principal.events.closing += _ao_pedir_para_fechar
+    # Na demonstração, encerram (senão a bolha escondida prendia o processo).
     principal.events.closed += _ao_fechar_principal
     _JANELAS.update(principal=principal, bolha=bolha)
+
+
+def _ao_pedir_para_fechar() -> bool:
+    if _MODO["nucleo"]:
+        esconder_principal()
+        return False  # cancela o fechamento
+    return True
 
 
 def _ao_fechar_principal() -> None:
@@ -173,6 +234,28 @@ def _ao_fechar_principal() -> None:
     bolha = _JANELAS.pop("bolha", None)  # o ✕ (fechar) já pode ter destruído a bolha
     if bolha is not None:
         bolha.destroy()
+
+
+def abrir_no_nucleo(cfg: Config) -> None:
+    """A janela do núcleo: a interface vem do próprio núcleo (/app) e fala com ele pelo WebSocket.
+
+    O núcleo passa o endereço e o token por variáveis de ambiente (outros usuários do PC não as leem) e
+    manda comandos pela entrada padrão. O token vai no fragmento da URL (#t=...), que o navegador nunca
+    envia ao servidor nem grava em log.
+    """
+    import os
+
+    import webview
+
+    base = os.environ.get("VISION_URL", "")
+    token = os.environ.get("VISION_TOKEN", "")
+    if not base.startswith("http://127.0.0.1:") or not token:
+        raise SystemExit("Esta janela é aberta pelo núcleo (jarvis nucleo), não diretamente.")
+    _MODO["nucleo"] = True
+    criar_janelas(webview, f"{base}/app/index.html?nucleo=1", cfg.get("assistente.nome", "Vision"),
+                  escondida=os.environ.get("VISION_MOSTRAR") != "1", sufixo=f"#t={token}")
+    threading.Thread(target=_ouvir_nucleo, args=(sys.stdin,), name="comandos-do-nucleo", daemon=True).start()
+    webview.start(private_mode=True)
 
 
 def abrir(cfg: Config, demo: bool = True) -> None:
