@@ -1,5 +1,5 @@
 """`jarvis teste voz`: arquivos, dispositivos, nível do microfone e (se você estiver no terminal)
-calibração do 'Hey Jarvis' e comparação dos dois Parakeet com a sua voz."""
+calibração da palavra de ativação e comparação dos dois Parakeet com a sua voz."""
 
 from __future__ import annotations
 
@@ -91,6 +91,10 @@ async def _calibrar(cfg, p, OK, ERRO, AVISO, ok, mic, nome_alto, voz, audio) -> 
         p(ERRO, f"sem som em '{nome_alto}'. Ajuste voz.alto_falante no config.yaml")
         ok = False
 
+    if cfg.get("voz.ativacao", "transcricao") != "modelo":
+        ok = _calibrar_nome(cfg, p, OK, AVISO, ok, mic)
+        return _comparar_stt(cfg, p, OK, ERRO, mic, ok)
+
     from jarvis.voice.wake import PalavraAtivacao
 
     ativ = PalavraAtivacao(cfg.modelos / "openwakeword", limiar=1.0)
@@ -137,9 +141,38 @@ async def _calibrar(cfg, p, OK, ERRO, AVISO, ok, mic, nome_alto, voz, audio) -> 
             p(AVISO, f"calibrado com o microfone reserva: o '{preferido}' estava mudo. "
                      "Com ele (mais perto da boca) os scores tendem a subir")
 
+    return _comparar_stt(cfg, p, OK, ERRO, mic, ok)
+
+
+def _calibrar_nome(cfg, p, OK, AVISO, ok, mic) -> bool:
+    """Ativação por transcrição: você diz "Hey Vision" 3 vezes e vê o que o Parakeet entendeu."""
+    from jarvis.voice.comandos import achar_ativacao, e_despedida
+    from jarvis.voice.stt import carregar_transcritor
+
+    nome = cfg.get("assistente.nome", "Vision")
+    stt = carregar_transcritor(cfg)
+    print(f"\nAgora 3 vezes 'Hey {nome}'. Depois de apertar Enter você tem 3 segundos.")
+    acertos = 0
+    for i in range(3):
+        input(f"\n[{i + 1}/3] Aperte Enter e diga 'Hey {nome}'...")
+        texto = stt.transcrever(_gravar(mic, 3.0))
+        acordou = achar_ativacao(texto) is not None
+        acertos += acordou
+        print(f"   entendi: \"{texto}\" → {'acordaria' if acordou else 'NÃO acordaria'}")
+    p(OK if acertos == 3 else AVISO, f"'Hey {nome}': acordaria em {acertos} de 3"
+      + ("" if acertos == 3 else ". Mande o que ele entendeu: dá para ensinar a grafia em voice/comandos.py"))
+    input(f"\nAperte Enter e diga 'Beleza, {nome}, pode desligar' (3 s)...")
+    texto = stt.transcrever(_gravar(mic, 3.0))
+    desligaria = e_despedida(texto)
+    p(OK if desligaria else AVISO, f"despedida: \"{texto}\" → {'encerraria' if desligaria else 'NÃO encerraria'}")
+    return ok and acertos > 0
+
+
+def _comparar_stt(cfg, p, OK, ERRO, mic, ok) -> bool:
     from jarvis.voice.stt import Transcritor
 
-    input("\nAperte Enter e diga: 'Jarvis, quanto eu gastei com iFood esse mês?' (5 s)...")
+    nome = cfg.get("assistente.nome", "Vision")
+    input(f"\nAperte Enter e diga: '{nome}, quanto eu gastei com iFood esse mês?' (5 s)...")
     pcm = _gravar(mic, 5.0)
     for nome in ("parakeet-base-int8", "parakeet-ptbr"):
         try:

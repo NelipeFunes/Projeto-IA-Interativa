@@ -1,7 +1,7 @@
 import type { Estado } from "./tipos";
 
 export const ROTULO_ESTADO: Record<Estado, string> = {
-  ocioso: "Pronto",
+  ocioso: "Diga “Hey Vision”",
   ouvindo: "Ouvindo…",
   pensando: "Pensando…",
   falando: "Falando",

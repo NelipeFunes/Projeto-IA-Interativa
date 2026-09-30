@@ -1,4 +1,4 @@
-"""'Hey Jarvis' (openWakeWord), detector de fala (Silero VAD) e o atalho de teclado."""
+"""Palavra de ativação por modelo (openWakeWord), detector de fala (Silero VAD) e o atalho de teclado."""
 
 from __future__ import annotations
 
@@ -76,7 +76,7 @@ class DetectorFala:
 
 
 class Atalho:
-    """Tecla de atalho global (ex.: ctrl+alt+j). Funciona como dizer 'Hey Jarvis'."""
+    """Tecla de atalho global (ex.: ctrl+alt+j). Funciona como dizer 'Hey Vision'."""
 
     def __init__(self, combinacao: str, ao_apertar: Callable[[], None]):
         self.combinacao = combinacao
