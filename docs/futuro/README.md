@@ -6,7 +6,7 @@ Ideias registradas em 30/09/2026 para não se perderem. **Nada disto está imple
 |---|---|---|
 | [01-servidor-dedicado.md](01-servidor-dedicado.md) | Servidor só para a IA | Tirar o cérebro do PC principal e pôr num PC Linux ligado 24 h. A janela do Vision passa a se conectar a ele pela rede de casa. |
 | [02-satelites-de-voz.md](02-satelites-de-voz.md) | Microfones pela casa | Pequenos aparelhos com ESP32-S3, microfone e alto-falante, um por cômodo, falando com o Vision. |
-| [03-casa-inteligente.md](03-casa-inteligente.md) | Luzes, dispositivos, acessos | O Vision controlando a casa: primeiro as luzes que hoje passam por um assistente comercial, depois o resto. |
+| [03-casa-inteligente.md](03-casa-inteligente.md) | Luzes, dispositivos, acessos | O Vision controlando luzes e dispositivos da casa pelo Home Assistant. |
 | [04-preparar-o-codigo.md](04-preparar-o-codigo.md) | Deixar o programa pré-pronto | O que mudar no código já agora, para que os três planos acima encaixem sem reescrever nada. |
 
 ## Onde estamos hoje (para comparar)

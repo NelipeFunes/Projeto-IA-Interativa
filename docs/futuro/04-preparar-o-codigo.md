@@ -8,7 +8,7 @@ Mudanças pequenas que podem ser feitas **aos poucos, já agora**, para que o se
 |---|---|---|---|
 | 1 | Endereço do servidor configurável (`servidor.endereco`), no lugar do `127.0.0.1` fixo na janela e no `pedir_janela`. `http://` só para `127.0.0.1`; o núcleo só escuta fora do `127.0.0.1` no modo servidor, com TLS e o item 3 prontos | `interface.py`, `nucleo.py`, `server.py` | A janela precisa se conectar a outra máquina |
 | 2 | Lista de Origins permitidas vinda da configuração | `server.py` (`origens_permitidas`) | A interface pode vir de outro endereço |
-| 3 | **Tokens por aparelho**, com nome, guardados em `data/aparelhos.json`, mais revogação. Pareamento com código que expira, vale uma vez e limita tentativas. Token só no cabeçalho ou no fragmento, nunca em `?token=` | `server.py` | Revogar um aparelho perdido sem trocar todos |
+| 3 | **Tokens por aparelho**, com nome, guardados em `data/aparelhos.json`, mais revogação. Pareamento com código que expira, vale uma vez, limita tentativas e só abre por comando no servidor ou sessão já autenticada. Token só no cabeçalho ou no fragmento, nunca em `?token=` | `server.py` | Revogar um aparelho perdido sem trocar todos |
 | 4 | Núcleo sem obrigação de Windows: bandeja, atalhos, mutex e atalho de inicialização como peças opcionais, detectadas por sistema | `nucleo.py`, `bandeja.py`, `inicializacao.py` | Rodar no Ubuntu sem tela |
 | 5 | Modo "só servidor" (`vision servidor-completo`): agente, voz remota e API, sem janela nem bandeja | `cli.py`, `nucleo.py` | O que o servidor Linux vai rodar |
 | 6 | Login do Google sem navegador local: gera o link de consentimento, abre em outro aparelho e cola o endereço de retorno (o fluxo de aparelho do Google não aceita o escopo da Agenda) | `google_login.py` | Servidor sem tela |
@@ -28,7 +28,7 @@ Mudanças pequenas que podem ser feitas **aos poucos, já agora**, para que o se
 
 | # | Mudança | Onde | Por quê |
 |---|---|---|---|
-| 13 | **Política de confirmação por ferramenta**, e não só "escrita ou não": `confirmar="sempre" / "nunca" / "se_ambiguo"` | `tools/base.py`, `brain/agent.py` | Luzes sem "Confirma?", acessos físicos sempre com |
+| 13 | **Política de confirmação por ferramenta**, e não só "escrita ou não": `confirmar="sempre" / "nunca" / "se_ambiguo"` | `tools/base.py`, `brain/agent.py` | Luzes sem "Confirma?", acessos físicos sempre com. Para acesso físico, "sempre" quer dizer confirmação pela interface autenticada (ou PIN), **nunca pela voz**, e nunca quando o turno leu conteúdo de fora ou veio pelo caminho A |
 | 14 | **Origem por turno:** se o turno leu conteúdo de fora (agenda, memória, resultado de ferramenta externa), toda ferramenta `casa_*` passa a exigir confirmação, até as de `"nunca"`. A regra fica no código, não no prompt | `brain/agent.py` | Um texto da agenda nunca aciona nada na casa |
 | 15 | Ferramentas `casa_*` com um HA falso nos testes (como o `calendario_falso.py`) | `tools/casa.py`, `tests/fakes/ha_falso.py` | Desenvolver sem mexer na casa de verdade |
 | 16 | Apelidos dos dispositivos em arquivo próprio, editável (`data/casa.yaml`) | novo | O modelo vê "luz da sala", não `light.sala_teto` |

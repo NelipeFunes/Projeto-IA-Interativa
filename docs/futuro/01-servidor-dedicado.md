@@ -63,8 +63,8 @@ Hoje o servidor aceita **só `127.0.0.1`**, o que é seguro porque nada de fora 
 
 A janela já fala com o núcleo por WebSocket com token. Para o servidor remoto, falta:
 
-- **Configuração** `servidor.endereco`, por exemplo `https://vision.casa:8765`, no lugar do `127.0.0.1` fixo. Endereço `http://` só é aceito para `127.0.0.1`; para qualquer outro, a janela recusa.
-- **Primeiro pareamento:** o servidor mostra um código (ou QR) e a janela do PC recebe o token dela, sem copiar arquivo à mão. O código expira em poucos minutos, vale uma vez e tem limite de tentativas.
+- **Configuração** `servidor.endereco`, por exemplo `https://vision.home.arpa:8765` (o domínio reservado para redes de casa), no lugar do `127.0.0.1` fixo. Endereço `http://` só é aceito para `127.0.0.1`; para qualquer outro, a janela recusa.
+- **Primeiro pareamento:** o servidor mostra um código (ou QR) e a janela do PC recebe o token dela, sem copiar arquivo à mão. O código expira em poucos minutos, vale uma vez e tem limite de tentativas. O pareamento só abre por um comando no próprio servidor, ou numa sessão já autenticada, e o código aparece só ali: um aparelho qualquer da rede não consegue pedir um.
 - **O token nunca vai na URL de consulta** (`?token=`), que fica em log e histórico: vai no cabeçalho `Authorization` ou no fragmento (`#t=`), como hoje.
 - **Sem servidor na rede**, a janela mostra "sem conexão" e tenta de novo, o que já acontece hoje.
 - **A bandeja do PC** vira cliente: mostra o estado do servidor e abre a janela.
