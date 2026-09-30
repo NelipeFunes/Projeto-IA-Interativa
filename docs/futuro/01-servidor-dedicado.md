@@ -2,7 +2,7 @@
 
 ## Objetivo
 
-Hoje o Vision disputa o PC com os jogos: o modo jogo tira o modelo da VRAM e pausa a escuta. A ideia é ter **um computador só para a IA**, ligado o tempo todo, e o PC principal (e depois o celular) usando o Vision **pela rede de casa**.
+Hoje o Vision divide o PC com tudo o mais: quando a GPU precisa ficar livre, o modo de liberar a GPU tira o modelo da VRAM e pausa a escuta. A ideia é ter **um computador só para a IA**, ligado o tempo todo, e o PC principal (e depois o celular) usando o Vision **pela rede de casa**.
 
 ```
                  rede de casa (Wi-Fi / cabo)
@@ -34,14 +34,14 @@ Hoje o Vision disputa o PC com os jogos: o modo jogo tira o modelo da VRAM e pau
 - **Modelo de 4B na GPU:** uma placa NVIDIA com **8 GB ou mais** de VRAM. Pode ser usada: RTX 3060 12 GB (melhor custo), 3060 Ti, 4060 8 GB. O Qwen3.5 4B usa ~3–4 GB; sobra espaço para um modelo maior depois.
 - **Sem GPU:** um mini PC com CPU moderna roda o 4B quantizado, mas a resposta fica lenta (vários segundos). Serve para testar, não para o dia a dia.
 - **Resto:** 16 GB de RAM, SSD de 256 GB, rede por cabo. Fonte e ventilação para ficar ligado 24 h.
-- **Consumo:** vale medir. Uma máquina ligada o tempo todo aparece na conta de luz. Opções: suspender à noite, ou acordar o PC pela rede (Wake-on-LAN) quando um satélite for usado.
+- **Consumo:** vale medir. Uma máquina ligada o tempo todo aparece na conta de luz. Com satélites (plano 02), suspender não serve: eles não acordam o PC. O caminho é uma máquina de baixo consumo parado (GPU em repouso, sem suspender).
 
 ## Sistema
 
 - **Ubuntu Server LTS**, sem interface gráfica, e driver NVIDIA + CUDA para o Ollama.
 - **Docker Compose** com serviços separados: Ollama, núcleo do Vision, Home Assistant (plano 03) e, se usarmos, os serviços Wyoming (plano 02). Um serviço que cair não derruba os outros e volta sozinho (`restart: unless-stopped`).
 - **Dados:**
-  - `data/` fica num volume com **backup** (memória, perfil, conversas, tokens);
+  - `data/` fica num volume com **backup cifrado** e fora do git (memória, perfil, conversas, tokens);
   - o `.env` e o `google-oauth.json` ficam só no servidor, nunca no git.
 
 ## Segurança
@@ -53,14 +53,19 @@ Hoje o servidor aceita **só `127.0.0.1`**, o que é seguro porque nada de fora 
 3. **Um token por aparelho** (PC, celular, cada satélite), em vez do token único de hoje. Assim dá para revogar um aparelho perdido sem trocar todos. Os tokens ficam guardados no servidor com nome e data.
 4. **Origin:** a checagem de hoje (só o próprio servidor) continua. A lista passa a ser configurável, com os endereços da interface.
 5. **Escrita continua pedindo confirmação.** No servidor, isso vale ainda mais: um satélite na sala não pode confirmar sozinho uma ação que você não ouviu (ver plano 02, confirmação por satélite).
-6. **Firewall do Ubuntu** (`ufw`): só as portas do Vision e do Home Assistant, e só para a rede local.
+6. **Portas:** o `ufw` sozinho **não protege** portas publicadas pelo Docker, que escreve as próprias regras no iptables e passa por cima dele.
+   - Ollama e Wyoming ficam **sem `ports:`**, só na rede interna do Docker: só o núcleo e o HA os alcançam. O Ollama não tem autenticação.
+   - O que precisa ser visto na rede de casa (a API do Vision, o HA) é publicado de forma explícita, com a origem limitada nas regras `DOCKER-USER` (ou com `ufw-docker`).
+   - Teste obrigatório: `nmap` de outra máquina da rede, conferindo que só essas portas respondem.
+7. **Escuta fora de `127.0.0.1` só no modo servidor**, e só com TLS e token por aparelho já prontos (plano 04, itens 1 a 3). Antes disso, o núcleo continua preso ao `127.0.0.1`.
 
 ## Janela conectando a um servidor remoto
 
 A janela já fala com o núcleo por WebSocket com token. Para o servidor remoto, falta:
 
-- **Configuração** `servidor.endereco`, por exemplo `https://vision.casa:8765`, no lugar do `127.0.0.1` fixo.
-- **Primeiro pareamento:** o servidor mostra um código (ou QR) e a janela do PC recebe o token dela, sem copiar arquivo à mão.
+- **Configuração** `servidor.endereco`, por exemplo `https://vision.casa:8765`, no lugar do `127.0.0.1` fixo. Endereço `http://` só é aceito para `127.0.0.1`; para qualquer outro, a janela recusa.
+- **Primeiro pareamento:** o servidor mostra um código (ou QR) e a janela do PC recebe o token dela, sem copiar arquivo à mão. O código expira em poucos minutos, vale uma vez e tem limite de tentativas.
+- **O token nunca vai na URL de consulta** (`?token=`), que fica em log e histórico: vai no cabeçalho `Authorization` ou no fragmento (`#t=`), como hoje.
 - **Sem servidor na rede**, a janela mostra "sem conexão" e tenta de novo, o que já acontece hoje.
 - **A bandeja do PC** vira cliente: mostra o estado do servidor e abre a janela.
 
@@ -76,5 +81,5 @@ A janela já fala com o núcleo por WebSocket com token. Para o servidor remoto,
 ## Riscos e dúvidas
 
 - **Latência:** resposta pela rede soma poucos milissegundos, nada perto do tempo do modelo.
-- **Login do Google em modo teste** (7 dias): continua existindo. Num servidor sem tela, o login precisa de um jeito sem navegador local (link para abrir no celular).
+- **Login do Google em modo teste** (7 dias): continua existindo. O fluxo de aparelho do Google (código na tela) não aceita o escopo da Agenda. Num servidor sem tela, o jeito é gerar o link de consentimento no servidor, abrir em outro aparelho e colar de volta o endereço de retorno; ou fazer o login no PC e levar o token.
 - **Voz no PC principal:** se o PC deixar de rodar o núcleo, o "Hey Vision" do PC depende do plano 02 (o PC como satélite).
