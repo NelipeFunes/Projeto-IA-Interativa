@@ -1,4 +1,4 @@
-﻿"""Login do Google Agenda (app em modo teste → o token vence a cada 7 dias)."""
+"""Login do Google Agenda (app em modo teste → o token vence a cada 7 dias)."""
 
 from __future__ import annotations
 

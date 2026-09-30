@@ -1,4 +1,4 @@
-﻿"""`jarvis teste voz`: arquivos, dispositivos, nível do microfone e (se você estiver no terminal)
+"""`jarvis teste voz`: arquivos, dispositivos, nível do microfone e (se você estiver no terminal)
 calibração do 'Hey Jarvis' e comparação dos dois Parakeet com a sua voz."""
 
 from __future__ import annotations

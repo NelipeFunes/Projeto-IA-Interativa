@@ -1,4 +1,4 @@
-﻿"""Servidor MCP falso com os mesmos nomes e o mesmo formato de resposta do @cocal/google-calendar-mcp.
+"""Servidor MCP falso com os mesmos nomes e o mesmo formato de resposta do @cocal/google-calendar-mcp.
 
 Usado nos testes e nas avaliações, enquanto o login do Google não existe. Roda em memória
 (`mcp.Client(servidor)`) ou por stdio (`python calendario_falso.py`).

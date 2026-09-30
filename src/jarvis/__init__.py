@@ -1,1 +1,1 @@
-﻿"""Jarvis: assistente pessoal local."""
+"""Jarvis: assistente pessoal local."""
