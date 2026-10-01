@@ -107,10 +107,23 @@ class Casa:
     # ---------- ferramentas ----------
 
     async def listar(self, _args: dict[str, Any]) -> str:
-        luzes = self._rotuladas()
-        if not luzes:
+        if not self.alexa.luzes():
             return "Nenhuma luz ligada ao Vision ainda (o Felipe precisa rodar `vision alexa-login`)."
-        return "Luzes que o Vision controla (pela Alexa): " + ", ".join(x["rotulo"] for x in luzes) + "."
+        return "Luzes que o Vision controla (pela Alexa): " + self.resumo() + "."
+
+    def resumo(self) -> str:
+        """As luzes agrupadas pelo nome na Alexa: o modelo pede o grupo inteiro pelo nome, sem número."""
+        grupos: dict[str, int] = {}
+        for x in self.alexa.luzes():
+            grupos[x["nome"]] = grupos.get(x["nome"], 0) + 1
+        partes = []
+        for nome, n in grupos.items():
+            if n == 1:
+                partes.append(f"'{nome}'")
+            else:
+                partes.append(f"'{nome}' ({n} lâmpadas: use '{nome}' para todas juntas, ou "
+                              + " / ".join(f"'{nome} {i}'" for i in range(1, n + 1)) + " para uma só)")
+        return "; ".join(partes)
 
     def _mudar(self, ligar: bool):
         async def executar(args: dict[str, Any]) -> str:
@@ -147,7 +160,8 @@ class Casa:
         return descrever
 
     def ferramentas(self) -> list[Ferramenta]:
-        luz = texto("Nome da luz como está na lista (ou 'todas')")
+        luz = texto("Nome da luz ou do lugar (ex.: 'quarto'), ou 'todas'. Sem número = todas as lâmpadas com esse "
+                    "nome; com número = só aquela. Repasse o que o Felipe disse")
         return [
             Ferramenta("luzes_listar", "Lista as luzes da casa que o Vision controla.", esquema([]), self.listar,
                        grupo="casa"),
