@@ -73,6 +73,7 @@ class FerramentasOrbit:
                 ),
                 self._chamar("financas_lancar"),
                 escrita=True,
+                sensivel=True,  # dinheiro
                 descrever=self.descrever_lancar,
                 grupo="financas",
             ),

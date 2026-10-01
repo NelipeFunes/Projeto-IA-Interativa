@@ -17,15 +17,16 @@ from pathlib import Path
 from typing import Any
 
 from vision import tempo
-from vision.brain import confirmacao, intencao, prompt
+from vision.brain import confirmacao as classificador, intencao, prompt
 from vision.brain.llm import LLM, RespostaLLM
 from vision.memory.store import Memorias
-from vision.tools.base import ErroFerramenta, Registro
+from vision.tools.base import ErroFerramenta, Ferramenta, Registro
 
 log = logging.getLogger(__name__)
 
 MAX_VOLTAS = 5
 MAX_DIRETAS = 8  # escritas sem confirmação num mesmo pedido
+MODOS_CONFIRMACAO = ("todas", "sensiveis", "nenhuma")
 CORTE_TOOL_ANTIGO = 600
 
 PASSADO = {
@@ -93,12 +94,17 @@ class Agente:
         similaridade_minima: float = 0.25,
         relogio: Callable[[], Any] = tempo.agora,
         ao_evento: Callable[[dict[str, Any]], None] | None = None,
-        confirmar_acoes: bool = True,
+        confirmacao: str = "todas",
     ):
         self.llm = llm
-        # False (pedido do Felipe em 01/10): toda escrita roda na hora, sem "Confirma?" e sem a trava de texto de
-        # fora. O pedido dele é a ordem. `assistente.confirmar_acoes: true` volta ao modo com confirmação.
-        self.confirmar_acoes = confirmar_acoes
+        # Quando pedir "Confirma?" (`assistente.confirmacao`):
+        #   "todas": toda escrita (menos as com `confirmar=False`, como luzes), e tudo depois de ler texto de fora;
+        #   "sensiveis" (pedido do Felipe em 01/10): só o que não dá para desfazer ou mexe com dinheiro
+        #     (`sensivel=True`), e guardar memória logo depois de ler texto de fora;
+        #   "nenhuma": nada pergunta.
+        if confirmacao not in MODOS_CONFIRMACAO:
+            raise ValueError(f"assistente.confirmacao deve ser um de {MODOS_CONFIRMACAO}, não {confirmacao!r}")
+        self.confirmacao = confirmacao
         self.registro = registro
         self.memorias = memorias
         self.nome = nome_usuario
@@ -234,7 +240,7 @@ class Agente:
     ) -> Resposta | None:
         p = s.pendente
         assert p is not None
-        tipo = confirmacao.classificar(texto, estrito)
+        tipo = classificador.classificar(texto, estrito)
         if tipo == "outro":
             # O Felipe corrigiu ou mudou de assunto: o modelo decide de novo. Sem esta nota, o modelo
             # achava que o evento já existia e tentava "alterar" (visto na avaliação de 30/09).
@@ -282,7 +288,7 @@ class Agente:
             except Exception as e:  # noqa: BLE001 - memória fora do ar não pode travar a conversa
                 log.warning("memória indisponível: %s", e)
         return prompt.montar(self.nome, canal, self.relogio(), perfil, memorias, set(self.registro.ferramentas),
-                             self.nome_assistente, confirmar=self.confirmar_acoes)
+                             self.nome_assistente, confirmacao=self.confirmacao)
 
     def _historico(self, s: Sessao) -> list[dict[str, Any]]:
         turnos = s.turnos[-self.turnos_historico :]
@@ -296,8 +302,8 @@ class Agente:
         return msgs
 
     async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None) -> Resposta:
-        # Depois de ler texto de fora, quem decide é o caminho normal (só no modo com confirmação).
-        if not self.confirmar_acoes or (not self._ainda_tem_externo(s) and not s.nota):
+        # No modo "todas", depois de ler texto de fora quem decide é o caminho normal. Luz nunca é sensível.
+        if self.confirmacao != "todas" or (not self._ainda_tem_externo(s) and not s.nota):
             for atalho in self.atalhos:
                 feito = await atalho(texto)
                 if feito is not None:
@@ -309,7 +315,7 @@ class Agente:
         mensagens = [{"role": "system", "content": sistema}, *self._historico(s), *nota, *turno]
         ferramentas = self.registro.para_ollama()
         usadas: list[dict[str, Any]] = []
-        leu_de_fora = self.confirmar_acoes and self._ainda_tem_externo(s)
+        leu_de_fora = self.confirmacao != "nenhuma" and self._ainda_tem_externo(s)
         diretas = 0
         grupos = [g for g in intencao.detectar(texto) if self.registro.nomes_do_grupo(g)]
         # Só um pedido de ação (não pergunta, nem resposta a uma pendência que acabou de ser descartada) pode ter
@@ -323,7 +329,7 @@ class Agente:
             r: RespostaLLM = await self.llm.conversar(mensagens, ferramentas, transmitir)
             transmitido = transmitir is not None
 
-            escreveu = any(u["ok"] and (f := self.registro.get(u["nome"])) is not None and f.escrita for u in usadas)
+            escreveu = any(self._mudou_algo(u) for u in usadas)
             afirmou = pedido_de_acao and not r.chamadas and not escreveu and intencao.afirmou_sem_fazer(r.texto)
             anunciou = not r.chamadas and (intencao.anunciou_sem_fazer(r.texto) or afirmou)
             if not r.chamadas and not insistiu and ((volta == 0 and grupos) or anunciou):
@@ -333,7 +339,8 @@ class Agente:
                     extra = [{"role": "assistant", "content": r.texto}]
                     puxao = ("ATENÇÃO: você disse que ia fazer ou verificar algo, mas não chamou nenhuma ferramenta. "
                              "Chame a ferramenta certa agora; "
-                             + (f"o sistema é quem pede a confirmação ao {self.nome}. " if self.confirmar_acoes else "")
+                             + (f"o sistema é quem pede a confirmação ao {self.nome}. "
+                                if self.confirmacao != "nenhuma" else "")
                              + "Nunca escreva 'Confirma?' você mesmo.")
                 else:
                     extra = []
@@ -343,7 +350,7 @@ class Agente:
                 r = await self.llm.conversar([*mensagens, *extra, {"role": "system", "content": puxao}], ferramentas, None)
                 transmitido = False
 
-            escreveu = any(u["ok"] and (f := self.registro.get(u["nome"])) is not None and f.escrita for u in usadas)
+            escreveu = any(self._mudou_algo(u) for u in usadas)
             if _fingiu_que_fez(r, escreveu, insistiu, pedido_de_acao):
                 # Cobrado e mesmo assim nada foi chamado: não deixa passar "Feito." de mentira.
                 log.warning("o modelo disse que fez/ia fazer sem chamar ferramenta (%d caracteres)", len(r.texto))
@@ -368,18 +375,18 @@ class Agente:
                 if f is not None:
                     c.args = f.normalizar_args(c.args)
                 self._emitir("ferramenta_inicio", nome=c.nome, args=c.args)
-                sem_pergunta = f is not None and (not f.confirmar or not self.confirmar_acoes)
-                direta = f is not None and f.escrita and sem_pergunta and not leu_de_fora and diretas < MAX_DIRETAS
-                pede_por_externo = f is not None and not f.escrita and f.confirmar_se_externo and leu_de_fora
-                if f is not None and f.escrita and not self.confirmar_acoes and not direta:
-                    # Sem confirmação, o excesso não vira "Confirma?": só não é feito (trava contra laço do modelo).
+                pergunta = f is not None and self._pede_confirmacao(f, leu_de_fora)
+                limite = f is not None and f.escrita and not pergunta and diretas >= MAX_DIRETAS
+                if limite and self.confirmacao == "todas":
+                    pergunta, limite = True, False  # modo antigo: o excesso vira pendência
+                if limite:
+                    # O excesso não vira "Confirma?": só não é feito (trava contra laço do modelo).
                     ok, resultado = False, f"Limite de {MAX_DIRETAS} ações por pedido; esta não foi feita."
-                elif direta:
-                    # Sem "Confirma?": o pedido é do Felipe, e nada de fora foi lido antes neste turno.
+                elif f is not None and f.escrita and not pergunta:
                     diretas += 1
                     ok, resultado, dados = await self.registro.rodar_com_dados(c.nome, c.args)
                     self._emitir("ferramenta_fim", nome=c.nome, ok=ok, args=c.args, dados=dados)
-                elif f is not None and (f.escrita or pede_por_externo):
+                elif pergunta:
                     if nova_pendente is not None:
                         ok, resultado = False, "Só uma alteração por vez; esta foi ignorada."
                     else:
@@ -394,7 +401,7 @@ class Agente:
                 else:
                     ok, resultado, dados = await self.registro.rodar_com_dados(c.nome, c.args)
                     self._emitir("ferramenta_fim", nome=c.nome, ok=ok, args=c.args, dados=dados)
-                    if f is not None and f.conteudo_externo and self.confirmar_acoes:
+                    if f is not None and f.conteudo_externo and self.confirmacao != "nenhuma":
                         leu_de_fora = True
                 usadas.append({"nome": c.nome, "args": c.args, "ok": ok, "resultado": resultado[:300]})
                 msg_tool = {"role": "tool", "content": resultado, "tool_name": c.nome}
@@ -423,6 +430,21 @@ class Agente:
             # O resultado fica no histórico por `turnos_historico` turnos: a trava vale esse tempo todo.
             s.externo_ate_turno = len(s.turnos) - 1 + self.turnos_historico
         return Resposta(final, usadas, s.pendente is not None, insistiu=insistiu)
+
+    def _mudou_algo(self, usada: dict[str, Any]) -> bool:
+        """Chamada que deu certo e mudou algo: escrita, ou guardar memória (que não é escrita, mas grava)."""
+        f = self.registro.get(usada["nome"])
+        return bool(usada["ok"]) and f is not None and (f.escrita or f.confirmar_se_externo)
+
+    def _pede_confirmacao(self, f: Ferramenta, leu_de_fora: bool) -> bool:
+        """Essa chamada vira "Confirma?" em vez de rodar? (ver `confirmacao` no construtor)"""
+        if self.confirmacao == "nenhuma":
+            return False
+        if self.confirmacao == "sensiveis":
+            return (f.escrita and f.sensivel) or (f.confirmar_se_externo and leu_de_fora)
+        if f.escrita:
+            return f.confirmar or leu_de_fora
+        return f.confirmar_se_externo and leu_de_fora
 
     @staticmethod
     def _ainda_tem_externo(s: Sessao) -> bool:

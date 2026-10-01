@@ -78,8 +78,8 @@ microfone → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? abre a co
 
 - **Ferramentas simples em português** (src/vision/tools): o modelo pequeno não vê os esquemas enormes dos
   MCPs; cada ferramenta traduz para o MCP.
-- **Confirmação de escrita (desligada no config):** com `assistente.confirmar_acoes: true`, criar, alterar, apagar,
-  lançar ou esquecer só roda depois de um "sim". Com `false`, o pedido é feito na hora e a resposta diz o que mudou.
+- **Confirmação só no que é sensível** (`assistente.confirmacao: sensiveis`): apagar evento, esquecer memória e
+  lançar gasto pedem um "sim"; o resto é feito na hora e a resposta diz o que mudou. `todas` pede para toda escrita.
   A frase de confirmação é montada pelo código, não pelo modelo.
 - **Rede de segurança:** se a frase tem cara de agenda/finanças e o modelo responde sem consultar nada,
   o agente insiste uma vez.
