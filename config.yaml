@@ -61,6 +61,9 @@ mcp:
 alexa:
   ativo: true               # luzes da Alexa pelo AlexaPy (não oficial). Login: vision alexa-login
   dominio: amazon.com.br
+  # Luzes ligam e desligam direto, sem "Confirma?" (pedido de 01/10). Ainda pergunta se, no mesmo pedido,
+  # ele acabou de ler reunião, agenda ou nota (texto de terceiros). true volta a perguntar sempre.
+  confirmar_luzes: false
 
 voz:
   microfone: [HyperX, C920]   # procura por nome, na ordem
