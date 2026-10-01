@@ -61,6 +61,12 @@ class Temporizador:
             raise ErroFerramenta(str(e)) from e
         return ComDados(f"Timer de {rotulo} ligado" + (f" ({nome})" if nome else "") + ".", para_dados(t, segundos))
 
+    async def descrever_criar(self, args: dict[str, Any]) -> str:
+        quando = f"às {args['hora']}" if args.get("hora") else "de " + descrever_duracao(
+            _numero(args, "horas") * 3600 + _numero(args, "minutos") * 60 + _numero(args, "segundos"))
+        nome = str(args.get("nome") or "").strip()[:60]
+        return f"Vou ligar um timer {quando}" + (f" com o aviso: {nome}." if nome else ".")
+
     async def listar(self, _args: dict[str, Any]) -> str:
         timers = self.timers.listar()
         if not timers:
@@ -119,6 +125,7 @@ class Temporizador:
                                hora=texto("Para alarme: HH:MM (24h)"),
                                nome=texto("Para que é (ex.: 'forno', 'ligar pro banco'); vazio se ele não disse")),
                        self.criar, escrita=True, grupo="timer", confirmar=False, confirmar_se_externo=True,
+                       descrever=self.descrever_criar,
                        prazo_s=PRAZO_PC_S),
             Ferramenta("timer_listar", "Timers e alarmes ligados e quanto falta.", esquema([]), self.listar,
                        grupo="timer"),

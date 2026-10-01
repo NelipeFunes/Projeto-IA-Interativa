@@ -55,6 +55,15 @@ LIMITE_COMANDO = 300  # comando maior que isso não dá para conferir de ouvido:
 # Vão direto quando é o Felipe que pede; depois de ler texto de fora (reunião, convite, nota), pedem "sim":
 # um texto injetado não abre site com dados no endereço nem fecha programa sozinho (revisão do PR 20).
 _DIRETA = {"confirmar_se_externo": True, "prazo_s": PRAZO_PC_S}
+
+
+def _descrever(modelo: str, campo: str | None = None):
+    """A pergunta mostra o argumento de verdade (o endereço, o programa): "sim" sem ver a URL não vale."""
+    async def descrever(args: dict[str, Any]) -> str:
+        valor = " ".join(str(args.get(campo) or "").split())[:200] if campo else ""
+        return modelo.format(valor)
+
+    return descrever
 TECLAS = {"tocar_pausar": 0xB3, "proxima": 0xB0, "anterior": 0xB1, "parar": 0xB2, "mudo": 0xAD,
           "volume_mais": 0xAF, "volume_menos": 0xAE}
 
@@ -341,18 +350,22 @@ class PC:
         return [
             Ferramenta("programa_abrir", "Abre um programa do PC pelo nome (ex.: Spotify, Chrome, Bloco de notas).",
                        esquema(["nome"], nome=texto("Nome do programa, como o Felipe disse")),
-                       self.abrir_programa, escrita=True, grupo="pc", confirmar=False, **_DIRETA),
+                       self.abrir_programa, escrita=True, grupo="pc", confirmar=False,
+                       descrever=_descrever("Vou abrir o programa {}.", "nome"), **_DIRETA),
             Ferramenta("programa_fechar", "Fecha um programa aberto (como clicar no X; ele pergunta se precisar salvar).",
                        esquema(["nome"], nome=texto("Nome do programa")),
-                       self.fechar_programa, escrita=True, grupo="pc", confirmar=False, **_DIRETA),
+                       self.fechar_programa, escrita=True, grupo="pc", confirmar=False,
+                       descrever=_descrever("Vou fechar {}.", "nome"), **_DIRETA),
             Ferramenta("site_abrir", "Abre um site no navegador, ou uma busca no Google se não for endereço.",
                        esquema(["endereco"], endereco=texto("Endereço (ex.: youtube.com) ou o que buscar")),
-                       self.abrir_site, escrita=True, grupo="pc", confirmar=False, **_DIRETA),
+                       self.abrir_site, escrita=True, grupo="pc", confirmar=False,
+                       descrever=_descrever("Vou abrir no navegador: {}", "endereco"), **_DIRETA),
             Ferramenta("volume", "Muda o volume do PC.",
                        esquema(["acao"], acao={"type": "string", "enum": ["definir", "aumentar", "diminuir", "mudo",
                                                                           "som"]},
                                nivel=numero("Para 'definir': 0 a 100. Para aumentar/diminuir: quanto (padrão 10)")),
                        self.mudar_volume, escrita=True, grupo="pc", confirmar=False, confirmar_se_externo=True,
+                       descrever=_descrever("Vou mudar o volume ({}).", "acao"),
                        prazo_s=10),
             Ferramenta("midia", "Controla o que está tocando no PC (qualquer player): tocar/pausar, próxima, anterior.",
                        esquema(["acao"], acao={"type": "string", "enum": ["tocar_pausar", "proxima", "anterior",
@@ -360,6 +373,7 @@ class PC:
                        self.controlar_midia, escrita=True, grupo="pc", confirmar=False, prazo_s=10),
             Ferramenta("pc_travar", "Trava a tela do PC (pede a senha do Windows para voltar).", esquema([]),
                        self.travar, escrita=True, grupo="pc", confirmar=False, confirmar_se_externo=True,
+                       descrever=_descrever("Vou travar o PC."),
                        prazo_s=10),
             Ferramenta("pc_energia", "Desliga, reinicia ou suspende o PC.",
                        esquema(["acao"], acao={"type": "string", "enum": ["desligar", "reiniciar", "suspender"]}),
