@@ -25,7 +25,8 @@ PADROES = {
         r"wispr|nota(s)? (do|da|que)|minhas notas|pr[oó]ximos passos)\b",
         re.IGNORECASE,
     ),
-    "casa": re.compile(r"\b(luz|luzes|l[aâ]mpada\w*|acend\w*|apag(a|ue|ar) a luz|abajur|ilumina\w*)\b",
+    "casa": re.compile(r"\b(luz|luzes|l[aâ]mpada\w*|light\w*|acend\w*|apag(a|ue|ar) a luz|abajur|ilumina\w*|"
+                       r"(des)?lig(a|ue|ar) (a|as|o|os) (luz|luzes|l[aâ]mpada\w*|light\w*|abajur|quarto|sala))\b",
                        re.IGNORECASE),
     "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
     "memoria": re.compile(
@@ -45,14 +46,28 @@ def detectar(texto: str) -> list[str]:
 # Só futuro/presente ("vou marcar", "já cancelo", "estou buscando"); "já verifiquei" é resposta legítima.
 ANUNCIO = re.compile(
     r"\b(vou|j[aá] vou|deixa eu|irei)\s+(te\s+)?(verificar|checar|olhar|consultar|criar|marcar|colocar|agendar|"
-    r"cancelar|apagar|alterar|mudar|lan[cç]ar|registrar|anotar|guardar|buscar|procurar)\b"
-    r"|\bj[aá]\s+(crio|marco|coloco|agendo|cancelo|apago|altero|mudo|lan[cç]o|registro|anoto|guardo)\b"
+    r"cancelar|apagar|alterar|mudar|lan[cç]ar|registrar|anotar|guardar|buscar|procurar|acender|ligar|desligar)\b"
+    r"|\bj[aá]\s+(crio|marco|coloco|agendo|cancelo|apago|altero|mudo|lan[cç]o|registro|anoto|guardo|acendo|ligo|"
+    r"desligo)\b"
     r"|\bestou\s+(verificando|checando|olhando|consultando|criando|marcando|agendando|cancelando|apagando|"
     r"alterando|lan[cç]ando|buscando|procurando)\b"
-    r"|\bconfirma\?\s*$",
+    r"|\bconfirm\w*\?\s*$",
     re.IGNORECASE,
 )
 
 
 def anunciou_sem_fazer(resposta: str) -> bool:
     return bool(ANUNCIO.search(resposta.strip()))
+
+
+# Pior que anunciar: dizer que FEZ ("Feito.", "Ligado.", "Apaguei as luzes") sem ter chamado nada no turno.
+# Visto em 01/10: depois de algumas confirmações reais, o 4B passou a imitar o "Feito." sozinho.
+AFIRMACAO = re.compile(
+    r"^\W*(feito|ok,? feito|ligad[oa]s?|desligad[oa]s?|apagad[oa]s?|acesas?|acesos?|acendi|apaguei|liguei|"
+    r"desliguei|criei|marquei|agendei|cancelei|lancei|anotei|guardei|alterei|mudei)\b",
+    re.IGNORECASE,
+)
+
+
+def afirmou_sem_fazer(resposta: str) -> bool:
+    return bool(AFIRMACAO.search(resposta.strip()))

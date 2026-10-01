@@ -81,3 +81,13 @@ def test_intencao(frase, grupo):
 
 def test_conversa_fiada_sem_intencao():
     assert intencao.detectar("me conta uma piada") == []
+
+
+@pytest.mark.parametrize("texto,afirma", [
+    ("Feito.", True), ("Ligado.", True), ("Apaguei todas as luzes.", True), ("Liguei a luz.", True),
+    ("Pronto, Felipe! Como posso ajudar?", False), ("Boa tarde, Felipe!", False), ("Hoje você tem aula.", False),
+])
+def test_afirmou_sem_fazer(texto, afirma):
+    from vision.brain import intencao
+
+    assert intencao.afirmou_sem_fazer(texto) is afirma

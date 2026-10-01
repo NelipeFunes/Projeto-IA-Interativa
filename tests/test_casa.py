@@ -207,7 +207,7 @@ async def test_confirmacao_e_resposta_com_as_duas():
     f = {x.nome: x for x in c.ferramentas()}
     assert await f["luz_acender"].descrever({"luz": "quarto"}) == "Vou acender todas as luzes."
     assert await f["luz_apagar"].descrever({"luz": "quarto 2"}) == "Vou apagar Bedroom Light 2."
-    assert await f["luzes_listar"].executar({}) == "Luzes que o Vision controla (pela Alexa): Bedroom Light 1, Bedroom Light 2."
+    assert "'Bedroom Light 1' / 'Bedroom Light 2'" in await f["luzes_listar"].executar({})
 
 
 @pytest.mark.parametrize("luzes,pedido,esperado", [
@@ -246,3 +246,28 @@ def test_ordem_estavel_das_luzes_repetidas():
 async def test_atualizar_lista_sem_login(cfg, capsys):
     assert await alexa.atualizar_lista(cfg) == 1
     assert "alexa-login" in capsys.readouterr().out
+
+
+async def test_modelo_que_diz_feito_sem_fazer_nao_engana():
+    """01/10: o modelo respondeu "Ligado." sem chamar nada. Ele é cobrado e, se insistir, a resposta é honesta."""
+    a = AlexaFalsa(DUAS)
+    r = Registro()
+    r.adicionar(*Casa(a).ferramentas())
+    agente = Agente(LLMFalso([fala("Ligado."), fala("Feito, liguei a luz.")]), r, None)
+    resp = await agente.responder("liga a Bedroom Light 2", "voz", "t")
+    assert resp.insistiu and resp.texto.startswith("Não fiz nada") and a.feitas == []
+
+
+async def test_cobrado_o_modelo_chama_a_ferramenta():
+    a = AlexaFalsa(DUAS)
+    r = Registro()
+    r.adicionar(*Casa(a).ferramentas())
+    agente = Agente(LLMFalso([fala("Vou ligar a Bedroom Light 2. Confirmou?"), chama("luz_acender", luz="Bedroom Light 2")]),
+                    r, None)
+    resp = await agente.responder("liga a Bedroom Light 2", "voz", "t")
+    assert resp.aguardando_confirmacao and resp.texto == "Vou acender Bedroom Light 2. Confirma?"
+
+
+def test_lista_agrupa_as_lampadas_do_mesmo_nome():
+    assert Casa(AlexaFalsa(DUAS)).resumo() == ("'Bedroom Light' (2 lâmpadas: use 'Bedroom Light' para todas juntas, "
+                                               "ou 'Bedroom Light 1' / 'Bedroom Light 2' para uma só)")

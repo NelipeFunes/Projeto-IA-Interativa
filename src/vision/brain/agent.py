@@ -295,7 +295,8 @@ class Agente:
             r: RespostaLLM = await self.llm.conversar(mensagens, ferramentas, transmitir)
             transmitido = transmitir is not None
 
-            anunciou = not r.chamadas and intencao.anunciou_sem_fazer(r.texto)
+            afirmou = not r.chamadas and not usadas and intencao.afirmou_sem_fazer(r.texto)
+            anunciou = not r.chamadas and (intencao.anunciou_sem_fazer(r.texto) or afirmou)
             if not r.chamadas and not insistiu and ((volta == 0 and grupos) or anunciou):
                 insistiu = True
                 if anunciou:
@@ -312,6 +313,12 @@ class Agente:
                 r = await self.llm.conversar([*mensagens, *extra, {"role": "system", "content": puxao}], ferramentas, None)
                 transmitido = False
 
+            if not r.chamadas and not usadas and (afirmou or anunciou) and (
+                    intencao.afirmou_sem_fazer(r.texto) or intencao.anunciou_sem_fazer(r.texto)):
+                # Cobrado e mesmo assim nada foi chamado: não deixa passar "Feito." de mentira.
+                log.warning("o modelo disse que fez/ia fazer sem chamar ferramenta: %r", r.texto[:120])
+                r = RespostaLLM(texto="Não fiz nada ainda: não consegui executar esse pedido. Pode repetir?")
+                transmitido = False
             if not r.chamadas:
                 final = r.texto.strip()
                 if not transmitido and ao_texto and final:
