@@ -81,15 +81,22 @@ class Saida:
 class SaidaArquivo:
     """Guarda tudo o que seria tocado (para testes)."""
 
-    def __init__(self, taxa: int = 22050):
+    def __init__(self, taxa: int = 22050, tempo_real: bool = False):
         self.taxa = taxa
         self.trechos: list[np.ndarray] = []
         self.interromper = threading.Event()
+        self.tempo_real = tempo_real  # demora o tempo do áudio (e pode ser interrompida), como o alto-falante
 
     def tocar(self, audio: np.ndarray, taxa: int) -> bool:
         from vision.voice.stt import reamostrar
 
         self.trechos.append(reamostrar(audio, taxa, self.taxa))
+        if self.tempo_real:
+            self.interromper.clear()
+            fim = time.monotonic() + audio.size / taxa
+            while time.monotonic() < fim:
+                if self.interromper.wait(0.01):
+                    return False
         return True
 
     def audio(self) -> np.ndarray:
@@ -184,6 +191,7 @@ class ArquivoComoMicrofone:
         total = np.concatenate(partes)
         self.pcm = (np.clip(total, -1, 1) * 32767).astype(np.int16)
         self.nome = "arquivo"
+        self._pos = 0  # compartilhada: quem escuta durante a fala continua de onde o laço parou, como no microfone
 
     def __enter__(self) -> ArquivoComoMicrofone:
         return self
@@ -195,6 +203,8 @@ class ArquivoComoMicrofone:
         pass  # no arquivo, nada chega enquanto o Vision fala
 
     async def blocos(self) -> AsyncIterator[np.ndarray]:
-        for i in range(0, len(self.pcm) - BLOCO + 1, BLOCO):
-            yield self.pcm[i : i + BLOCO]
+        while self._pos + BLOCO <= len(self.pcm):
+            bloco = self.pcm[self._pos : self._pos + BLOCO]
+            self._pos += BLOCO
+            yield bloco
             await asyncio.sleep(0)

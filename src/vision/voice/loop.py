@@ -4,7 +4,9 @@
   pedido de 01/10). "Hey Vision, o que eu tenho hoje?" abre e já responde.
 - Em conversa: tudo o que você fala vai para ele, sem repetir o nome, até "Vision, standby"
   ou 2 minutos de silêncio. Aí ele volta a esperar o "Hey Vision".
-- O atalho durante a fala interrompe e começa a ouvir.
+- O atalho durante a fala interrompe e começa a ouvir. Por voz também (pedido de 01/10): enquanto ele fala, um
+  segundo detector escuta; "para", "chega", "pera aí" cortam a fala e ele segue ouvindo, e "standby" corta e
+  fecha a conversa. Qualquer outra coisa é ignorada (a própria voz vazando no microfone não corta nada).
 
 Pedido do Felipe (30/09): antes, depois de cada resposta ele ouvia tudo por 8 s e pegava conversa que não
 era com ele. Agora quem abre e fecha a conversa é você.
@@ -30,7 +32,7 @@ import numpy as np
 
 from vision.brain.agent import Agente
 from vision.voice.audio import TAXA, bipe, bipe_desligar
-from vision.voice.comandos import achar_ativacao, e_despedida
+from vision.voice.comandos import achar_ativacao, e_despedida, e_interrupcao
 from vision.voice.wake import DetectorFala, PalavraAtivacao
 
 log = logging.getLogger(__name__)
@@ -40,6 +42,7 @@ FIM_DE_FRASE = re.compile(r"(?<=[.!?])\s+")
 BLOCO_S = 0.08
 TRECHO_ATIVACAO_S = 2.5  # para achar o nome, basta transcrever o começo da fala (mais leve para a CPU)
 MAXIMO_CANDIDATO_S = 12.0  # fala mais longa que isso, esperando, não é alguém chamando: nem transcreve
+MAXIMO_INTERRUPCAO_S = 3.0  # "para de falar" cabe nisso; mais longo é conversa (ou a própria voz): nem transcreve
 PASSO_NIVEL_S = 1 / 15  # ~15 atualizações de volume por segundo para a tela
 
 
@@ -82,6 +85,7 @@ class LoopVoz:
         saudacao: str = "",
         despedida: str = "",
         ao_evento: Callable[[dict[str, Any]], None] | None = None,
+        vigia: DetectorFala | None = None,
     ):
         self.agente = agente
         self.voz = voz
@@ -117,6 +121,10 @@ class LoopVoz:
         # Para a tela: estado do orbe e volumes (microfone quando ouve, a própria voz quando fala).
         self.ao_evento = ao_evento
         self._estado_tela = ""
+        # Detector próprio (estado separado do principal) que escuta enquanto ele fala. None = sem interromper
+        # por voz. `interrompido_por`: "parar" ou "standby" se a última fala foi cortada por voz.
+        self.vigia = vigia
+        self.interrompido_por: str | None = None
 
     # ------------------------------------------------------------------ eventos para a tela
 
@@ -391,6 +399,7 @@ class LoopVoz:
                 fila.put_nowait(pendente[0])
             fila.put_nowait(None)
             await falador
+        await self._depois_de_interrompido()
         if r is None:
             self.historico.append({"felipe": texto, "vision": FALA_DE_ERRO, "erro": True})
             return
@@ -401,27 +410,79 @@ class LoopVoz:
         self.escrever(f"  [ouvir {t_stt:.1f}s · pensar {r.segundos:.1f}s · 1ª palavra {ate_falar:.1f}s"
                       f"{' · ' + usadas if usadas else ''}]")
         self.historico.append({"felipe": texto, "vision": r.texto, "ferramentas": usadas,
-                               "stt_s": t_stt, "pensar_s": r.segundos, "ate_falar_s": ate_falar})
+                               "stt_s": t_stt, "pensar_s": r.segundos, "ate_falar_s": ate_falar,
+                               "interrompido": self.interrompido_por})
 
     async def _falador(self, fila: asyncio.Queue[str | None], primeira_fala: list[float]) -> None:
         self.saida.interromper.clear()
+        self.interrompido_por = None
         interrompido = False
-        while (frase := await fila.get()) is not None:
-            if interrompido or not frase.strip():
-                continue
-            voz = self.voz  # uma vez por frase: a tela de ajustes pode trocar a voz no meio
-            audio = await asyncio.to_thread(voz.sintetizar, frase)
-            if not primeira_fala:
-                primeira_fala.append(time.perf_counter())
-            self._mostrar("falando")
-            ondas = asyncio.create_task(self._emitir_voz(envelope(audio, voz.taxa))) if self.ao_evento else None
-            try:
-                if not await asyncio.to_thread(self.saida.tocar, audio, voz.taxa):
+        vigia: asyncio.Task | None = None
+        try:
+            while (frase := await fila.get()) is not None:
+                if self.interrompido_por is not None:  # cortado por voz entre uma frase e outra
                     interrompido = True
-            finally:
-                if ondas is not None:
-                    ondas.cancel()
-                    self._emitir({"tipo": "nivel", "fonte": "voz", "valor": 0.0})
+                if interrompido or not frase.strip():
+                    continue
+                voz = self.voz  # uma vez por frase: a tela de ajustes pode trocar a voz no meio
+                audio = await asyncio.to_thread(voz.sintetizar, frase)
+                if not primeira_fala:
+                    primeira_fala.append(time.perf_counter())
+                self._mostrar("falando")
+                if vigia is None and self.vigia is not None:
+                    vigia = asyncio.create_task(self._vigiar_interrupcao())
+                ondas = asyncio.create_task(self._emitir_voz(envelope(audio, voz.taxa))) if self.ao_evento else None
+                try:
+                    if not await asyncio.to_thread(self.saida.tocar, audio, voz.taxa):
+                        interrompido = True
+                finally:
+                    if ondas is not None:
+                        ondas.cancel()
+                        self._emitir({"tipo": "nivel", "fonte": "voz", "valor": 0.0})
+        finally:
+            if vigia is not None:
+                vigia.cancel()
+                await asyncio.gather(vigia, return_exceptions=True)
+
+    async def _vigiar_interrupcao(self) -> None:
+        """Enquanto ele fala: cada fala curta é transcrita; se for só de parar, corta a fala (ver e_interrupcao)."""
+        d = self.vigia
+        assert d is not None
+        antes: deque[np.ndarray] = deque(maxlen=4)
+        gravado: list[np.ndarray] = []
+        seguidos = 0
+        async for bloco in self.entrada.blocos():
+            if not gravado:
+                antes.append(bloco)
+                seguidos = seguidos + 1 if d.tem_voz(bloco) else 0
+                if seguidos >= 2:  # 160 ms de voz: começou uma fala
+                    gravado = list(antes)
+                    d.zerar()
+                continue
+            gravado.append(bloco)
+            if not d.bloco(bloco) and len(gravado) * BLOCO_S <= MAXIMO_INTERRUPCAO_S:
+                continue
+            if len(gravado) * BLOCO_S <= MAXIMO_INTERRUPCAO_S:
+                motivo = e_interrupcao(await self._transcrever(np.concatenate(gravado)))
+                if motivo is not None:
+                    self.interrompido_por = motivo
+                    self.saida.interromper.set()
+                    return
+            gravado, seguidos = [], 0
+            antes.clear()
+            d.zerar()
+
+    async def _depois_de_interrompido(self) -> None:
+        """Cortado por voz: "standby" fecha a conversa; "parar" dá o bipe e segue ouvindo."""
+        if self.interrompido_por is None:
+            return
+        self.escrever(f"(interrompido por voz: {self.interrompido_por})")
+        self.entrada.descartar()
+        if self.interrompido_por == "standby" and self.em_conversa:
+            self.escrever("(conversa encerrada. Para voltar: 'Hey Vision')")
+            await self._fechar_conversa(falar=False)
+        else:
+            await self._bipe(subindo=True)
 
     async def _emitir_voz(self, niveis: np.ndarray) -> None:
         """Volume da própria fala no ritmo em que ela toca: o orbe ondula junto."""
@@ -544,7 +605,9 @@ def preparar_voz(
                        silencio_max_s=float(cfg.get("voz.conversa_silencio_max_s", 120)),
                        prazo_confirmacao_s=float(cfg.get("voz.confirmacao_prazo_s", 30)),
                        saudacao=cfg.get("voz.saudacao") or "",
-                       despedida=cfg.get("voz.despedida") or "")
+                       despedida=cfg.get("voz.despedida") or "",
+                       vigia=(DetectorFala(pasta_oww / "silero_vad.onnx", 500, MAXIMO_INTERRUPCAO_S + 1)
+                              if cfg.get("voz.interromper_por_voz", True) else None))
         loop = asyncio.get_running_loop()
         atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
         for nota in mic.notas:

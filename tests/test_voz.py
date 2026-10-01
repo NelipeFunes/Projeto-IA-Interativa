@@ -57,7 +57,7 @@ def _loop(pecas, agente, audios, tmp_path, **opcoes):
     pasta = MODELOS / "openwakeword"
     por_modelo = opcoes.get("ativacao_por_texto") is False
     return LoopVoz(
-        agente, pecas["pt"], pecas["stt"], ArquivoComoMicrofone(audios), SaidaArquivo(),
+        agente, pecas["pt"], pecas["stt"], ArquivoComoMicrofone(audios), opcoes.pop("saida", None) or SaidaArquivo(),
         DetectorFala(pasta / "silero_vad.onnx", silencio_fim_ms=800),
         PalavraAtivacao(pasta, limiar=0.5) if por_modelo else None,
         flag_dormindo=tmp_path / "dormindo.flag", escrever=lambda _t: None, bipes=opcoes.pop("bipes", False), **opcoes,
@@ -447,3 +447,38 @@ async def test_fala_de_fora_que_falha_nao_derruba_a_escuta(pecas, registro, tmp_
     await laco.rodar()
     assert len(laco.historico) == 1  # continuou ouvindo e respondeu depois da falha
     assert not isinstance(laco.voz, VozQuebrada)
+
+
+LONGA = "Hoje você tem aula às sete. Depois tem academia às nove. À noite tem estudo de álgebra até as onze."
+
+
+def _loop_que_escuta_falando(pecas, registro, tmp_path, interrupcao):
+    from vision.voice.audio import SaidaArquivo
+    from vision.voice.wake import DetectorFala
+
+    return _loop(pecas, Agente(LLMFalso([fala(LONGA)]), registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Como é meu dia?"), _silencio(1.0),
+        interrupcao, _silencio(2.0),
+    ], tmp_path, saida=SaidaArquivo(tempo_real=True),
+        vigia=DetectorFala(MODELOS / "openwakeword" / "silero_vad.onnx", 500, 4))
+
+
+async def test_para_de_falar_corta_a_fala_e_segue_ouvindo(pecas, registro, tmp_path):
+    """Pedido de 01/10: interromper por voz enquanto ele fala."""
+    laco = _loop_que_escuta_falando(pecas, registro, tmp_path, _fala(pecas["pt"], "Para de falar."))
+    await laco.rodar()
+    assert laco.historico[0]["interrompido"] == "parar"
+    assert len(laco.saida.trechos) == 1  # cortou na 1ª frase; as outras nem tocaram
+    assert laco.em_conversa  # segue ouvindo
+
+
+async def test_standby_enquanto_fala_corta_e_fecha(pecas, registro, tmp_path):
+    laco = _loop_que_escuta_falando(pecas, registro, tmp_path, _fala(pecas["en"], "Vision standby"))
+    await laco.rodar()
+    assert laco.historico[0]["interrompido"] == "standby" and not laco.em_conversa
+
+
+async def test_outra_fala_enquanto_ele_fala_nao_corta(pecas, registro, tmp_path):
+    laco = _loop_que_escuta_falando(pecas, registro, tmp_path, _fala(pecas["pt"], "Qual é a minha agenda de amanhã?"))
+    await laco.rodar()
+    assert laco.historico[0]["interrompido"] is None and len(laco.saida.trechos) == 3

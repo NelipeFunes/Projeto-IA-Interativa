@@ -111,3 +111,25 @@ def test_despedidas(ouvido):
 ])
 def test_nao_despedidas(ouvido):
     assert not e_despedida(ouvido)
+
+
+@pytest.mark.parametrize("ouvido,motivo", [
+    ("Para de falar.", "parar"),
+    ("Vision, para.", "parar"),
+    ("Chega, já entendi.", "parar"),
+    ("Pera aí.", "parar"),
+    ("Cala a boca.", "parar"),
+    ("Para, para, para.", "parar"),
+    ("Vision, standby.", "standby"),
+    ("Pode ficar em standby.", "standby"),
+    # a própria voz vazando no microfone, ou conversa: não corta
+    ("Vou marcar para amanhã às dez.", None),
+    ("Para quando é a prova?", None),
+    ("Hoje você tem aula para fazer", None),
+    ("Espera que eu vou ver a agenda de amanhã e já te falo tudo", None),
+    ("", None),
+])
+def test_interrupcao_por_voz(ouvido, motivo):
+    from vision.voice.comandos import e_interrupcao
+
+    assert e_interrupcao(ouvido) == motivo
