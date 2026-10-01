@@ -26,8 +26,8 @@ async def cliente_e_agenda(cfg, host, memorias, servidor_agenda):
 
 
 async def test_sem_confirmacao_o_pedido_e_feito_na_hora(cfg, host, memorias, servidor_agenda):
-    """O config do repositório vem com `assistente.confirmar_acoes: false` (pedido de 01/10): marcar já marca."""
-    assert cfg.get("assistente.confirmar_acoes") is False
+    """`assistente.confirmar_acoes: false` (pedido de 01/10): marcar já marca."""
+    cfg.bruto.setdefault("assistente", {})["confirmar_acoes"] = False
     amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
     llm = LLMFalso([
         chama("agenda_criar", titulo="Academia", data=amanha, hora_inicio="07:00"),

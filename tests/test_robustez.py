@@ -82,3 +82,33 @@ async def test_correcao_avisa_que_nada_foi_criado(cfg, host):
     notas = [m["content"] for m in llm.chamadas[1] if m["role"] == "system"][1:]
     assert any("NÃO foi executada" in n for n in notas)
     assert a.sessao("texto", "padrao").nota is None  # a nota vale só para uma volta
+
+
+async def test_sem_confirmacao_apagar_e_feito_e_diz_qual(cfg, host, servidor_agenda):
+    """`confirmar_acoes=False`: apaga na hora, e a resposta nomeia o evento (um id trocado aparece na hora)."""
+    from fakes.llm_falso import fala
+
+    r = Registro()
+    r.adicionar(*Agenda(cfg, host).ferramentas())
+    llm = LLMFalso([chama("agenda_apagar", event_id="ev_dentista"), fala("Pronto.")])
+    resp = await Agente(llm, r, None, confirmar_acoes=False).responder("cancela o dentista")
+    assert not resp.aguardando_confirmacao
+    assert resp.ferramentas[0]["ok"] and resp.ferramentas[0]["resultado"].startswith("Apaguei 'Dentista'")
+    assert not any(e.get("id") == "ev_dentista" for e in servidor_agenda.eventos)
+
+
+async def test_sem_confirmacao_excesso_de_escritas_nao_vira_pergunta(cfg, host, servidor_agenda):
+    from fakes.llm_falso import fala
+
+    from vision.brain.agent import MAX_DIRETAS
+    from vision.brain.llm import ChamadaFerramenta, RespostaLLM
+
+    r = Registro()
+    r.adicionar(*Agenda(cfg, host).ferramentas())
+    amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
+    chamadas = [ChamadaFerramenta("agenda_criar", {"titulo": f"E{i}", "data": amanha, "hora_inicio": "07:00"})
+                for i in range(MAX_DIRETAS + 1)]
+    llm = LLMFalso([RespostaLLM(texto="", chamadas=chamadas), fala("Marquei.")])
+    resp = await Agente(llm, r, None, confirmar_acoes=False).responder("marca tudo")
+    assert not resp.aguardando_confirmacao and "Confirma?" not in resp.texto
+    assert [u["ok"] for u in resp.ferramentas] == [True] * MAX_DIRETAS + [False]

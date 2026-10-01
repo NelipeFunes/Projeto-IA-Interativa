@@ -25,6 +25,7 @@ from vision.tools.base import ErroFerramenta, Registro
 log = logging.getLogger(__name__)
 
 MAX_VOLTAS = 5
+MAX_DIRETAS = 8  # escritas sem confirmação num mesmo pedido
 CORTE_TOOL_ANTIGO = 600
 
 PASSADO = {
@@ -331,7 +332,9 @@ class Agente:
                     # O modelo disse "vou marcar..." e parou: mostra a fala dele e cobra a ação.
                     extra = [{"role": "assistant", "content": r.texto}]
                     puxao = ("ATENÇÃO: você disse que ia fazer ou verificar algo, mas não chamou nenhuma ferramenta. "
-                             "Chame a ferramenta certa agora. Nunca escreva 'Confirma?' você mesmo.")
+                             "Chame a ferramenta certa agora; "
+                             + (f"o sistema é quem pede a confirmação ao {self.nome}. " if self.confirmar_acoes else "")
+                             + "Nunca escreva 'Confirma?' você mesmo.")
                 else:
                     extra = []
                     nomes = ", ".join(n for g in grupos for n in self.registro.nomes_do_grupo(g))
@@ -365,10 +368,13 @@ class Agente:
                 if f is not None:
                     c.args = f.normalizar_args(c.args)
                 self._emitir("ferramenta_inicio", nome=c.nome, args=c.args)
-                sem_pergunta = not f.confirmar or not self.confirmar_acoes if f is not None else False
-                direta = f is not None and f.escrita and sem_pergunta and not leu_de_fora and diretas < 5
+                sem_pergunta = f is not None and (not f.confirmar or not self.confirmar_acoes)
+                direta = f is not None and f.escrita and sem_pergunta and not leu_de_fora and diretas < MAX_DIRETAS
                 pede_por_externo = f is not None and not f.escrita and f.confirmar_se_externo and leu_de_fora
-                if direta:
+                if f is not None and f.escrita and not self.confirmar_acoes and not direta:
+                    # Sem confirmação, o excesso não vira "Confirma?": só não é feito (trava contra laço do modelo).
+                    ok, resultado = False, f"Limite de {MAX_DIRETAS} ações por pedido; esta não foi feita."
+                elif direta:
                     # Sem "Confirma?": o pedido é do Felipe, e nada de fora foi lido antes neste turno.
                     diretas += 1
                     ok, resultado, dados = await self.registro.rodar_com_dados(c.nome, c.args)
