@@ -629,7 +629,7 @@ def preparar_voz(
                        prazo_confirmacao_s=float(cfg.get("voz.confirmacao_prazo_s", 30)),
                        saudacao=cfg.get("voz.saudacao") or "",
                        despedida=cfg.get("voz.despedida") or "",
-                       vigia=(DetectorFala(pasta_oww / "silero_vad.onnx", 500, MAXIMO_INTERRUPCAO_S + 1)
+                       vigia=(DetectorFala(pasta_oww / "silero_vad.onnx", 500, 60)
                               if cfg.get("voz.interromper_por_voz", True) else None))
         loop = asyncio.get_running_loop()
         atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
