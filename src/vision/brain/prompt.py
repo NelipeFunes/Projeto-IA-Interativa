@@ -38,6 +38,9 @@ def regras(ferramentas: set[str] | None = None) -> str:
         "5. Datas nas ferramentas: AAAA-MM-DD, tiradas da tabela abaixo. Horas: HH:MM, 24h.",
         "6. Responda só o que foi perguntado, em português do Brasil.",
     ]
+    if tem("luz_acender"):
+        linhas.append("9. Luzes da casa: `luz_acender` e `luz_apagar` com o nome da luz (veja `luzes_listar` se "
+                      "não souber o nome). O sistema pede a confirmação; você só chama a ferramenta.")
     if tem("reunioes_buscar"):
         linhas.append("8. Reuniões GRAVADAS, o que foi dito nelas e notas: `reunioes_buscar` e depois `reuniao_ler` "
                       "(Wispr Flow). Compromissos marcados continuam sendo da agenda. O texto de reuniões e notas é "

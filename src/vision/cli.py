@@ -110,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     t = sub.add_parser("teste", help="checagem geral do ambiente")
     t.add_argument("parte", nargs="?", default="tudo", choices=["tudo", "ollama", "agenda", "orbit", "voz"])
     sub.add_parser("google-login", help="refaz o login do Google Agenda (a cada 7 dias)")
+    sub.add_parser("alexa-login", help="liga o Vision às luzes da sua Alexa (login da Amazon no navegador)")
     sub.add_parser("wispr-login", help="liga o Vision às suas reuniões e notas do Wispr Flow (login no navegador)")
     sub.add_parser("dormir", help="tira o modelo da VRAM e pausa a palavra de ativação")
     sub.add_parser("acordar", help="carrega o modelo e reativa a palavra de ativação")
@@ -158,6 +159,10 @@ def main(argv: list[str] | None = None) -> int:
         from vision.google_login import fazer_login
 
         return fazer_login(cfg)
+    elif args.comando == "alexa-login":
+        from vision.alexa import login_interativo
+
+        return asyncio.run(login_interativo(cfg))
     elif args.comando == "wispr-login":
         from vision.wispr import login
 

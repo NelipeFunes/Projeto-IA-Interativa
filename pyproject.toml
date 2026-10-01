@@ -26,6 +26,7 @@ dependencies = [
     "pystray>=0.19",
     "pillow>=11",
     "websockets>=13",
+    "alexapy>=1.31,<2",
 ]
 
 [project.scripts]
