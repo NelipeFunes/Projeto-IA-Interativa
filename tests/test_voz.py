@@ -452,34 +452,50 @@ async def test_fala_de_fora_que_falha_nao_derruba_a_escuta(pecas, registro, tmp_
 LONGA = "Amanhã o dia começa às sete. Depois há uma reunião curta. À noite não há nenhum compromisso marcado."
 
 
-def _loop_que_escuta_falando(pecas, registro, tmp_path, interrupcao):
-    from vision.voice.audio import SaidaArquivo
+def _vigia():
     from vision.voice.wake import DetectorFala
 
-    return _loop(pecas, Agente(LLMFalso([fala(LONGA)]), registro, None), [
+    return DetectorFala(MODELOS / "openwakeword" / "silero_vad.onnx", 500, 60)
+
+
+def _loop_que_escuta_falando(pecas, registro, tmp_path, interrupcao, depois=()):
+    from vision.voice.audio import SaidaArquivo
+
+    return _loop(pecas, Agente(LLMFalso([fala(LONGA), *depois]), registro, None), [
         _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Como é meu dia?"), _silencio(1.0),
         interrupcao, _silencio(2.0),
-    ], tmp_path, saida=SaidaArquivo(tempo_real=True),
-        vigia=DetectorFala(MODELOS / "openwakeword" / "silero_vad.onnx", 500, 4))
+    ], tmp_path, saida=SaidaArquivo(tempo_real=True), vigia=_vigia())
 
 
-async def test_para_de_falar_corta_a_fala_e_segue_ouvindo(pecas, registro, tmp_path):
-    """Pedido de 01/10: interromper por voz enquanto ele fala."""
-    laco = _loop_que_escuta_falando(pecas, registro, tmp_path, _fala(pecas["pt"], "Para de falar."))
+async def test_falar_por_cima_corta_e_vira_o_proximo_pedido(pecas, registro, tmp_path):
+    """Pedido de 01/10, como o modo de voz do ChatGPT: você fala, ele para e ouve o que você disse."""
+    laco = _loop_que_escuta_falando(pecas, registro, tmp_path, _fala(pecas["pt"], "Tudo bem com você?"),
+                                    depois=[fala("Tudo ótimo por aqui.")])
     await laco.rodar()
-    assert laco.historico[0]["interrompido"] == "parar"
-    assert len(laco.saida.trechos) == 1  # cortou na 1ª frase; as outras nem tocaram
-    assert laco.em_conversa  # segue ouvindo
+    assert laco.historico[0]["interrompido"] == "fala"
+    assert len(laco.saida.trechos) == 2  # a 1ª frase dele (cortada) e a resposta nova; as outras nem tocaram
+    assert "tudo" in laco.historico[1]["felipe"].lower()  # nada do que você disse se perdeu
+    assert laco.historico[1]["vision"] == "Tudo ótimo por aqui." and laco.em_conversa
 
 
-async def test_standby_enquanto_fala_corta_e_fecha(pecas, registro, tmp_path):
+async def test_para_de_falar_so_para(pecas, registro, tmp_path):
+    laco = _loop_que_escuta_falando(pecas, registro, tmp_path, _fala(pecas["pt"], "Para de falar."))
+    await laco.rodar()  # o LLM falso não tem 2ª resposta: se "para de falar" fosse ao modelo, viraria erro
+    assert laco.historico[0]["interrompido"] == "fala" and laco.historico[1].get("parou")
+    assert len(laco.saida.trechos) == 1 and laco.em_conversa
+
+
+async def test_standby_por_cima_corta_e_fecha(pecas, registro, tmp_path):
     laco = _loop_que_escuta_falando(pecas, registro, tmp_path, _fala(pecas["en"], "Vision standby"))
     await laco.rodar()
-    assert laco.historico[0]["interrompido"] == "standby" and not laco.em_conversa
+    assert laco.historico[0]["interrompido"] == "fala" and laco.historico[1].get("despedida")
+    assert not laco.em_conversa
 
 
-async def test_outra_fala_enquanto_ele_fala_nao_corta(pecas, registro, tmp_path):
-    laco = _loop_que_escuta_falando(pecas, registro, tmp_path, _fala(pecas["pt"], "Qual é a minha agenda de amanhã?"))
+async def test_tosse_curta_nao_corta(pecas, registro, tmp_path):
+    """Menos que `interromper_apos_s` de voz (aqui 0,3 s de fala) não corta."""
+    hum = _fala(pecas["pt"], "Tudo bem com você?")[: int(16000 * 0.3)]
+    laco = _loop_que_escuta_falando(pecas, registro, tmp_path, hum)
     await laco.rodar()
     assert laco.historico[0]["interrompido"] is None and len(laco.saida.trechos) == 3
 
@@ -487,7 +503,6 @@ async def test_outra_fala_enquanto_ele_fala_nao_corta(pecas, registro, tmp_path)
 async def test_cortar_o_confirma_cancela_a_pendencia(pecas, registro, tmp_path, servidor_agenda):
     """Revisão do PR 17: cortado antes do "Confirma?" inteiro, um "sim" depois não pode valer."""
     from vision.voice.audio import SaidaArquivo
-    from vision.voice.wake import DetectorFala
 
     amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
     agente = Agente(LLMFalso([chama("agenda_criar", titulo="Barbeiro", data=amanha, hora_inicio="16:00")]),
@@ -495,8 +510,21 @@ async def test_cortar_o_confirma_cancela_a_pendencia(pecas, registro, tmp_path, 
     laco = _loop(pecas, agente, [
         _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Marca barbeiro amanhã às quatro."),
         _silencio(1.0), _fala(pecas["pt"], "Para de falar."), _silencio(2.0),
-    ], tmp_path, saida=SaidaArquivo(tempo_real=True),
-        vigia=DetectorFala(MODELOS / "openwakeword" / "silero_vad.onnx", 500, 4))
+    ], tmp_path, saida=SaidaArquivo(tempo_real=True), vigia=_vigia())
     await laco.rodar()
-    assert laco.historico[0]["interrompido"] == "parar"
+    assert laco.historico[0]["interrompido"] == "fala"
     assert agente.sessao("voz", "voz").pendente is None and laco.pergunta_em is None
+
+
+async def test_falar_por_cima_de_um_lembrete_so_para_e_nao_abre_conversa(pecas, registro, tmp_path):
+    """Revisão do PR 18: com a conversa fechada, voz por cima (até a TV) só para a fala; sem "Hey Vision", nada
+    vai ao modelo."""
+    from vision.voice.audio import SaidaArquivo
+
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
+        _silencio(0.3), _fala(pecas["pt"], "Tudo bem com você?"), _silencio(2.0),
+    ], tmp_path, saida=SaidaArquivo(tempo_real=True), vigia=_vigia())
+    laco.pedir_fala(LONGA)
+    await laco.rodar()
+    assert len(laco.saida.trechos) == 1 and laco.interrompido_por == "fala"
+    assert not laco.em_conversa and laco.historico == []
