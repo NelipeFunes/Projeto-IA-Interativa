@@ -175,17 +175,18 @@ class LoopVoz:
         gravado: list[np.ndarray] = []
         origem = ""
         self.feitas = 0
+        self._retomar = None
         self._mostrar("ocioso")
         async for bloco in self.entrada.blocos():
             if self.estado == "ocioso" and self._retomar is not None:
                 # Você começou a falar por cima dele: a gravação já começou (no vigia) e segue com este bloco.
+                # (Só com a conversa aberta há retomada: ver `_vigiar_interrupcao`.)
                 gravado, self._retomar = self._retomar, None
                 origem = "conversa"
+                self.acionar.clear()  # atalho apertado junto com a fala: é a mesma gravação
                 self.detector.zerar()
                 for b in gravado:
                     self.detector.bloco(b)
-                if not self.em_conversa and not self._pausado():
-                    self._abrir_conversa()
                 self.estado = "gravando"
                 self.escrever("…ouvindo")
                 self._mostrar("ouvindo")
@@ -278,7 +279,9 @@ class LoopVoz:
                 self._abrir_conversa()
                 if self.saudacao.strip():  # sem saudação, o bipe é o do laço (origem "atalho"): um só
                     await self._dizer(self.saudacao)
-                    self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
+                    if self._retomar is None:
+                        self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
+                    self._retomar = None  # falou por cima: o resto da fala está na fila e a gravação começa agora
                 return "atalho"
             return ""
         return "candidato" if self._comecou_a_falar(bloco) else ""
@@ -356,6 +359,8 @@ class LoopVoz:
             self.feitas += 1
             return
         if e_interrupcao(texto) == "parar":  # "para", "chega", "pera aí": ele já parou; nada vai ao modelo
+            self.agente.cancelar_pendente("voz", "voz")  # "chega" no lugar do "sim" é desistir
+            self.pergunta_em = None
             self.historico.append({"felipe": texto, "vision": "", "parou": True})
             self.feitas += 1
             await self._bipe(subindo=True)
@@ -467,7 +472,7 @@ class LoopVoz:
                 try:
                     if not await asyncio.to_thread(self.saida.tocar, audio, voz.taxa):
                         interrompido = True
-                        if vigia is not None:  # cortou (voz ou atalho): o vigia não escuta o próximo pedido
+                        if vigia is not None and self.interrompido_por is None:  # atalho: o vigia para aqui
                             vigia.cancel()
                 finally:
                     if ondas is not None:
@@ -486,18 +491,41 @@ class LoopVoz:
         d.zerar()
         antes: deque[np.ndarray] = deque(maxlen=4)  # 320 ms antes da voz, para não cortar a 1ª sílaba
         voz: list[np.ndarray] = []
-        async for bloco in self.entrada.blocos():
+        com_voz = 0
+        sem_voz = 0
+        blocos = self.entrada.blocos()
+        async for bloco in blocos:
             if d.tem_voz(bloco):
                 voz.append(bloco)
-                if len(voz) >= self.blocos_para_interromper:
-                    self._retomar = [*antes, *voz]
-                    self.interrompido_por = "fala"
-                    self.saida.interromper.set()
-                    return
+                com_voz += 1
+                sem_voz = 0
+            elif voz and sem_voz == 0:  # um bloco sem voz no meio da fala (uma oclusiva, "b", "d"): tolera
+                voz.append(bloco)
+                sem_voz = 1
+                continue
             else:
                 antes.extend(voz)  # voz curta demais (tosse): vira contexto, não corte
                 antes.append(bloco)
-                voz = []
+                voz, com_voz, sem_voz = [], 0, 0
+                continue
+            if com_voz >= self.blocos_para_interromper:
+                break
+        else:
+            return
+        self.saida.interromper.set()
+        self.interrompido_por = "fala"
+        if not self.em_conversa:
+            return  # lembrete ou despedida com a conversa fechada: só para de falar, não abre conversa
+        # Até o pedido antigo terminar, segue guardando a sua fala aqui (a fila do microfone só cabe 16 s), até
+        # você terminar de falar; o resto fica na fila para o laço.
+        self._retomar = [*antes, *voz]
+        d.zerar()
+        for b in self._retomar:
+            d.bloco(b)
+        async for bloco in blocos:
+            self._retomar.append(bloco)
+            if d.bloco(bloco):
+                return
 
     async def _depois_de_interrompido(self) -> None:
         """Cortado pela sua voz: nada a fazer aqui além de avisar; o laço continua a gravação (ver `_retomar`)."""

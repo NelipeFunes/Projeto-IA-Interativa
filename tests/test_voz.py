@@ -493,8 +493,8 @@ async def test_standby_por_cima_corta_e_fecha(pecas, registro, tmp_path):
 
 
 async def test_tosse_curta_nao_corta(pecas, registro, tmp_path):
-    """Menos que `interromper_apos_s` de voz (aqui um "hum" de 0,2 s) não corta."""
-    hum = _fala(pecas["pt"], "Hum.")[: int(16000 * 0.2)]
+    """Menos que `interromper_apos_s` de voz (aqui 0,3 s de fala) não corta."""
+    hum = _fala(pecas["pt"], "Tudo bem com você?")[: int(16000 * 0.3)]
     laco = _loop_que_escuta_falando(pecas, registro, tmp_path, hum)
     await laco.rodar()
     assert laco.historico[0]["interrompido"] is None and len(laco.saida.trechos) == 3
@@ -514,3 +514,17 @@ async def test_cortar_o_confirma_cancela_a_pendencia(pecas, registro, tmp_path, 
     await laco.rodar()
     assert laco.historico[0]["interrompido"] == "fala"
     assert agente.sessao("voz", "voz").pendente is None and laco.pergunta_em is None
+
+
+async def test_falar_por_cima_de_um_lembrete_so_para_e_nao_abre_conversa(pecas, registro, tmp_path):
+    """Revisão do PR 18: com a conversa fechada, voz por cima (até a TV) só para a fala; sem "Hey Vision", nada
+    vai ao modelo."""
+    from vision.voice.audio import SaidaArquivo
+
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
+        _silencio(0.3), _fala(pecas["pt"], "Tudo bem com você?"), _silencio(2.0),
+    ], tmp_path, saida=SaidaArquivo(tempo_real=True), vigia=_vigia())
+    laco.pedir_fala(LONGA)
+    await laco.rodar()
+    assert len(laco.saida.trechos) == 1 and laco.interrompido_por == "fala"
+    assert not laco.em_conversa and laco.historico == []
