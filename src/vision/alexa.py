@@ -4,6 +4,9 @@ O login é feito por você uma vez com `vision alexa-login`: o navegador abre a 
 passando por um proxy em 127.0.0.1 (o AlexaPy captura a sessão no fim). O Vision nunca vê nem guarda a
 sua senha. O que fica em data/alexa/ (fora do git): os tokens da sessão e a lista de luzes com o nome
 que elas têm no app da Alexa.
+
+Nunca ligue `debug=True` no AlexaLogin nem o log do alexapy em DEBUG: ele passa a gravar páginas da Amazon
+e a registrar tokens.
 """
 
 from __future__ import annotations
@@ -89,6 +92,28 @@ def _guardar_conta(cfg: Config, login) -> None:
     })
 
 
+def falha_da_resposta(r: Any) -> str | None:
+    """None se a Alexa aceitou o comando; senão, o motivo.
+
+    `set_light_state` devolve o JSON cru do PUT /api/phoenix/state: None quando o HTTP falha; `errors` e,
+    por item, `controlResponses[].code` quando a Amazon recusa. Formato sem o que esperamos vale como
+    aceito só se não houver sinal nenhum de erro.
+    """
+    if r is None:
+        return "sem resposta"
+    if not isinstance(r, dict):
+        return "resposta inesperada"
+    erros = [e for e in (r.get("errors") or []) if e]
+    if erros:
+        e = erros[0]
+        return str(e.get("code") or e.get("message") or e)[:120] if isinstance(e, dict) else str(e)[:120]
+    for item in r.get("controlResponses") or []:
+        codigo = str(item.get("code", "SUCCESS")) if isinstance(item, dict) else "SUCCESS"
+        if codigo.upper() != "SUCCESS":
+            return codigo[:120]
+    return None
+
+
 def _luzes_de(aparelhos: list[dict[str, Any]] | None) -> list[dict[str, str]]:
     luzes = []
     for a in aparelhos or []:
@@ -114,7 +139,11 @@ class Alexa:
             if not conta or not conta.get("email"):
                 raise SemLogin("a Alexa ainda não foi ligada: rode `vision alexa-login`")
             login = _novo_login(self.cfg, conta["email"], conta)
-            await login.login(cookies=await login.load_cookie())
+            try:
+                await login.login(cookies=await login.load_cookie())
+            except Exception as e:
+                await login.close()  # sem deixar a sessão HTTP aberta sem dono
+                raise RuntimeError(f"não consegui falar com a Alexa ({type(e).__name__})") from e
             if not (login.status or {}).get("login_successful"):
                 await login.close()
                 raise SemLogin("a sessão da Alexa venceu: rode `vision alexa-login`")
@@ -141,18 +170,30 @@ class Alexa:
 
     async def mudar_luz(self, entity_id: str, ligar: bool, brilho: int | None = None) -> None:
         from alexapy import AlexaAPI
+        from alexapy.errors import AlexapyConnectionError, AlexapyLoginCloseRequested, AlexapyLoginError
 
+        motivo = "sem resposta"
         for tentativa in (1, 2):
             login = await self._sessao()
-            r = await AlexaAPI.set_light_state(login, entity_id, power_on=ligar, brightness=brilho)
-            erros = [x for x in (r or {}).get("errors", []) if x] if isinstance(r, dict) else []
-            if r is not None and not erros:
+            try:
+                r = await AlexaAPI.set_light_state(login, entity_id, power_on=ligar, brightness=brilho)
+            except (AlexapyLoginError, AlexapyLoginCloseRequested) as e:
+                await self._descartar()  # sessão morta não fica guardada
+                if tentativa == 2:
+                    raise SemLogin("a sessão da Alexa venceu: rode `vision alexa-login`") from e
+                continue
+            except AlexapyConnectionError as e:
+                await self._descartar()
+                if tentativa == 2:
+                    raise RuntimeError("a Alexa está fora do ar") from e
+                continue
+            motivo = falha_da_resposta(r)
+            if motivo is None:
                 _guardar_conta(self.cfg, login)
                 return
-            if tentativa == 1:  # sessão velha: abre outra e tenta de novo
-                await self._descartar()
-                continue
-            raise RuntimeError(f"a Alexa não aceitou o comando ({erros[0] if erros else 'sem resposta'})")
+            log.warning("a Alexa recusou o comando de luz: %s", motivo)
+            await self._descartar()  # sessão velha: abre outra e tenta de novo
+        raise RuntimeError(f"a Alexa não aceitou o comando ({motivo})")
 
     async def fechar(self) -> None:
         await self._descartar()
@@ -180,19 +221,19 @@ async def login_interativo(cfg: Config) -> int:
             return resultado
 
     proxy = Proxy(login, f"http://127.0.0.1:{PORTA_LOGIN}/")
-    await proxy.start_proxy(host="127.0.0.1")
-    endereco = str(proxy.access_url())
-    print("\nAbrindo o navegador. Entre na Amazon normalmente (com o código de verificação, se pedir).")
-    print(f"Se não abrir, acesse: {endereco}\n")
-    webbrowser.open(endereco)
+    await proxy.start_proxy(host="127.0.0.1")  # só nesta máquina (o padrão do authcaptureproxy seria 0.0.0.0)
     try:
+        endereco = str(proxy.access_url())
+        print("\nAbrindo o navegador. Entre na Amazon normalmente (com o código de verificação, se pedir).")
+        print(f"Se não abrir, acesse: {endereco}\n")
+        webbrowser.open(endereco)
         await asyncio.wait_for(pronto.wait(), PRAZO_LOGIN_S)
     except TimeoutError:
         print("O login não foi concluído em 10 min. Rode `vision alexa-login` de novo.")
-        await proxy.stop_proxy()
         await login.close()
         return 1
-    await proxy.stop_proxy(delay=1)
+    finally:
+        await proxy.stop_proxy()  # o proxy nunca fica no ar depois do login (nem se algo der errado)
     if not await login.test_loggedin():
         print("A Amazon não confirmou o login. Tente de novo.")
         await login.close()

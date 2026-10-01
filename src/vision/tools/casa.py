@@ -49,7 +49,7 @@ class Casa:
             return None
         try:
             v = int(float(str(b).replace("%", "")))
-        except ValueError as e:
+        except (ValueError, OverflowError) as e:
             raise ErroFerramenta("Brilho de 1 a 100.") from e
         if not 1 <= v <= 100:
             raise ErroFerramenta("Brilho de 1 a 100.")
@@ -76,6 +76,8 @@ class Casa:
                     raise ErroFerramenta(f"Alexa: {e}") from e
                 except Exception as e:  # noqa: BLE001
                     falhas.append(f"{luz['nome']} ({str(e)[:120]})")
+                    if not feitas:
+                        break  # a Alexa não respondeu nem à primeira: não refaz o login luz por luz
             if not feitas:
                 raise ErroFerramenta("A Alexa não respondeu: " + "; ".join(falhas))
             verbo = "Acendi" if ligar else "Apaguei"

@@ -88,3 +88,96 @@ def test_sem_login_as_ferramentas_de_luz_nem_aparecem(cfg):
     assert not alexa.tem_login(cfg)
     alexa._gravar(alexa.pasta(cfg) / "conta.json", {"email": "x@y.z", "oauth": {"refresh_token": "r"}})
     assert alexa.tem_login(cfg)
+
+
+@pytest.mark.parametrize("resposta,falha", [
+    ({"controlResponses": [{"entityId": "e1", "code": "SUCCESS"}], "errors": []}, None),
+    ({}, None),
+    (None, "sem resposta"),
+    ({"errors": [{"code": "ENDPOINT_UNREACHABLE"}]}, "ENDPOINT_UNREACHABLE"),
+    ({"controlResponses": [{"entityId": "e1", "code": "TARGET_OFFLINE"}]}, "TARGET_OFFLINE"),
+    ([1], "resposta inesperada"),
+])
+def test_resposta_da_alexa(resposta, falha):
+    assert alexa.falha_da_resposta(resposta) == falha
+
+
+class LoginFalso:
+    def __init__(self):
+        self.fechado = False
+
+    async def close(self):
+        self.fechado = True
+
+
+@pytest.fixture
+def com_alexa(cfg, monkeypatch):
+    """Alexa de verdade, com o login e a chamada ao AlexaPy trocados por falsos."""
+    import alexapy
+
+    a = alexa.Alexa(cfg)
+    logins, respostas, chamadas = [], [], []
+
+    async def sessao():
+        if a.login is None:
+            a.login = LoginFalso()
+            logins.append(a.login)
+        return a.login
+
+    async def set_light_state(login, entity_id, power_on=True, brightness=None):
+        chamadas.append((entity_id, power_on, brightness))
+        r = respostas.pop(0)
+        if isinstance(r, Exception):
+            raise r
+        return r
+
+    monkeypatch.setattr(a, "_sessao", sessao)
+    monkeypatch.setattr(alexa, "_guardar_conta", lambda *_: None)
+    monkeypatch.setattr(alexapy.AlexaAPI, "set_light_state", staticmethod(set_light_state))
+    return a, logins, respostas, chamadas
+
+
+async def test_sessao_morta_e_descartada_e_tenta_de_novo(com_alexa):
+    from alexapy.errors import AlexapyLoginError
+
+    a, logins, respostas, chamadas = com_alexa
+    respostas += [AlexapyLoginError(), {"controlResponses": [{"code": "SUCCESS"}]}]
+    await a.mudar_luz("e1", True, 30)
+    assert len(logins) == 2 and logins[0].fechado and not logins[1].fechado  # a velha foi fechada
+    assert chamadas == [("e1", True, 30)] * 2
+
+
+async def test_sessao_que_nao_volta_pede_login(com_alexa):
+    from alexapy.errors import AlexapyLoginError
+
+    a, _logins, respostas, _ = com_alexa
+    respostas += [AlexapyLoginError(), AlexapyLoginError()]
+    with pytest.raises(alexa.SemLogin, match="alexa-login"):
+        await a.mudar_luz("e1", False)
+    assert a.login is None  # nada quebrado fica guardado para a próxima vez
+
+
+async def test_recusa_no_corpo_nao_vira_acendi(com_alexa):
+    a, _l, respostas, _ = com_alexa
+    respostas += [{"controlResponses": [{"code": "TARGET_OFFLINE"}]}] * 2
+    with pytest.raises(RuntimeError, match="TARGET_OFFLINE"):
+        await a.mudar_luz("e1", True)
+
+
+async def test_todas_com_a_alexa_fora_do_ar_para_na_primeira():
+    a = AlexaFalsa(falha=RuntimeError("a Alexa está fora do ar"))
+    chamadas = []
+
+    async def mudar(entity_id, ligar, brilho=None):
+        chamadas.append(entity_id)
+        raise RuntimeError("a Alexa está fora do ar")
+
+    a.mudar_luz = mudar
+    with pytest.raises(ErroFerramenta, match="não respondeu"):
+        await Casa(a)._mudar(False)({"luz": "todas"})
+    assert chamadas == ["e1"]  # não refaz o login luz por luz
+
+
+def test_brilho_absurdo_e_recusado():
+    with pytest.raises(ErroFerramenta, match="1 a 100"):
+        Casa._brilho({"brilho": "inf"})
