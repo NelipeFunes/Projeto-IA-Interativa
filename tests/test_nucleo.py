@@ -177,7 +177,11 @@ def test_atalho_de_inicializacao_sem_montar_comando_com_texto(monkeypatch, tmp_p
     assert env["VISION_PASTA"] == str(projeto) and env["VISION_LNK"].endswith("Vision.lnk")
     assert env["VISION_ICONE"].endswith("vision.ico")  # o orbe como ícone do atalho
     assert inicializacao.primeira_vez(marcador, projeto) is False  # só na primeira vez
-    assert len(chamadas) == 2  # o atalho que já existia foi refeito (caminho e ícone novos)
+    assert len(chamadas) == 1  # nem refaz: o atalho já é da versão de agora
+    marcador.write_text("configurado (versão antiga, sem ícone)\n", encoding="utf-8")
+    assert inicializacao.primeira_vez(marcador, projeto) is False
+    assert inicializacao.primeira_vez(marcador, projeto) is False
+    assert len(chamadas) == 2  # o atalho antigo foi refeito uma vez só (pega o ícone)
     inicializacao.desligar()
     assert not inicializacao.ativo()
     assert inicializacao.primeira_vez(marcador, projeto) is False  # desligado pela bandeja: continua desligado

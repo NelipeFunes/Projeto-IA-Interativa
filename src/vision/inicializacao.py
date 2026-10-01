@@ -64,14 +64,22 @@ def desligar() -> None:
     atalho().unlink(missing_ok=True)
 
 
+# Sobe quando o atalho muda (2: ganhou o ícone do orbe). Um atalho de versão anterior é refeito UMA vez,
+# não a cada boot: o PowerShell custa tempo, e o atalho não pode seguir o Python de cada teste (revisão do PR 19).
+VERSAO_ATALHO = "2"
+_TEXTO_MARCADOR = "o início com o Windows já foi configurado uma vez; mude pela bandeja\nversao={}\n"
+
+
 def primeira_vez(marcador: Path, pasta_projeto: Path) -> bool:
     """Na primeira execução do núcleo, liga o início com o Windows (o pedido original). Depois, vale a bandeja;
-    um atalho que já existe é refeito, para pegar caminho e ícone novos."""
+    um atalho de versão anterior é refeito uma vez (pega o ícone novo)."""
     if marcador.exists():
-        if ativo():
-            ligar(pasta_projeto)
+        if f"versao={VERSAO_ATALHO}" not in marcador.read_text(encoding="utf-8"):
+            if ativo():
+                ligar(pasta_projeto)
+            marcador.write_text(_TEXTO_MARCADOR.format(VERSAO_ATALHO), encoding="utf-8")
         return False
     ligar(pasta_projeto)
     marcador.parent.mkdir(parents=True, exist_ok=True)
-    marcador.write_text("o início com o Windows já foi configurado uma vez; mude pela bandeja\n", encoding="utf-8")
+    marcador.write_text(_TEXTO_MARCADOR.format(VERSAO_ATALHO), encoding="utf-8")
     return True
