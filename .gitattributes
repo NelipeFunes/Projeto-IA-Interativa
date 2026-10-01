@@ -3,3 +3,4 @@
 *.png binary
 *.wav binary
 *.onnx binary
+*.ico binary
