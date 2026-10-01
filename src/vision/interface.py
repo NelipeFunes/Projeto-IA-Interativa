@@ -27,6 +27,23 @@ from vision.config import Config
 _JANELAS: dict[str, Any] = {}
 # No núcleo (Fase B), fechar só esconde: a janela fica carregada e abre na hora da próxima vez.
 _MODO = {"nucleo": False, "principal_visivel": True}
+# O orbe da tela como ícone da janela e da barra de tarefas (gerado por scripts/gerar_icone.py).
+ICONE = Path(__file__).parent / "recursos" / "vision.ico"
+# Identidade própria na barra de tarefas: sem ela o Windows agrupa a janela com o Python e usa o ícone dele.
+ID_APP = "Vision.Assistente"
+
+
+def _identidade_na_barra() -> None:
+    if sys.platform == "win32":
+        try:
+            ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(ID_APP)
+        except (AttributeError, OSError):
+            pass
+
+
+def _iniciar(webview: Any) -> None:
+    _identidade_na_barra()
+    webview.start(private_mode=True, icon=str(ICONE) if ICONE.exists() else None)
 
 LARGURA_BOLHA, ALTURA_BOLHA = 400, 96
 
@@ -269,7 +286,7 @@ def abrir_no_nucleo(cfg: Config) -> None:
     criar_janelas(webview, f"{base}/app/index.html?nucleo=1", cfg.get("assistente.nome", "Vision"),
                   escondida=os.environ.get("VISION_MOSTRAR") != "1", sufixo=f"#t={token}")
     threading.Thread(target=_ouvir_nucleo, args=(sys.stdin,), name="comandos-do-nucleo", daemon=True).start()
-    webview.start(private_mode=True)
+    _iniciar(webview)
 
 
 def abrir(cfg: Config, demo: bool = True) -> None:
@@ -282,6 +299,6 @@ def abrir(cfg: Config, demo: bool = True) -> None:
     url = f"http://127.0.0.1:{porta}/index.html?demo={'1' if demo else '0'}"
     criar_janelas(webview, url, cfg.get("assistente.nome", "Vision"))
     try:
-        webview.start(private_mode=True)
+        _iniciar(webview)
     finally:
         servidor.shutdown()
