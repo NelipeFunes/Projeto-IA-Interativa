@@ -18,6 +18,7 @@ TODAS = {"todas", "todas as luzes", "tudo", "casa toda", "a casa toda"}
 TRADUCAO = {"bedroom": "quarto", "living": "sala", "kitchen": "cozinha", "bathroom": "banheiro",
             "office": "escritorio", "hall": "corredor", "dining": "jantar", "lamp": "abajur", "desk": "mesa",
             "garage": "garagem", "front": "frente", "back": "fundos", "porch": "varanda", "balcony": "varanda"}
+# A tradução vem antes do filtro: "lamp" vira "abajur" e não é descartada como palavra vazia.
 VAZIAS = {"a", "o", "as", "os", "do", "da", "de", "dos", "das", "no", "na", "nos", "nas", "the", "room", "luz",
           "luzes", "lampada", "lampadas", "light", "lights", "lamp", "lampadinha", "meu", "minha", "e"}
 
@@ -68,13 +69,22 @@ class Casa:
                 raise ErroFerramenta(f"Qual luz? As que existem: {lista}.")
         else:
             escolhidas = [x for x in luzes if chave <= _chaves(x["nome"])]
-        if numeros and escolhidas:  # "quarto 2": a segunda do grupo
+        mesmo_nome = bool(escolhidas) and len({x["nome"] for x in escolhidas}) == 1
+        if numeros and escolhidas:
             n = numeros[0]
-            if 1 <= n <= len(escolhidas):
-                return [escolhidas[n - 1]]
-            raise ErroFerramenta(f"Não existe a luz número {n}. As que existem: {lista}.")
-        if escolhidas and len({x["nome"] for x in escolhidas}) == 1:
+            if mesmo_nome and len(escolhidas) > 1:  # "quarto 2": a 2ª das lâmpadas com o mesmo nome
+                if 1 <= n <= len(escolhidas):
+                    return [escolhidas[n - 1]]
+                raise ErroFerramenta(f"Não existe a luz número {n}. As que existem: {lista}.")
+            # Nomes diferentes: o número é parte do nome ("Lamp 2"), nunca a posição na lista.
+            com_numero = [x for x in escolhidas if _chaves(pedido) <= _chaves(x["nome"])]
+            if len(com_numero) == 1:
+                return com_numero
+            raise ErroFerramenta(f"Qual delas? As que existem: {lista}.")
+        if mesmo_nome:
             return escolhidas  # o mesmo nome na Alexa: as lâmpadas do mesmo lugar acendem juntas
+        if escolhidas:
+            raise ErroFerramenta("Qual delas? " + ", ".join(x["rotulo"] for x in escolhidas) + ".")
         if not escolhidas:
             parecido = difflib.get_close_matches(pedido, list(por_rotulo), n=1, cutoff=0.6)
             if parecido:

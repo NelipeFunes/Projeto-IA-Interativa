@@ -208,3 +208,41 @@ async def test_confirmacao_e_resposta_com_as_duas():
     assert await f["luz_acender"].descrever({"luz": "quarto"}) == "Vou acender todas as luzes."
     assert await f["luz_apagar"].descrever({"luz": "quarto 2"}) == "Vou apagar Bedroom Light 2."
     assert await f["luzes_listar"].executar({}) == "Luzes que o Vision controla (pela Alexa): Bedroom Light 1, Bedroom Light 2."
+
+
+@pytest.mark.parametrize("luzes,pedido,esperado", [
+    ([{"nome": "Lamp 2", "entity_id": "x2"}, {"nome": "Lamp 3", "entity_id": "x3"}], "abajur 2", "x2"),
+    ([{"nome": "Quarto 10", "entity_id": "q10"}, {"nome": "Quarto 2", "entity_id": "q2"}], "quarto 2", "q2"),
+])
+def test_numero_e_parte_do_nome_quando_os_nomes_sao_diferentes(luzes, pedido, esperado):
+    assert [x["entity_id"] for x in Casa(AlexaFalsa(luzes))._escolher(pedido)] == [esperado]
+
+
+@pytest.mark.parametrize("pedido", ["quarto 1", "quarto 2"])
+def test_numero_que_nao_bate_com_nome_diferente_pergunta(pedido):
+    luzes = [{"nome": "Quarto 10", "entity_id": "q10"}, {"nome": "Bedroom Lamp", "entity_id": "q3"}]
+    if pedido == "quarto 2":
+        luzes = [{"nome": "Bedroom Light", "entity_id": "a"}, {"nome": "Bedroom Lamp", "entity_id": "b"}]
+    with pytest.raises(ErroFerramenta, match="Qual delas"):
+        Casa(AlexaFalsa(luzes))._escolher(pedido)
+
+
+def test_dois_grupos_repetidos_e_ambiguidade():
+    luzes = DUAS + [{"nome": "Kitchen Light", "entity_id": "k1"}, {"nome": "Kitchen Light", "entity_id": "k2"}]
+    c = Casa(AlexaFalsa(luzes))
+    assert [x["entity_id"] for x in c._escolher("cozinha 2")] == ["k2"]
+    assert [x["entity_id"] for x in c._escolher("quarto")] == ["b1", "b2"]
+    diferentes = Casa(AlexaFalsa([{"nome": "Bedroom Light", "entity_id": "a"}, {"nome": "Bedroom Lamp", "entity_id": "b"}]))
+    with pytest.raises(ErroFerramenta, match="Qual delas"):
+        diferentes._escolher("quarto")
+
+
+def test_ordem_estavel_das_luzes_repetidas():
+    a = [{"applianceTypes": ["LIGHT"], "friendlyName": "Bedroom Light", "entityId": i} for i in ("z9", "a1")]
+    assert [x["entity_id"] for x in alexa._luzes_de(a)] == ["a1", "z9"]
+    assert [x["entity_id"] for x in alexa._luzes_de(list(reversed(a)))] == ["a1", "z9"]
+
+
+async def test_atualizar_lista_sem_login(cfg, capsys):
+    assert await alexa.atualizar_lista(cfg) == 1
+    assert "alexa-login" in capsys.readouterr().out
