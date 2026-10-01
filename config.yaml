@@ -89,12 +89,12 @@ voz:
   # Recalibre com: vision teste voz
   limiar_ativacao: 0.3
   atalho: ctrl+alt+j
-  # Conversa: "Hey Vision" abre; tudo o que você fala vai para ele até "Beleza, Vision, pode desligar"
+  # Conversa: "Hey Vision" abre; tudo o que você fala vai para ele até "Vision, standby"
   # ou esse tempo sem ninguém falar (pedido de 30/09: antes a janela de 8 s pegava conversa que não era com ele).
   conversa_silencio_max_s: 120
   confirmacao_prazo_s: 30     # "sim" por voz só vale até esse tempo depois do "Confirma?" (TV/fundo não confirma)
-  saudacao: Oi, Felipe. Pode falar.
-  despedida: ""               # "pode desligar" só dá o bipe de desligar; um texto aqui é falado antes dele
+  saudacao: ""                # vazio: "Hey Vision" só dá um bipe e já ouve (pedido de 01/10); um texto aqui é falado
+  despedida: ""               # "Vision, standby" só dá o bipe de desligar; um texto aqui é falado antes dele
   silencio_fim_ms: 800        # quanto silêncio encerra a sua fala
   maximo_fala_s: 20
 

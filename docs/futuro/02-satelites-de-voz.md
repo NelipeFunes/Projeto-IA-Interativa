@@ -57,7 +57,7 @@ satélite ESPHome ──(API nativa do ESPHome)──► Vision (vira o "servido
 ```
 
 - No ESPHome, o aparelho é o servidor da API nativa e quem conecta nele é o cliente (hoje, o HA). Aqui o Vision passaria a ser esse **cliente** da API de voz. Outra opção é o **wyoming-satellite** num Raspberry Pi em vez do ESP32.
-- **O que se ganha:** mais controle (conversa contínua, "pode desligar", cartão na tela).
+- **O que se ganha:** mais controle (conversa contínua, "standby", cartão na tela).
 - **O que custa:** muito mais código para manter.
 
 **Recomendação:** começar pelo **caminho A**, que é menos código e testa o hardware rápido. Migrar para o B só se o HA atrapalhar a conversa contínua.
@@ -69,7 +69,7 @@ satélite ESPHome ──(API nativa do ESPHome)──► Vision (vira o "servido
 3. **Um pedido por vez no modelo.** Com uma GPU, dois cômodos falando juntos entram numa fila. O segundo ouve "só um instante".
 4. **A tela mostra de onde veio a fala** ("sala: marca o dentista…"), e a bolha só aparece se o PC estiver no mesmo cômodo.
 5. **Confirmação por satélite:** o "sim" precisa vir **do mesmo satélite** que ouviu o pedido, dentro do prazo (hoje, 30 s), e só com confirmação explícita ("sim", "confirmo"), como já é no PC. Um "sim" da TV em outro cômodo não confirma nada. No caminho A, isso depende do id que o HA informa (ver o limite de confiança acima).
-6. **Conversa contínua por satélite:** "Hey Vision" abre e "pode desligar" fecha, como no PC. O fim da conversa volta o satélite para o micro_wake_word. No Caminho A, isso depende de o HA deixar o microfone aberto entre as falas. Isso precisa de teste.
+6. **Conversa contínua por satélite:** "Hey Vision" abre e "standby" fecha, como no PC. O fim da conversa volta o satélite para o micro_wake_word. No Caminho A, isso depende de o HA deixar o microfone aberto entre as falas. Isso precisa de teste.
 
 ## Privacidade
 
