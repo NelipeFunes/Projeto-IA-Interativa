@@ -17,11 +17,30 @@ async def cliente_e_agenda(cfg, host, memorias, servidor_agenda):
         chama("agenda_criar", titulo="Academia", data=amanha, hora_inicio="07:00"),
         fala("Sim o quê?"),
     ])
+    cfg.bruto.setdefault("assistente", {})["confirmar_acoes"] = True  # este teste é do modo com confirmação
     async with montar(cfg, llm=llm, host=host, memorias=memorias) as j:
         app = criar_app(cfg, vision=j, token="segredo-de-teste")
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://vision",
                                      headers={"Authorization": "Bearer segredo-de-teste"}) as c:
             yield c, servidor_agenda
+
+
+async def test_sem_confirmacao_o_pedido_e_feito_na_hora(cfg, host, memorias, servidor_agenda):
+    """O config do repositório vem com `assistente.confirmar_acoes: false` (pedido de 01/10): marcar já marca."""
+    assert cfg.get("assistente.confirmar_acoes") is False
+    amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
+    llm = LLMFalso([
+        chama("agenda_criar", titulo="Academia", data=amanha, hora_inicio="07:00"),
+        fala("Marquei academia amanhã às 7h."),
+    ])
+    async with montar(cfg, llm=llm, host=host, memorias=memorias) as j:
+        app = criar_app(cfg, vision=j, token="segredo-de-teste")
+        async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://vision",
+                                     headers={"Authorization": "Bearer segredo-de-teste"}) as c:
+            r = await c.post("/conversa", json={"texto": "marca academia amanhã 7h", "sessao": "a"})
+    assert r.json()["aguardando_confirmacao"] is False
+    assert "Confirma?" not in r.json()["resposta"]
+    assert any(e["summary"] == "Academia" for e in servidor_agenda.eventos)
 
 
 async def test_conversa_e_confirmacao_entre_requisicoes(cliente_e_agenda):

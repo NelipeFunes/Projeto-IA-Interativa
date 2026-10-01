@@ -92,8 +92,12 @@ class Agente:
         similaridade_minima: float = 0.25,
         relogio: Callable[[], Any] = tempo.agora,
         ao_evento: Callable[[dict[str, Any]], None] | None = None,
+        confirmar_acoes: bool = True,
     ):
         self.llm = llm
+        # False (pedido do Felipe em 01/10): toda escrita roda na hora, sem "Confirma?" e sem a trava de texto de
+        # fora. O pedido dele é a ordem. `assistente.confirmar_acoes: true` volta ao modo com confirmação.
+        self.confirmar_acoes = confirmar_acoes
         self.registro = registro
         self.memorias = memorias
         self.nome = nome_usuario
@@ -277,7 +281,7 @@ class Agente:
             except Exception as e:  # noqa: BLE001 - memória fora do ar não pode travar a conversa
                 log.warning("memória indisponível: %s", e)
         return prompt.montar(self.nome, canal, self.relogio(), perfil, memorias, set(self.registro.ferramentas),
-                             self.nome_assistente)
+                             self.nome_assistente, confirmar=self.confirmar_acoes)
 
     def _historico(self, s: Sessao) -> list[dict[str, Any]]:
         turnos = s.turnos[-self.turnos_historico :]
@@ -291,7 +295,8 @@ class Agente:
         return msgs
 
     async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None) -> Resposta:
-        if not self._ainda_tem_externo(s) and not s.nota:  # depois de ler texto de fora, quem decide é o caminho normal
+        # Depois de ler texto de fora, quem decide é o caminho normal (só no modo com confirmação).
+        if not self.confirmar_acoes or (not self._ainda_tem_externo(s) and not s.nota):
             for atalho in self.atalhos:
                 feito = await atalho(texto)
                 if feito is not None:
@@ -303,7 +308,7 @@ class Agente:
         mensagens = [{"role": "system", "content": sistema}, *self._historico(s), *nota, *turno]
         ferramentas = self.registro.para_ollama()
         usadas: list[dict[str, Any]] = []
-        leu_de_fora = self._ainda_tem_externo(s)
+        leu_de_fora = self.confirmar_acoes and self._ainda_tem_externo(s)
         diretas = 0
         grupos = [g for g in intencao.detectar(texto) if self.registro.nomes_do_grupo(g)]
         # Só um pedido de ação (não pergunta, nem resposta a uma pendência que acabou de ser descartada) pode ter
@@ -326,8 +331,7 @@ class Agente:
                     # O modelo disse "vou marcar..." e parou: mostra a fala dele e cobra a ação.
                     extra = [{"role": "assistant", "content": r.texto}]
                     puxao = ("ATENÇÃO: você disse que ia fazer ou verificar algo, mas não chamou nenhuma ferramenta. "
-                             "Chame a ferramenta certa agora; o sistema é quem pede a confirmação ao "
-                             f"{self.nome}. Nunca escreva 'Confirma?' você mesmo.")
+                             "Chame a ferramenta certa agora. Nunca escreva 'Confirma?' você mesmo.")
                 else:
                     extra = []
                     nomes = ", ".join(n for g in grupos for n in self.registro.nomes_do_grupo(g))
@@ -361,7 +365,8 @@ class Agente:
                 if f is not None:
                     c.args = f.normalizar_args(c.args)
                 self._emitir("ferramenta_inicio", nome=c.nome, args=c.args)
-                direta = f is not None and f.escrita and not f.confirmar and not leu_de_fora and diretas < 3
+                sem_pergunta = not f.confirmar or not self.confirmar_acoes if f is not None else False
+                direta = f is not None and f.escrita and sem_pergunta and not leu_de_fora and diretas < 5
                 pede_por_externo = f is not None and not f.escrita and f.confirmar_se_externo and leu_de_fora
                 if direta:
                     # Sem "Confirma?": o pedido é do Felipe, e nada de fora foi lido antes neste turno.
@@ -383,7 +388,7 @@ class Agente:
                 else:
                     ok, resultado, dados = await self.registro.rodar_com_dados(c.nome, c.args)
                     self._emitir("ferramenta_fim", nome=c.nome, ok=ok, args=c.args, dados=dados)
-                    if f is not None and f.conteudo_externo:
+                    if f is not None and f.conteudo_externo and self.confirmar_acoes:
                         leu_de_fora = True
                 usadas.append({"nome": c.nome, "args": c.args, "ok": ok, "resultado": resultado[:300]})
                 msg_tool = {"role": "tool", "content": resultado, "tool_name": c.nome}

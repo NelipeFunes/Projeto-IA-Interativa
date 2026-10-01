@@ -467,3 +467,16 @@ async def test_atalho_com_erro_da_alexa_nao_aparece_como_sucesso():
     r = await agente.responder("apaga a luz do quarto", "voz", "t")
     assert "não respondeu" in r.texto and r.ferramentas[0]["ok"] is False
     assert {"tipo": "ferramenta_fim", "nome": "luz_apagar", "ok": False, "args": {"luz": "quarto"}, "dados": None} in eventos
+
+
+async def test_sem_confirmacao_nem_texto_de_fora_segura_o_pedido():
+    """`confirmar_acoes=False` (pedido de 01/10): a agenda lida antes não faz a luz voltar a perguntar."""
+    agente, a = _agente_direto([chama("reuniao_falsa"), fala("Resumo."), chama("luz_acender", luz="quarto"),
+                                fala("Acendi.")])
+    agente.confirmar_acoes = False
+    agente.atalhos = [Casa(a, confirmar=False).atalho]
+    await agente.responder("resume a reunião", "voz", "t")
+    r = await agente.responder("acende a luz do quarto", "voz", "t")  # vai pelo atalho, sem o modelo
+    assert not r.aguardando_confirmacao and a.feitas == [("b1", True, None), ("b2", True, None)]
+    r = await agente.responder("e liga o quarto de novo de outro jeito", "voz", "t")  # vai pelo modelo
+    assert not r.aguardando_confirmacao and len(a.feitas) == 4
