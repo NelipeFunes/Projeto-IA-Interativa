@@ -54,6 +54,13 @@ def test_falas_que_nao_acordam(ouvido):
     "Não, Vision, standby.",  # revisão do PR 16: o "não" responde a outra coisa
     "Não, obrigado. Standby.",
     "Não precisa, Vision, standby",
+    # 2ª revisão do PR 16: jeitos naturais de mandar parar
+    "Vision. Stand. By.",
+    "Stand, by.",
+    "Vision por favor standby",
+    "Esta tudo certo pode ficar em standby",
+    "Pode deixar em standby",
+    "Coloca em standby, Vision",
     "Pode dormir.",
     "Tchau, Vision.",
     "pode encerrar por favor",
@@ -73,6 +80,7 @@ def test_despedidas(ouvido):
     "Não entra em standby agora",
     "Coloca o PC em standby",
     "Põe o computador em standby",
+    "Deixa a TV em standby",
     "A TV ficou em standby a noite toda",
     "Me explica o que é o modo standby da TV",
     "Me explica o que é o modo standby da TV e quanto ele gasta de energia por mês aqui em casa, por favor, rapidinho",

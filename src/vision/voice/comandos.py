@@ -30,10 +30,12 @@ FORTES = {"hey", "hei", "ei", "ey", "eye", "rei", "hi", "oi", "fala", "ola"}
 DESLIGAR = {"dormir", "encerrar", "encerra", "descansar"}
 STANDBY = "standby"
 MAX_PALAVRAS_STANDBY = 20
-# Antes de "standby" na mesma oração, fazem dele assunto ou pedido, não despedida: "coloca o PC em standby",
-# "o modo standby da TV", "a TV ficou em standby", "não entra em standby".
-NAO_E_STANDBY = {"nao", "coloca", "coloque", "colocar", "poe", "por", "bota", "botar", "deixa", "deixar", "explica",
-                 "modo", "ficou", "estava", "esta", "entrou", "liga", "ligar", "desliga", "que"}
+# Nas 3 palavras antes de "standby", na mesma oração, fazem dele assunto, não despedida: "não entra em standby",
+# "o modo standby da TV", "a TV ficou em standby", "coloca o PC em standby". Lista curta de propósito: na dúvida,
+# fechar a conversa é melhor do que ela não fechar ("deixa em standby", "por favor, standby" fecham).
+NAO_E_STANDBY = {"nao", "modo", "ficou", "estava", "entrou", "pc", "computador", "notebook", "tv", "televisao",
+                 "monitor", "celular"}
+JUNTAR_STANDBY = re.compile(r"stand\W+by", re.IGNORECASE)  # "Stand. By." é o mesmo standby
 # O que pode vir depois de "desligar" numa despedida. Qualquer outra palavra ("desligar o alarme") é um pedido.
 ENCHIMENTO = {"agora", "ja", "por", "favor", "obrigado", "obrigada", "valeu", "entao", "tchau", "ta", "beleza"}
 MAX_PALAVRAS_DESPEDIDA = 8
@@ -87,9 +89,12 @@ def _posicao_standby(palavras: list[str]) -> int | None:
     """Onde está "standby" na fala ("standby", "stand-by", "stand by", e "standry" mal ouvido)."""
     for i, p in enumerate(palavras):
         juntas = p + (palavras[i + 1] if i + 1 < len(palavras) else "")
+        if STANDBY in p:
+            return i
+        # "stan by", "sand by": a dupla só conta parecida com "standby" inteira ("modo standby" não é "standby" no
+        # "modo", 2ª revisão do PR 16).
         for candidato in (p, juntas):
-            if STANDBY in candidato or (6 <= len(candidato) <= 8
-                                        and difflib.SequenceMatcher(None, candidato, STANDBY).ratio() >= 0.85):
+            if 6 <= len(candidato) <= 8 and difflib.SequenceMatcher(None, candidato, STANDBY).ratio() >= 0.85:
                 return i
     return None
 
@@ -108,12 +113,12 @@ def e_despedida(texto: str) -> bool:
         if len(palavras) > MAX_PALAVRAS_STANDBY or texto.strip().endswith("?"):
             return False
         # Só a oração do "standby" conta: em "Não, Vision, standby" o "não" responde a outra coisa.
-        for oracao in re.split(r"[,.;:!?]+", texto):
+        for oracao in re.split(r"[,.;:!?]+", JUNTAR_STANDBY.sub("standby", texto)):
             p = _normalizar(oracao)
             i = _posicao_standby(p)
             if i is not None:
-                return not (NAO_E_STANDBY & set(p[:i]))
-        return False
+                return not (NAO_E_STANDBY & set(p[max(0, i - 3):i]))
+        return True  # "stand" e "by" separados de outro jeito: na dúvida, fecha
     if len(palavras) > MAX_PALAVRAS_DESPEDIDA or "nao" in palavras:  # "não, não vai dormir"
         return False
     nome = lambda p: _e_o_nome(p, True)  # noqa: E731
