@@ -25,6 +25,8 @@ PADROES = {
         r"wispr|nota(s)? (do|da|que)|minhas notas|pr[oó]ximos passos)\b",
         re.IGNORECASE,
     ),
+    "casa": re.compile(r"\b(luz|luzes|l[aâ]mpada\w*|acend\w*|apag(a|ue|ar) a luz|abajur|ilumina\w*)\b",
+                       re.IGNORECASE),
     "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
     "memoria": re.compile(
         r"(\b(lembr[ae]|anot[ae]|guard[ae]) (que|isso|a[ií])\b|\bn[aã]o esque[cç]a\b|\bvoc[eê] (sabe|lembra)\b|"

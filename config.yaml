@@ -58,6 +58,10 @@ mcp:
     oauth: data/wispr-oauth.json
     timeout_s: 30
 
+alexa:
+  ativo: true               # luzes da Alexa pelo AlexaPy (não oficial). Login: vision alexa-login
+  dominio: amazon.com.br
+
 voz:
   microfone: [HyperX, C920]   # procura por nome, na ordem
   alto_falante: [HyperX]

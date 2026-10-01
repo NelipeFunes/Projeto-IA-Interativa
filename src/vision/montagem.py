@@ -87,6 +87,15 @@ async def montar(
         from vision.tools.reunioes import Reunioes
 
         registro.adicionar(*Reunioes(cfg, host).ferramentas())
+    alexa = None
+    if cfg.get("alexa.ativo", True):
+        from vision import alexa as modulo_alexa
+
+        if modulo_alexa.tem_login(cfg):  # sem `vision alexa-login`, as ferramentas de luz nem aparecem
+            from vision.tools.casa import Casa
+
+            alexa = modulo_alexa.Alexa(cfg)
+            registro.adicionar(*Casa(alexa).ferramentas())
     agente = Agente(
         llm or criar_llm(cfg),
         registro,
@@ -106,3 +115,5 @@ async def montar(
         finally:
             if memorias is not None:
                 memorias.fechar()
+            if alexa is not None:
+                await alexa.fechar()
