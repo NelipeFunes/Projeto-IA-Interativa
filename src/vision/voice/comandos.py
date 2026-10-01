@@ -133,8 +133,8 @@ def e_despedida(texto: str) -> bool:
     return False
 
 
-# Interromper por voz enquanto ele fala (pedido de 01/10). A frase inteira tem que ser só de parar: a própria
-# voz dele vazando no microfone ("vou marcar para amanhã") nunca é só isso.
+# Depois que a sua voz cortou a dele: frase só de parar ("para de falar", "chega") não vai ao modelo, só para.
+# A frase inteira tem que ser de parar: "para quando é a prova?" é pergunta.
 PARAR = {"para", "pare", "parar", "paro", "chega", "silencio", "cala", "calado", "calada", "stop", "espera",
          "espere", "pera", "perai", "quieto", "quieta", "basta", "shh", "psiu"}
 # Sem "um pouco": "espere um pouco" é frase que ele mesmo diz (revisão do PR 17).
@@ -144,8 +144,7 @@ MAX_PALAVRAS_PARAR = 6
 
 
 def e_interrupcao(texto: str) -> str | None:
-    """Dito enquanto o Vision fala: "standby" (corta e fecha a conversa), "parar" (corta e continua ouvindo)
-    ou None (não era com ele: segue falando)."""
+    """"standby" (fecha a conversa), "parar" (só para de falar, nada vai ao modelo) ou None (é um pedido)."""
     palavras = _normalizar(texto)
     if not palavras:
         return None
