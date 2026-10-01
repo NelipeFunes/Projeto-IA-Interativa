@@ -250,8 +250,12 @@ class Agenda:
 
     async def apagar(self, args: dict[str, Any]) -> str:
         evento_id = args.get("evento_id", "")
+        try:  # sem confirmação, a resposta diz QUAL evento saiu: um id trocado pelo modelo aparece na hora
+            qual = (await self.descrever_apagar(args)).removeprefix("Vou apagar ").rstrip(".")
+        except Exception:  # noqa: BLE001 - não conseguir ler o evento não impede o apagar
+            qual = f"o evento {evento_id}"
         await self._mcp("delete-event", {"calendarId": self.escrita, "eventId": evento_id})
-        return ComDados(f"Evento {evento_id} apagado.", {"id": evento_id})
+        return ComDados(f"Apaguei {qual}.", {"id": evento_id})
 
     async def descrever_apagar(self, args: dict[str, Any]) -> str:
         ev = await self._evento(args.get("evento_id", ""))

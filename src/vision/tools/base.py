@@ -1,7 +1,7 @@
 """Ferramentas que o modelo pode chamar.
 
 Cada ferramenta tem um esquema simples, em português, pensado para modelo pequeno.
-As de escrita (`escrita=True`) nunca rodam direto: o agente pede confirmação antes.
+As de escrita (`escrita=True`) pedem confirmação antes, a não ser que o agente esteja com `confirmar_acoes=False`.
 """
 
 from __future__ import annotations
@@ -48,8 +48,8 @@ class Ferramenta:
     grupo: str = "geral"
     # Para escrita: como a tela mostra a ação pendente (ex.: o cartão do evento), sem chamar nada externo.
     previa: Previa | None = None
-    # Escrita que roda sem "Confirma?" (luzes, a pedido do Felipe em 01/10). Mesmo assim pergunta se o turno
-    # (ou o anterior) leu conteúdo de fora: um texto de reunião não pode apagar as luzes sozinho.
+    # Escrita que roda sem "Confirma?" mesmo no modo com confirmação (luzes). Ainda pergunta se a conversa
+    # acabou de ler conteúdo de fora: um texto de reunião não pode apagar as luzes sozinho.
     confirmar: bool = True
     # Leitura cujo resultado tem texto de terceiros (convites da agenda, transcrições, notas).
     conteudo_externo: bool = False

@@ -111,6 +111,7 @@ async def montar(
         expira_min=float(cfg.get("conversa.sessao_expira_min", 10)),
         top_k=int(cfg.get("memoria.top_k", 3)),
         similaridade_minima=float(cfg.get("memoria.similaridade_minima", 0.25)),
+        confirmar_acoes=bool(cfg.get("assistente.confirmar_acoes", True)),
     )
     agente.atalhos = atalhos
     async with host:
