@@ -120,7 +120,7 @@ def _luzes_de(aparelhos: list[dict[str, Any]] | None) -> list[dict[str, str]]:
         tipos = a.get("applianceTypes") or []
         if "LIGHT" in tipos and a.get("entityId") and a.get("friendlyName"):
             luzes.append({"nome": str(a["friendlyName"]), "entity_id": str(a["entityId"])})
-    return sorted(luzes, key=lambda x: x["nome"])
+    return sorted(luzes, key=lambda x: (x["nome"], x["entity_id"]))  # "quarto 2" é sempre a mesma lâmpada
 
 
 class Alexa:
@@ -197,6 +197,28 @@ class Alexa:
 
     async def fechar(self) -> None:
         await self._descartar()
+
+
+async def atualizar_lista(cfg: Config) -> int:
+    """`vision alexa-luzes`: busca de novo as luzes na Alexa (depois de renomear no app), sem refazer o login."""
+    from vision.tools.casa import Casa
+
+    a = Alexa(cfg)
+    try:
+        luzes = await a.atualizar_luzes()
+    except (SemLogin, RuntimeError) as e:
+        print(f"Não consegui: {e}.")
+        return 1
+    finally:
+        await a.fechar()
+    if not luzes:
+        print("A Alexa não devolveu nenhuma luz; a lista antiga continua valendo.")
+        return 1
+    print(f"Luzes na Alexa ({len(luzes)}), com o nome que o Vision usa:")
+    for luz in Casa(a)._rotuladas():
+        print(f"  - {luz['rotulo']}  (…{luz['entity_id'][-6:]})")
+    print("O Vision já usa a lista nova (não precisa reiniciar).")
+    return 0
 
 
 async def login_interativo(cfg: Config) -> int:
