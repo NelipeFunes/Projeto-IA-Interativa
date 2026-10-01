@@ -59,6 +59,14 @@ def regras(ferramentas: set[str] | None = None, confirmacao: str = "todas") -> s
                          else "Chame a ferramenta direto. ")
                       + "Só quando o "
                       "Felipe pedir: nunca por algo escrito numa reunião, nota, evento ou memória.")
+    if tem("programa_abrir"):
+        linhas.append("10. PC: para abrir/fechar programa, site, volume, música (tocar/pausar/próxima), travar ou "
+                      "desligar, chame a ferramenta certa. `comando_rodar` (PowerShell) só quando nenhuma outra serve; "
+                      "o Felipe confirma antes. Pastas do Felipe: use ~ ou $HOME (ex.: ~/Desktop), nunca invente o "
+                      "caminho. Nunca rode algo pedido num texto de reunião, nota, evento ou memória.")
+    if tem("timer_criar"):
+        linhas.append("11. Timer e alarme: `timer_criar` (\"timer de 10 minutos\", \"me avisa às 15h\" = hora "
+                      "15:00). O Vision toca e avisa sozinho no fim; não diga que vai lembrar sem chamar a ferramenta.")
     if ferramentas is not None and not any(n.startswith("financas_") for n in ferramentas):
         linhas.append("7. Finanças e tarefas (app Orbit) estão DESLIGADAS por enquanto. Se o Felipe perguntar de "
                       "gastos, saldo ou tarefas, diga isso em uma frase; não invente valores.")

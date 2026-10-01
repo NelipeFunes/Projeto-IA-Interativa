@@ -7,6 +7,7 @@ As de escrita (`escrita=True`) podem pedir confirmação antes; quais pedem depe
 
 from __future__ import annotations
 
+import asyncio
 import difflib
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
@@ -17,6 +18,7 @@ Descritor = Callable[[dict[str, Any]], Awaitable[str]]
 Previa = Callable[[dict[str, Any]], "dict[str, Any] | None"]
 
 LIMITE_RESULTADO = 4000
+PRAZO_PADRAO_S = 30.0  # nenhuma ferramenta trava a conversa: estourou, vira "demorou demais"
 
 
 class ErroFerramenta(Exception):
@@ -59,6 +61,9 @@ class Ferramenta:
     confirmar_se_externo: bool = False
     # Escrita que não dá para desfazer ou mexe com dinheiro: no modo "sensiveis", só estas pedem "Confirma?".
     sensivel: bool = False
+    # Pede "Confirma?" em qualquer modo, até no "nenhuma" (ex.: rodar um comando no PC).
+    sempre_confirmar: bool = False
+    prazo_s: float = PRAZO_PADRAO_S
 
     def para_ollama(self) -> dict[str, Any]:
         return {
@@ -142,7 +147,9 @@ class Registro:
         if f is None:
             return False, f"Ferramenta '{nome}' não existe. Use só as ferramentas listadas.", None
         try:
-            saida = await f.executar(f.normalizar_args(args))
+            saida = await asyncio.wait_for(f.executar(f.normalizar_args(args)), timeout=f.prazo_s)
+        except TimeoutError:
+            return False, f"{nome} demorou demais (mais de {f.prazo_s:.0f} s) e foi abandonada.", None
         except ErroFerramenta as e:
             return False, str(e), None
         except Exception as e:  # noqa: BLE001 - qualquer falha vira resposta, não derruba a conversa

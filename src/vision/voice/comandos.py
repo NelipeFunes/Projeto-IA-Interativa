@@ -35,7 +35,7 @@ MAX_PALAVRAS_STANDBY = 20
 # fechar a conversa é melhor do que ela não fechar ("deixa em standby", "por favor, standby" fecham).
 NAO_E_STANDBY = {"nao", "modo", "ficou", "estava", "entrou", "pc", "computador", "notebook", "tv", "televisao",
                  "monitor", "celular"}
-JUNTAR_STANDBY = re.compile(r"stand\W+by", re.IGNORECASE)  # "Stand. By." é o mesmo standby
+JUNTAR_STANDBY = re.compile(r"\bstand\W+by\b", re.IGNORECASE)  # "Stand. By." é o mesmo standby
 # O que pode vir depois de "desligar" numa despedida. Qualquer outra palavra ("desligar o alarme") é um pedido.
 ENCHIMENTO = {"agora", "ja", "por", "favor", "obrigado", "obrigada", "valeu", "entao", "tchau", "ta", "beleza"}
 MAX_PALAVRAS_DESPEDIDA = 8

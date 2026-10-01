@@ -443,6 +443,8 @@ class Nucleo:
             async with montar(self.cfg) as j:
                 self.j = j
                 j.agente.ao_evento = self.barramento.publicar
+                if j.timers is not None:
+                    j.timers.ao_disparar = self._timer_acabou
                 if self.cfg.get("agenda.servidor") in j.host.conexoes:
                     self.agenda = Agenda(self.cfg, j.host)
 
@@ -500,6 +502,13 @@ class Nucleo:
                         await asyncio.wait_for(tarefa_servidor, 5)
                     if acesso is not None:
                         acesso.unlink(missing_ok=True)
+
+    def _timer_acabou(self, t: Any) -> None:
+        """Fim de timer: alarme e fala (pelo laço de voz) e aviso na bandeja e na tela."""
+        texto = t.aviso()
+        self.barramento.publicar({"tipo": "aviso", "texto": texto})
+        if self.laco is not None:
+            self.laco.pedir_alarme(texto)
 
     async def _subir_voz(self, pilha: contextlib.ExitStack, tarefas: list[asyncio.Task]) -> None:
         from vision.voice.loop import preparar_voz, vigiar_jogos_se_ligado

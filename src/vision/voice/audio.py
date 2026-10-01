@@ -54,6 +54,15 @@ def bipe_desligar(taxa: int = 22050) -> np.ndarray:
     return np.concatenate(partes).astype(np.float32)
 
 
+def alarme(taxa: int = 22050, vezes: int = 4) -> np.ndarray:
+    """Fim de timer: quatro bipes duplos, agudos, com pausa (uns 3 s)."""
+    t = np.linspace(0, 0.12, int(taxa * 0.12), endpoint=False)
+    bipe_ = 0.3 * np.sin(2 * np.pi * 1320 * t) * np.hanning(t.size)
+    pausa = np.zeros(int(taxa * 0.08))
+    grupo = np.concatenate([bipe_, pausa, bipe_, np.zeros(int(taxa * 0.5))])
+    return np.tile(grupo, vezes).astype(np.float32)
+
+
 class Saida:
     def __init__(self, cfg: Config):
         self.dispositivo, self.nome = achar_dispositivo(cfg.get("voz.alto_falante", []), entrada=False)

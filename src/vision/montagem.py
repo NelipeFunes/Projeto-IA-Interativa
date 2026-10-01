@@ -14,6 +14,7 @@ from vision.tools.agenda import Agenda
 from vision.tools.base import Registro
 from vision.tools.mcp_host import HostMCP
 from vision.tools.memoria import FerramentasMemoria
+from vision.timers import Timers
 
 PERFIL_INICIAL = """# Perfil
 <!-- Este texto entra em TODA conversa com o Vision. Mantenha curto (até ~25 linhas):
@@ -33,6 +34,7 @@ class Vision:
     registro: Registro
     host: HostMCP
     memorias: Memorias | None
+    timers: Timers | None = None
 
 
 def criar_llm(cfg: Config, modelo: str | None = None) -> LLM:
@@ -89,6 +91,19 @@ async def montar(
         registro.adicionar(*Reunioes(cfg, host).ferramentas())
     alexa = None
     atalhos = []
+    timers = None
+    if cfg.get("pc.ativo", True):
+        from vision.tools.pc import PC
+        from vision.tools.timer import Temporizador
+
+        pc = PC(cfg.dados / "logs")
+        registro.adicionar(*pc.ferramentas())
+        atalhos.append(pc.atalho)
+        timers = Timers(cfg.dados / "timers.json")
+        timers.iniciar()
+        temporizador = Temporizador(timers)
+        registro.adicionar(*temporizador.ferramentas())
+        atalhos.append(temporizador.atalho)
     if cfg.get("alexa.ativo", True):
         from vision import alexa as modulo_alexa
 
@@ -116,8 +131,10 @@ async def montar(
     agente.atalhos = atalhos
     async with host:
         try:
-            yield Vision(cfg, agente, registro, host, memorias)
+            yield Vision(cfg, agente, registro, host, memorias, timers)
         finally:
+            if timers is not None:
+                timers.fechar()
             if memorias is not None:
                 memorias.fechar()
             if alexa is not None:

@@ -438,6 +438,8 @@ class Agente:
 
     def _pede_confirmacao(self, f: Ferramenta, leu_de_fora: bool) -> bool:
         """Essa chamada vira "Confirma?" em vez de rodar? (ver `confirmacao` no construtor)"""
+        if f.sempre_confirmar:
+            return True
         if self.confirmacao == "nenhuma":
             return False
         if self.confirmacao == "sensiveis":

@@ -27,6 +27,7 @@ dependencies = [
     "pillow>=11",
     "websockets>=13",
     "alexapy>=1.31,<2",
+    "pycaw>=20240316",
 ]
 
 [project.scripts]
