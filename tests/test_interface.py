@@ -53,6 +53,7 @@ class _Eventos:
     def __init__(self):
         self.closed = _Lista()
         self.closing = _Lista()
+        self.loaded = _Lista()
 
 
 class _Lista(list):

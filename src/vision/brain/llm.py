@@ -33,6 +33,8 @@ class LLM(Protocol):
 
     async def descarregar(self) -> None: ...
 
+    async def carregar(self) -> None: ...
+
 
 class OllamaLLM:
     def __init__(self, modelo: str, host: str, pensar: bool, contexto: int, temperatura: float, manter: str):
@@ -70,6 +72,11 @@ class OllamaLLM:
             if parte.done:
                 tokens, segundos = parte.eval_count or 0, (parte.total_duration or 0) / 1e9
         return RespostaLLM("".join(texto), chamadas, tokens, segundos)
+
+    async def carregar(self) -> None:
+        """Põe o modelo na VRAM já com o contexto certo. Sem o num_ctx, o Ollama carrega com o máximo do
+        modelo (262 mil tokens no Qwen3.5: 13 GB, só 35% na GPU) e recarrega na primeira pergunta de verdade."""
+        await self.cliente.generate(model=self.modelo, prompt="", options=self.opcoes, keep_alive=self.manter)
 
     async def descarregar(self) -> None:
         """Tira o modelo da VRAM (modo jogo)."""

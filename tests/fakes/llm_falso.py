@@ -29,6 +29,9 @@ class LLMFalso:
     async def descarregar(self) -> None:
         self.descarregado = True
 
+    async def carregar(self) -> None:
+        self.carregado = True
+
 
 def fala(texto: str) -> RespostaLLM:
     return RespostaLLM(texto=texto)

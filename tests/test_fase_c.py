@@ -238,3 +238,13 @@ def test_trocar_de_microfone_nao_empilha_a_lista(cfg_ajustes):
     cfg_ajustes.bruto.setdefault("voz", {})["microfone"] = ["Microfone (C920)", "HyperX", "C920"]
     m = ajustes.validar(cfg_ajustes, {"voz.microfone": "Microfone (HyperX Cloud)"})
     assert m["voz.microfone"] == ["Microfone (HyperX Cloud)", "Microfone (C920)", "C920"]
+
+
+async def test_no_jogo_o_pre_carregamento_espera_o_jogo_fechar(agente):
+    a = agente([])
+    await a.descarregar()  # o jogo abriu
+    a.llm.carregado = False
+    await a.carregar()  # "Hey Vision" ou a subida do núcleo: não volta para a VRAM
+    assert not a.llm.carregado
+    await a.liberar_modelo()  # o jogo fechou
+    assert a.llm.carregado

@@ -51,6 +51,12 @@ mcp:
     comando: ".venv\\Scripts\\python.exe"
     args: ["mcp_servers/orbit/server.py"]
     timeout_s: 100          # o Render leva ~1 min para acordar
+  wispr:
+    ativo: true             # reuniões, transcrições e notas do Wispr Flow (só leitura). Login: vision wispr-login
+    tipo: wispr
+    url: https://api.wisprflow.ai/connect/mcp
+    oauth: data/wispr-oauth.json
+    timeout_s: 30
 
 voz:
   microfone: [HyperX, C920]   # procura por nome, na ordem
