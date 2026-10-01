@@ -229,6 +229,8 @@ def criar_janelas(webview: Any, url: str, nome: str, *, escondida: bool = False,
         janela.expose(*FUNCOES_EXPOSTAS)
     # No núcleo, Alt+F4 ou "fechar janela" na barra de tarefas só escondem.
     principal.events.closing += _ao_pedir_para_fechar
+    # Mostrar/esconder antes de a página carregar não chega nela: ao carregar, ela recebe o estado de agora.
+    principal.events.loaded += lambda: _visivel(principal, _MODO["principal_visivel"])
     # Na demonstração, encerram (senão a bolha escondida prendia o processo).
     principal.events.closed += _ao_fechar_principal
     _JANELAS.update(principal=principal, bolha=bolha)

@@ -485,7 +485,7 @@ class Nucleo:
                     await self._subir_voz(pilha, tarefas)
                 if aviso := aviso_login(self.cfg):
                     self.barramento.publicar({"tipo": "aviso", "texto": aviso})
-                if self.laco is None or not self.laco.jogando:
+                if self.laco is None or not self.cfg.get("modo_jogo.ativo", True):  # com voz, quem pré-carrega é o vigia do jogo, depois de olhar se tem jogo aberto
                     tarefas.append(asyncio.create_task(j.agente.carregar()))  # a 1ª pergunta não espera o modelo
                 log.info("%s pronto", self.nome)
                 try:

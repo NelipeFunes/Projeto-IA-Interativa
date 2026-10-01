@@ -96,6 +96,8 @@ class Agente:
         self.sim_min = similaridade_minima
         self.relogio = relogio
         self.sessoes: dict[tuple[str, str], Sessao] = {}
+        self._trava_modelo = asyncio.Lock()  # carregar e descarregar nunca se cruzam no Ollama
+        self.modelo_seguro = False  # modo jogo: nenhum pré-carregamento até o jogo fechar
         # Quem quiser acompanhar o que acontece (a tela, pelo núcleo) recebe eventos aqui. Ver ui/src/tipos.ts.
         self.ao_evento = ao_evento
         self._ids_pendente = itertools.count(1)
@@ -385,14 +387,28 @@ class Agente:
         return tela
 
     async def descarregar(self) -> None:
-        await self.llm.descarregar()
+        """Modo jogo: tira o modelo e segura os pré-carregamentos até `liberar_modelo()`."""
+        self.modelo_seguro = True
+        async with self._trava_modelo:  # um carregar em andamento termina antes; o descarregar vem por último
+            await self.llm.descarregar()
+
+    async def liberar_modelo(self) -> None:
+        """Fim do jogo: o modelo pode voltar."""
+        self.modelo_seguro = False
+        await self.carregar()
 
     async def carregar(self) -> None:
-        """Deixa o modelo pronto (ao subir, ao sair do jogo, ao ouvir "Hey Vision"). Falha só vai para o log."""
-        try:
-            await self.llm.carregar()
-        except Exception:  # noqa: BLE001
-            log.warning("não consegui pré-carregar o modelo", exc_info=True)
+        """Deixa o modelo pronto (ao subir, ao sair do jogo, ao ouvir "Hey Vision"). Durante o jogo não faz
+        nada (uma pergunta pelo atalho carrega o modelo por conta própria). Falha só vai para o log."""
+        if self.modelo_seguro:
+            return
+        async with self._trava_modelo:
+            if self.modelo_seguro:
+                return
+            try:
+                await self.llm.carregar()
+            except Exception:  # noqa: BLE001
+                log.warning("não consegui pré-carregar o modelo", exc_info=True)
 
     def _registrar(self, canal: str, sessao: str, texto: str, r: Resposta) -> None:
         if self.pasta_conversas is None:

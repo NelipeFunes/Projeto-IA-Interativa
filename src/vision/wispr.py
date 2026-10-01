@@ -11,6 +11,7 @@ rodar `vision wispr-login`.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import json
 import logging
 import os
@@ -41,7 +42,10 @@ class ArmazemTokens:
     def _ler(self) -> dict[str, Any]:
         try:
             dados = json.loads(self.arquivo.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            return {}
         except (OSError, ValueError):
+            log.warning("%s ilegível: o login do Wispr Flow vai precisar ser refeito", self.arquivo.name)
             return {}
         return dados if isinstance(dados, dict) else {}
 
@@ -49,7 +53,10 @@ class ArmazemTokens:
         dados = {**self._ler(), chave: valor}
         self.arquivo.parent.mkdir(parents=True, exist_ok=True)
         tmp = self.arquivo.with_suffix(".tmp")
-        tmp.write_text(json.dumps(dados, ensure_ascii=False), encoding="utf-8")
+        with tmp.open("w", encoding="utf-8") as f:
+            f.write(json.dumps(dados, ensure_ascii=False))
+            f.flush()
+            os.fsync(f.fileno())
         os.replace(tmp, self.arquivo)  # o refresh token antigo já morreu: nunca pode ficar pela metade
 
     async def get_tokens(self):
@@ -93,7 +100,8 @@ def _provedor(cfg: Config, interativo: bool):
         if not interativo:
             raise PrecisaLogin("o Wispr Flow pediu login de novo: rode `vision wispr-login`")
         recebido = asyncio.get_running_loop().create_future()
-        servidor = await asyncio.start_server(_atender(recebido), "127.0.0.1", PORTA_RETORNO)
+        esperado = parse_qs(urlparse(endereco).query).get("state", [None])[0]
+        servidor = await asyncio.start_server(_atender(recebido, esperado), "127.0.0.1", PORTA_RETORNO)
         print("Abrindo o navegador para entrar no Wispr Flow (use Google, Apple ou Microsoft;")
         print("e-mail e senha não funcionam aqui). Se não abrir, copie este endereço:\n")
         print(endereco + "\n")
@@ -121,20 +129,26 @@ def _provedor(cfg: Config, interativo: bool):
     )
 
 
-def _atender(recebido: asyncio.Future):
-    """Servidor de uma página só, em 127.0.0.1, que recebe o ?code=...&state=... do navegador."""
+def _atender(recebido: asyncio.Future, esperado: str | None = None):
+    """Servidor de uma página só, em 127.0.0.1, que recebe o ?code=...&state=... do navegador.
+
+    Só o retorno com o `state` deste login conta: uma aba qualquer chamando o endereço não derruba o login."""
     from mcp.shared.auth import AuthorizationCodeResult
 
     async def atender(leitor: asyncio.StreamReader, escritor: asyncio.StreamWriter) -> None:
         try:
-            linha = (await asyncio.wait_for(leitor.readline(), 10)).decode("latin-1")
+            try:
+                linha = (await asyncio.wait_for(leitor.readline(), 10)).decode("latin-1")
+            except (TimeoutError, ValueError, asyncio.LimitOverrunError):
+                linha = ""
             alvo = linha.split(" ")[1] if len(linha.split(" ")) > 1 else "/"
             q = parse_qs(urlparse(alvo).query)
-            ok = urlparse(alvo).path == "/callback" and "code" in q
+            do_login = urlparse(alvo).path == "/callback" and (esperado is None or q.get("state", [None])[0] == esperado)
+            ok = do_login and "code" in q
             if ok and not recebido.done():
                 recebido.set_result(AuthorizationCodeResult(
                     code=q["code"][0], state=q.get("state", [None])[0], iss=q.get("iss", [None])[0]))
-            elif "error" in q and not recebido.done():
+            elif do_login and "error" in q and not recebido.done():
                 recebido.set_exception(PrecisaLogin(f"o Wispr recusou o login: {q['error'][0]}"))
             corpo = ("Pronto: o Vision está ligado ao Wispr Flow. Pode fechar esta aba." if ok
                      else "Não deu certo. Volte ao terminal.").encode("utf-8")
@@ -151,12 +165,15 @@ def transporte(cfg: Config, interativo: bool = False):
     """Alvo do ConexaoMCP: um transporte novo a cada conexão."""
     from vision.tools.mcp_host import Remoto
 
-    def criar():
+    @contextlib.asynccontextmanager
+    async def criar():
         import httpx2
         from mcp.client.streamable_http import streamable_http_client
 
-        cliente = httpx2.AsyncClient(auth=_provedor(cfg, interativo), timeout=httpx2.Timeout(30, read=60))
-        return streamable_http_client(str(cfg.get("mcp.wispr.url", URL_PADRAO)), http_client=cliente)
+        # O SDK não fecha um cliente HTTP que ele não criou: este fecha junto com a conexão.
+        async with httpx2.AsyncClient(auth=_provedor(cfg, interativo), timeout=httpx2.Timeout(30, read=60)) as cliente:
+            async with streamable_http_client(str(cfg.get("mcp.wispr.url", URL_PADRAO)), http_client=cliente) as fluxos:
+                yield fluxos
 
     return Remoto(criar)
 

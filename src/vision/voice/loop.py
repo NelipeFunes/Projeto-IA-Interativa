@@ -95,6 +95,7 @@ class LoopVoz:
         self.bipes = bipes
         self.jogando = False
         self.acionar = asyncio.Event()
+        self._carregando: asyncio.Future | None = None
         # Falas pedidas de fora do laço (a resposta de uma confirmação da voz feita pela tela). Faladas pelo
         # próprio laço, entre um bloco e outro: nunca por cima de outra fala, e o microfone descarta o eco.
         self.para_falar: asyncio.Queue[tuple[str, Any]] = asyncio.Queue()
@@ -263,8 +264,9 @@ class LoopVoz:
     # ------------------------------------------------------------------ abrir e fechar a conversa
 
     def _abrir_conversa(self) -> None:
-        # O modelo pode ter saído da VRAM (30 min parado, jogo): carrega enquanto ele cumprimenta e você fala.
-        self._carregando = asyncio.ensure_future(self.agente.carregar())
+        # O modelo pode ter saído da VRAM (30 min parado): carrega enquanto ele cumprimenta e você fala.
+        if self._carregando is None or self._carregando.done():
+            self._carregando = asyncio.ensure_future(self.agente.carregar())
         self.em_conversa = True
         self.silencio = 0
         self.escrever("(conversa aberta: fale à vontade; para encerrar, 'Beleza, Vision, pode desligar')")
@@ -470,8 +472,12 @@ class LoopVoz:
         def rodando() -> bool:
             return any((p.info.get("name") or "").lower() in alvos for p in psutil.process_iter(["name"]))
 
+        primeira = True
         while True:
             agora = await asyncio.to_thread(rodando)
+            if primeira and not agora:
+                await self.agente.carregar()  # o núcleo acabou de subir sem jogo aberto: modelo pronto
+            primeira = False
             if agora and not self.jogando:
                 self.jogando = True
                 if self.estado == "ocioso":
@@ -483,7 +489,7 @@ class LoopVoz:
                 if self.estado == "ocioso":
                     self._mostrar("ocioso")
                 self.escrever("[modo jogo] fim do jogo; 'Hey Vision' de volta.")
-                await self.agente.carregar()
+                await self.agente.liberar_modelo()
             await asyncio.sleep(a_cada_s)
 
 

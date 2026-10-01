@@ -54,7 +54,7 @@ async def test_ler_reuniao_so_pede_transcricao_quando_pedida(reunioes):
     saida = await r.ler({"id": "m1"})
     assert "view_transcript" not in host.chamadas[-1][2] and "Resumo: bug do login" in saida
     saida = await r.ler({"id": "m1", "transcricao": True})
-    assert host.chamadas[-1][2]["view_transcript"]["char_limit"] == 4000
+    assert host.chamadas[-1][2]["view_transcript"]["char_limit"] == 3000
     assert saida.startswith(AVISO) and "Transcrição:" in saida  # vai com o aviso de que não é instrução
 
 
@@ -115,3 +115,40 @@ async def test_retorno_do_login_so_aceita_o_codigo_no_caminho_certo():
     assert "Pronto" in await pedir("/callback?code=abc&state=s1")
     assert recebido.result().code == "abc" and recebido.result().state == "s1"
     servidor.close()
+
+
+async def test_retorno_com_outro_state_ou_erro_alheio_nao_derruba_o_login():
+    recebido = asyncio.get_running_loop().create_future()
+    servidor = await asyncio.start_server(wispr._atender(recebido, "certo"), "127.0.0.1", 0)
+    porta = servidor.sockets[0].getsockname()[1]
+
+    async def pedir(caminho):
+        r, w = await asyncio.open_connection("127.0.0.1", porta)
+        w.write(f"GET {caminho} HTTP/1.1\r\n\r\n".encode())
+        await w.drain()
+        await r.read()
+        w.close()
+
+    await pedir("/callback?code=x&state=errado")
+    await pedir("/callback?error=access_denied&state=errado")
+    assert not recebido.done()  # uma aba qualquer não decide o login
+    await pedir("/callback?code=bom&state=certo")
+    assert recebido.result().code == "bom"
+    servidor.close()
+
+
+async def test_transcricao_longa_diz_como_continuar(cfg):
+    longa = dict(REUNIAO, summary="R" * 3000,
+                 transcript="Ana: oi\n\n(...truncated, 900 chars remaining; continue with view_transcript.start_char=3000...)")
+    host = HostFalso({"get_meeting": longa})
+    saida = await Reunioes(cfg, host).ler({"id": "m1", "transcricao": True})
+    assert "a_partir_de=3000" in saida and "truncated" not in saida
+    assert len(saida) < 4000  # cabe no corte de resultado das ferramentas, com a dica de continuação junto
+    await Reunioes(cfg, host).ler({"id": "m1", "a_partir_de": 3000})
+    assert host.chamadas[-1][2]["view_transcript"]["start_char"] == 3000
+
+
+def test_arquivo_de_tokens_estragado_avisa(tmp_path, caplog):
+    (tmp_path / "w.json").write_text("{quebrado", encoding="utf-8")
+    assert asyncio.run(wispr.ArmazemTokens(tmp_path / "w.json").get_tokens()) is None
+    assert "ilegível" in caplog.text
