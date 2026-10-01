@@ -240,6 +240,9 @@ class Agente:
     ) -> Resposta | None:
         p = s.pendente
         assert p is not None
+        f = self.registro.get(p.ferramenta)
+        if f is not None and (f.sempre_confirmar or f.sensivel):
+            estrito = True  # comando no PC, desligar, apagar, dinheiro: só "sim" explícito, em qualquer canal
         tipo = classificador.classificar(texto, estrito)
         if tipo == "outro":
             # O Felipe corrigiu ou mudou de assunto: o modelo decide de novo. Sem esta nota, o modelo
@@ -263,7 +266,9 @@ class Agente:
             # "evento" leva o resultado real (id de verdade do Google) para a tela trocar o cartão provisório.
             self._emitir("pendente_resolvido", id=p.id, resultado="executada" if ok else "cancelada",
                          evento=dados if ok and isinstance(dados, dict) and dados.get("inicio") else None)
-            if ok:
+            if ok and f is not None and f.devolve_saida:
+                resposta = resultado if len(resultado) <= 600 else resultado[:600] + " [...]"
+            elif ok:
                 resposta = _no_passado(p.descricao)
                 if "Atenção:" in resultado:
                     resposta += " " + resultado[resultado.index("Atenção:"):]
@@ -321,6 +326,8 @@ class Agente:
         # Só um pedido de ação (não pergunta, nem resposta a uma pendência que acabou de ser descartada) pode ter
         # um "Feito." de mentira: "já marquei a prova?" → "Marquei sim, dia 5" é resposta legítima.
         pedido_de_acao = bool(grupos) and not texto.strip().endswith("?") and not nota
+        # "pc" só obriga ferramenta em pedido, não em pergunta ("como eu faço para abrir uma conta?").
+        forcar = [g for g in grupos if g not in intencao.SEM_INSISTIR or not texto.strip().endswith("?")]
         insistiu = False
         final = ""
 
@@ -332,7 +339,7 @@ class Agente:
             escreveu = any(self._mudou_algo(u) for u in usadas)
             afirmou = pedido_de_acao and not r.chamadas and not escreveu and intencao.afirmou_sem_fazer(r.texto)
             anunciou = not r.chamadas and (intencao.anunciou_sem_fazer(r.texto) or afirmou)
-            if not r.chamadas and not insistiu and ((volta == 0 and grupos) or anunciou):
+            if not r.chamadas and not insistiu and ((volta == 0 and forcar) or anunciou):
                 insistiu = True
                 if anunciou:
                     # O modelo disse "vou marcar..." e parou: mostra a fala dele e cobra a ação.
@@ -344,7 +351,7 @@ class Agente:
                              + "Nunca escreva 'Confirma?' você mesmo.")
                 else:
                     extra = []
-                    nomes = ", ".join(n for g in grupos for n in self.registro.nomes_do_grupo(g))
+                    nomes = ", ".join(n for g in forcar for n in self.registro.nomes_do_grupo(g))
                     puxao = (f"ATENÇÃO: para responder isso você PRECISA chamar uma ferramenta ({nomes}). "
                              "Chame a ferramenta agora. Não responda de cabeça.")
                 r = await self.llm.conversar([*mensagens, *extra, {"role": "system", "content": puxao}], ferramentas, None)

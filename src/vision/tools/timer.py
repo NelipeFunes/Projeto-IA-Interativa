@@ -8,7 +8,7 @@ from typing import Any
 
 from vision import tempo
 from vision.timers import Timers, descrever_duracao, para_dados
-from vision.tools.base import ComDados, ErroFerramenta, Ferramenta, esquema, numero, texto
+from vision.tools.base import PRAZO_PC_S, ComDados, ErroFerramenta, Ferramenta, esquema, numero, texto
 from vision.tools.pc import normalizar
 
 MAXIMO_S = 24 * 3600
@@ -97,8 +97,13 @@ class Temporizador:
         if cmd is None:
             return None
         nome, args = cmd
-        if nome == "timer_cancelar" and len(self.timers.listar()) != 1:
-            return None  # mais de um (ou nenhum): o modelo pergunta qual ou explica
+        if nome == "timer_cancelar":
+            timers = self.timers.listar()
+            if len(timers) != 1:
+                return None  # mais de um (ou nenhum): o modelo pergunta qual ou explica
+            # "para o alarme" logo depois de um alarme tocar não cancela o timer do forno (revisão do PR 20)
+            if "alarme" in normalizar(frase).split() and not timers[0].alarme:
+                return None
         executar = self.criar if nome == "timer_criar" else self.cancelar
         try:
             return nome, args, str(await executar(args)), True
@@ -113,12 +118,13 @@ class Temporizador:
                        esquema([], minutos=numero("Minutos"), segundos=numero("Segundos"), horas=numero("Horas"),
                                hora=texto("Para alarme: HH:MM (24h)"),
                                nome=texto("Para que é (ex.: 'forno', 'ligar pro banco'); vazio se ele não disse")),
-                       self.criar, escrita=True, grupo="timer", confirmar=False),
+                       self.criar, escrita=True, grupo="timer", confirmar=False, confirmar_se_externo=True,
+                       prazo_s=PRAZO_PC_S),
             Ferramenta("timer_listar", "Timers e alarmes ligados e quanto falta.", esquema([]), self.listar,
                        grupo="timer"),
             Ferramenta("timer_cancelar", "Cancela um timer ou alarme (pelo nome, ou 'todos').",
                        esquema([], nome=texto("Nome ou duração do timer; vazio se só tem um")),
-                       self.cancelar, escrita=True, grupo="timer", confirmar=False),
+                       self.cancelar, escrita=True, grupo="timer", confirmar=False, prazo_s=PRAZO_PC_S),
         ]
 
 

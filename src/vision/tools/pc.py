@@ -17,7 +17,6 @@ import json
 import logging
 import os
 import re
-import shutil
 import subprocess
 import time
 import unicodedata
@@ -26,7 +25,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus, urlparse
 
-from vision.tools.base import ErroFerramenta, Ferramenta, esquema, numero, texto
+from vision.tools.base import PRAZO_PC_S, ErroFerramenta, Ferramenta, esquema, numero, texto
 
 log = logging.getLogger(__name__)
 
@@ -48,7 +47,14 @@ PROCESSOS = {"bloco de notas": "notepad.exe", "calculadora": "calculatorapp.exe"
 # Fechar estes derruba o Windows ou o próprio Vision.
 INTOCAVEIS = {"explorer.exe", "csrss.exe", "winlogon.exe", "lsass.exe", "services.exe", "svchost.exe", "smss.exe",
               "wininit.exe", "dwm.exe", "system", "python.exe", "pythonw.exe", "visionw.exe", "vision.exe",
-              "ollama.exe", "ollama app.exe", "msedgewebview2.exe"}
+              "ollama.exe", "ollama app.exe", "msedgewebview2.exe", "node.exe", "uv.exe", "claude.exe",
+              "conhost.exe", "cmd.exe", "powershell.exe", "pwsh.exe", "windowsterminal.exe", "sihost.exe",
+              "taskhostw.exe", "runtimebroker.exe", "searchhost.exe", "startmenuexperiencehost.exe",
+              "shellexperiencehost.exe", "ctfmon.exe", "fontdrvhost.exe", "lsaiso.exe", "registry"}
+LIMITE_COMANDO = 300  # comando maior que isso não dá para conferir de ouvido: é recusado, não cortado
+# Vão direto quando é o Felipe que pede; depois de ler texto de fora (reunião, convite, nota), pedem "sim":
+# um texto injetado não abre site com dados no endereço nem fecha programa sozinho (revisão do PR 20).
+_DIRETA = {"confirmar_se_externo": True, "prazo_s": PRAZO_PC_S}
 TECLAS = {"tocar_pausar": 0xB3, "proxima": 0xB0, "anterior": 0xB1, "parar": 0xB2, "mudo": 0xAD,
           "volume_mais": 0xAF, "volume_menos": 0xAE}
 
@@ -73,6 +79,18 @@ def corrigir_caminhos(comando: str, casa: str | None = None) -> str:
         return casa
 
     return _PASTA_USUARIO.sub(trocar, comando)
+
+
+def _comando_conferivel(args: dict[str, Any]) -> str:
+    """O comando como vai rodar, se der para conferir inteiro antes do "sim". Longo ou com várias linhas é
+    recusado: cortar o que se mostra e rodar o resto seria confirmar às cegas (revisão do PR 20)."""
+    comando = corrigir_caminhos(str(args.get("comando") or "").strip())
+    if not comando:
+        raise ErroFerramenta("Qual comando?")
+    if "\n" in comando or "\r" in comando or len(comando) > LIMITE_COMANDO:
+        raise ErroFerramenta(f"Comando longo demais para o Felipe conferir antes (até {LIMITE_COMANDO} caracteres, "
+                             "uma linha). Faça em passos menores.")
+    return comando
 
 
 def _tecla(vk: int, vezes: int = 1) -> None:
@@ -106,7 +124,9 @@ def _volume(acao: str, nivel: float | None) -> int:
             ev.SetMasterVolumeLevelScalar(alvo, None)
             if acao != "diminuir" or alvo > 0:
                 ev.SetMute(0, None)
-        return round(ev.GetMasterVolumeLevelScalar() * 100)
+        final = round(ev.GetMasterVolumeLevelScalar() * 100)
+        del ev  # a interface COM é solta antes do CoUninitialize
+        return final
     finally:
         comtypes.CoUninitialize()
 
@@ -130,6 +150,9 @@ class PC:
             proc.kill()
             await proc.wait()
             raise ErroFerramenta(f"O comando demorou mais de {prazo:.0f} s e foi interrompido.") from None
+        except asyncio.CancelledError:  # prazo da ferramenta ou o núcleo encerrando: não deixa processo solto
+            proc.kill()
+            raise
         return proc.returncode or 0, saida.decode("utf-8", errors="replace")
 
     async def apps(self) -> list[dict[str, str]]:
@@ -150,7 +173,7 @@ class PC:
     def escolher(self, pedido: str, apps: list[dict[str, str]]) -> dict[str, str] | None:
         alvo = normalizar(pedido)
         alvo = normalizar(APELIDOS.get(alvo, alvo))
-        if not alvo:
+        if len(alvo) < 3:  # "cs", "o": curto demais para casar por pedaço com um app qualquer
             return None
         nomes = {normalizar(a["nome"]): a for a in apps}
         if alvo in nomes:
@@ -168,12 +191,8 @@ class PC:
         if not pedido:
             raise ErroFerramenta("Qual programa?")
         app = self.escolher(pedido, await self.apps())
-        if app is None:
-            exe = shutil.which(normalizar(pedido).replace(" ", ""))
-            if exe is None:
-                raise ErroFerramenta(f"Não achei um programa chamado '{pedido}' no Menu Iniciar.")
-            await asyncio.to_thread(self._abrir, exe)
-            return f"Abri {Path(exe).stem}."
+        if app is None:  # só o que está no Menu Iniciar: nada de achar um .exe solto pelo PATH (revisão do PR 20)
+            raise ErroFerramenta(f"Não achei um programa chamado '{pedido}' no Menu Iniciar.")
         # O id do Get-StartApps abre qualquer app, de desktop ou da Store, pelo shell do Windows.
         await asyncio.to_thread(self._abrir, f"shell:AppsFolder\\{app['id']}")
         return f"Abri {app['nome']}."
@@ -187,7 +206,7 @@ class PC:
             raise ErroFerramenta("Qual programa?")
         exe = PROCESSOS.get(pedido)
         nomes = {(p.info.get("name") or "").lower() for p in psutil.process_iter(["name"])}
-        if exe is None:
+        if exe is None and len(pedido) >= 4:  # pedaço curto ("co", "sv") casaria com processo errado
             candidatos = [n for n in nomes if n.endswith(".exe") and pedido.replace(" ", "") in n.replace(" ", "")]
             exe = min(candidatos, key=len) if candidatos else None
         if exe is None or exe.lower() not in nomes:
@@ -205,9 +224,13 @@ class PC:
         if not pedido:
             raise ErroFerramenta("Qual site ou o que buscar?")
         url = pedido
+        if re.match(r"^[\w.-]+:\d+(/|$)", pedido):  # "localhost:3000", "site.com:8080"
+            pedido = url = "http://" + pedido
         if re.match(r"^[a-z][a-z0-9+.-]*:", pedido, re.IGNORECASE) and not re.match(r"^https?://", pedido, re.I):
             raise ErroFerramenta("Só abro endereços da web (http ou https).")  # file://, ms-settings: etc.
-        if " " in pedido or "." not in pedido:
+        if re.match(r"^https?://", pedido, re.IGNORECASE):
+            url = pedido
+        elif " " in pedido or "." not in pedido:
             url = "https://www.google.com/search?q=" + quote_plus(pedido)
         elif not re.match(r"^https?://", pedido, re.IGNORECASE):
             url = "https://" + pedido
@@ -257,16 +280,15 @@ class PC:
         return f"O PC vai {acao} em 30 segundos. Para cancelar, me peça para cancelar o desligamento."
 
     async def descrever_energia(self, args: dict[str, Any]) -> str:
-        return f"Vou {str(args.get('acao') or '?').lower()} o PC (em 30 segundos)."
+        acao = str(args.get("acao") or "?").lower()
+        return "Vou suspender o PC agora." if acao == "suspender" else f"Vou {acao} o PC em 30 segundos."
 
     async def cancelar_energia(self, _args: dict[str, Any]) -> str:
         codigo, _ = await self._rodar("shutdown", "/a")
         return "Desligamento cancelado." if codigo == 0 else "Não havia desligamento agendado."
 
     async def rodar_comando(self, args: dict[str, Any]) -> str:
-        comando = corrigir_caminhos(str(args.get("comando") or "").strip())
-        if not comando:
-            raise ErroFerramenta("Qual comando?")
+        comando = _comando_conferivel(args)
         preparo = "$ProgressPreference='SilentlyContinue'; [Console]::OutputEncoding=[Text.Encoding]::UTF8; "
         inicio = time.strftime("%Y-%m-%d %H:%M:%S")
         try:
@@ -275,26 +297,31 @@ class PC:
         except ErroFerramenta:
             self._registrar(inicio, comando, "prazo estourado")
             raise
+        except Exception as e:
+            self._registrar(inicio, comando, f"erro {type(e).__name__}")
+            raise
         self._registrar(inicio, comando, f"código {codigo}")
         saida = saida.strip() or "(sem saída)"
         if len(saida) > LIMITE_SAIDA:
             saida = saida[:LIMITE_SAIDA] + "\n[... saída cortada]"
-        return f"Código de saída {codigo}.\n{saida}"
+        if codigo != 0:  # falhou: vira "Não consegui: ..." para o Felipe, não "Feito."
+            raise ErroFerramenta(f"o comando falhou (código {codigo}). {saida}")
+        return saida
 
     def _registrar(self, quando: str, comando: str, resultado: str) -> None:
-        """Quem rodou o quê: o comando e o resultado (sem a saída, que pode ter dados) em data/logs/comandos.log."""
+        """Quem rodou o quê: o comando e o resultado (sem a saída, que pode ter dados) em data/logs/comandos.log.
+        O comando vai com repr(): uma quebra de linha nele não forja outra linha do log."""
         try:
             self.pasta_logs.mkdir(parents=True, exist_ok=True)
             with (self.pasta_logs / "comandos.log").open("a", encoding="utf-8") as f:
-                f.write(f"{quando}\t{resultado}\t{comando}\n")
+                f.write(f"{quando}\t{resultado}\t{comando!r}\n")
         except OSError:
             log.exception("não consegui gravar o log de comandos")
 
     async def descrever_comando(self, args: dict[str, Any]) -> str:
-        comando = corrigir_caminhos(str(args.get("comando") or "").strip())  # o que você confirma é o que roda
-        motivo = str(args.get("motivo") or "").strip()
-        mostrar = comando if len(comando) <= 300 else comando[:300] + "…"
-        return f"Vou rodar no PowerShell{f' para {motivo}' if motivo else ''}: {mostrar}"
+        comando = _comando_conferivel(args)  # o que você confirma é exatamente o que roda
+        motivo = str(args.get("motivo") or "").strip().replace("\n", " ")[:80]
+        return f"Vou rodar no PowerShell: {comando}" + (f" (para {motivo})" if motivo else "")
 
     # ------------------------------------------------------------------ atalho
 
@@ -314,29 +341,32 @@ class PC:
         return [
             Ferramenta("programa_abrir", "Abre um programa do PC pelo nome (ex.: Spotify, Chrome, Bloco de notas).",
                        esquema(["nome"], nome=texto("Nome do programa, como o Felipe disse")),
-                       self.abrir_programa, escrita=True, grupo="pc", confirmar=False),
+                       self.abrir_programa, escrita=True, grupo="pc", confirmar=False, **_DIRETA),
             Ferramenta("programa_fechar", "Fecha um programa aberto (como clicar no X; ele pergunta se precisar salvar).",
                        esquema(["nome"], nome=texto("Nome do programa")),
-                       self.fechar_programa, escrita=True, grupo="pc", confirmar=False),
+                       self.fechar_programa, escrita=True, grupo="pc", confirmar=False, **_DIRETA),
             Ferramenta("site_abrir", "Abre um site no navegador, ou uma busca no Google se não for endereço.",
                        esquema(["endereco"], endereco=texto("Endereço (ex.: youtube.com) ou o que buscar")),
-                       self.abrir_site, escrita=True, grupo="pc", confirmar=False),
+                       self.abrir_site, escrita=True, grupo="pc", confirmar=False, **_DIRETA),
             Ferramenta("volume", "Muda o volume do PC.",
                        esquema(["acao"], acao={"type": "string", "enum": ["definir", "aumentar", "diminuir", "mudo",
                                                                           "som"]},
                                nivel=numero("Para 'definir': 0 a 100. Para aumentar/diminuir: quanto (padrão 10)")),
-                       self.mudar_volume, escrita=True, grupo="pc", confirmar=False, prazo_s=10),
+                       self.mudar_volume, escrita=True, grupo="pc", confirmar=False, confirmar_se_externo=True,
+                       prazo_s=10),
             Ferramenta("midia", "Controla o que está tocando no PC (qualquer player): tocar/pausar, próxima, anterior.",
                        esquema(["acao"], acao={"type": "string", "enum": ["tocar_pausar", "proxima", "anterior",
                                                                           "parar"]}),
                        self.controlar_midia, escrita=True, grupo="pc", confirmar=False, prazo_s=10),
             Ferramenta("pc_travar", "Trava a tela do PC (pede a senha do Windows para voltar).", esquema([]),
-                       self.travar, escrita=True, grupo="pc", confirmar=False, prazo_s=10),
+                       self.travar, escrita=True, grupo="pc", confirmar=False, confirmar_se_externo=True,
+                       prazo_s=10),
             Ferramenta("pc_energia", "Desliga, reinicia ou suspende o PC.",
                        esquema(["acao"], acao={"type": "string", "enum": ["desligar", "reiniciar", "suspender"]}),
-                       self.energia, escrita=True, sensivel=True, descrever=self.descrever_energia, grupo="pc"),
+                       self.energia, escrita=True, sensivel=True, sempre_confirmar=True,
+                       descrever=self.descrever_energia, grupo="pc", prazo_s=PRAZO_PC_S),
             Ferramenta("pc_cancelar_desligamento", "Cancela um desligamento ou reinício agendado.", esquema([]),
-                       self.cancelar_energia, escrita=True, grupo="pc", confirmar=False),
+                       self.cancelar_energia, escrita=True, grupo="pc", confirmar=False, prazo_s=PRAZO_PC_S),
             Ferramenta("comando_rodar",
                        "Roda um comando do PowerShell no PC. Só quando nenhuma outra ferramenta serve. O Felipe "
                        "confirma antes de rodar.",
@@ -345,18 +375,21 @@ class PC:
                                              "(ex.: $env:USERPROFILE/Desktop), nunca um caminho inventado"),
                                motivo=texto("Para que serve, em poucas palavras")),
                        self.rodar_comando, escrita=True, sempre_confirmar=True, descrever=self.descrever_comando,
-                       grupo="pc", prazo_s=PRAZO_COMANDO_S + 15),
+                       devolve_saida=True, grupo="pc", prazo_s=PRAZO_COMANDO_S + 15),
         ]
 
 
 # ---------------------------------------------------------------------- comandos curtos (sem o modelo)
 
 _INICIO = r"^(?:(?:vision|visao|hey|ei|ok|pode|por favor|ai|e|entao|agora|ja)\s+)*"
+# Verbo ambíguo ("continua", "pula", "passa", "play") só com o objeto: "continua" sozinho é pedir para ele seguir
+# falando, não apertar play (revisão do PR 20). "pausa" e "despausa" bastam sozinhos.
+_OBJETO = r"(?:\s+(?:a|o|essa|esta))?\s+(?:musica|som|video|spotify|faixa)"
+_FIM = r"(?:\s+(?:por favor|pf))?$"
 _MIDIA = [
-    (re.compile(_INICIO + r"(?:pausa|pause|pausar|despausa|despausar|continua|continuar|play|da play)"
-                r"(?:\s+(?:a|o))?(?:\s+(?:musica|som|video|spotify))?(?:\s+(?:por favor|pf))?$"), "tocar_pausar"),
-    (re.compile(_INICIO + r"(?:proxima|pula|pular|passa|passar|avanca)(?:\s+(?:a|essa|esta))?"
-                r"(?:\s+(?:musica|faixa))?(?:\s+(?:por favor|pf))?$"), "proxima"),
+    (re.compile(_INICIO + r"(?:pausa|pause|pausar|despausa|despausar)(?:" + _OBJETO + r")?" + _FIM), "tocar_pausar"),
+    (re.compile(_INICIO + r"(?:continua|continuar|play|da play|solta)" + _OBJETO + _FIM), "tocar_pausar"),
+    (re.compile(_INICIO + r"(?:proxima|pula|pular|passa|passar|avanca)" + _OBJETO + _FIM), "proxima"),
     (re.compile(_INICIO + r"(?:volta|voltar|anterior)(?:\s+(?:a|pra|para))?(?:\s+(?:musica|faixa))"
                 r"(?:\s+anterior)?(?:\s+(?:por favor|pf))?$"), "anterior"),
 ]

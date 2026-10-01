@@ -45,6 +45,11 @@ PADROES = {
 }
 
 
+# Grupos que, em PERGUNTA, não obrigam a chamar ferramenta logo de cara: "abre/fecha/volume" aparecem em
+# pergunta comum ("como abrir uma conta no banco?"). Em pedido, obrigam (revisão do PR 20).
+SEM_INSISTIR = {"pc"}
+
+
 def detectar(texto: str) -> list[str]:
     return [grupo for grupo, p in PADROES.items() if p.search(texto)]
 
@@ -55,7 +60,8 @@ def detectar(texto: str) -> list[str]:
 ANUNCIO = re.compile(
     r"\b(vou|j[aá] vou|deixa eu|irei)\s+(te\s+)?(precisar\s+(de\s+)?)?(verificar|checar|olhar|consultar|criar|"
     r"marcar|colocar|agendar|cancelar|apagar|alterar|mudar|lan[cç]ar|registrar|anotar|guardar|buscar|procurar|"
-    r"acender|ligar|desligar|abrir|fechar|tocar|pausar|colocar um timer|programar|rodar|executar|listar)\b"
+    r"acender|ligar|desligar|abrir|fechar|tocar|pausar|colocar um timer|programar|rodar|executar|listar|travar|"
+    r"reiniciar|suspender)\b"
     r"|\bpreciso\s+(de\s+)?(rodar|executar|abrir)\b"
     r"|\bj[aá]\s+(crio|marco|coloco|agendo|cancelo|apago|altero|mudo|lan[cç]o|registro|anoto|guardo|acendo|ligo|"
     r"desligo)\b"

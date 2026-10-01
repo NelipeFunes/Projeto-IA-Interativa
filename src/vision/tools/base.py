@@ -18,7 +18,9 @@ Descritor = Callable[[dict[str, Any]], Awaitable[str]]
 Previa = Callable[[dict[str, Any]], "dict[str, Any] | None"]
 
 LIMITE_RESULTADO = 4000
-PRAZO_PADRAO_S = 30.0  # nenhuma ferramenta trava a conversa: estourou, vira "demorou demais"
+# Prazo das ferramentas do PC e do timer (as de agenda, memória e Orbit têm o próprio timeout do MCP: cortar
+# uma escrita remota no meio deixaria o estado incerto; revisão do PR 20).
+PRAZO_PC_S = 30.0
 
 
 class ErroFerramenta(Exception):
@@ -63,7 +65,10 @@ class Ferramenta:
     sensivel: bool = False
     # Pede "Confirma?" em qualquer modo, até no "nenhuma" (ex.: rodar um comando no PC).
     sempre_confirmar: bool = False
-    prazo_s: float = PRAZO_PADRAO_S
+    # Nenhuma ferramenta do PC trava a conversa: estourou, vira "demorou demais". None = sem prazo próprio.
+    prazo_s: float | None = None
+    # Depois do "sim", a resposta é o resultado da ferramenta (a saída de um comando), não só "Feito.".
+    devolve_saida: bool = False
 
     def para_ollama(self) -> dict[str, Any]:
         return {
@@ -149,7 +154,7 @@ class Registro:
         try:
             saida = await asyncio.wait_for(f.executar(f.normalizar_args(args)), timeout=f.prazo_s)
         except TimeoutError:
-            return False, f"{nome} demorou demais (mais de {f.prazo_s:.0f} s) e foi abandonada.", None
+            return False, f"{nome} demorou demais (mais de {f.prazo_s or 0:.0f} s) e foi abandonada.", None
         except ErroFerramenta as e:
             return False, str(e), None
         except Exception as e:  # noqa: BLE001 - qualquer falha vira resposta, não derruba a conversa

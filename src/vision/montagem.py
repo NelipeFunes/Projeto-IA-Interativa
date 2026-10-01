@@ -71,7 +71,10 @@ async def montar(
     host: HostMCP | None = None,
     memorias: Memorias | None = None,
     com_memoria: bool = True,
+    ao_disparar_timer=None,
 ) -> AsyncIterator[Vision]:
+    """`ao_disparar_timer`: quem avisa o fim de um timer (o núcleo). Vem antes de recarregar os timers guardados:
+    um que venceu com o núcleo desligado dispara já com ele (revisão do PR 20)."""
     garantir_perfil(cfg)
     host = host or HostMCP.da_config(cfg)
     if memorias is None and com_memoria:
@@ -100,6 +103,7 @@ async def montar(
         registro.adicionar(*pc.ferramentas())
         atalhos.append(pc.atalho)
         timers = Timers(cfg.dados / "timers.json")
+        timers.ao_disparar = ao_disparar_timer
         timers.iniciar()
         temporizador = Temporizador(timers)
         registro.adicionar(*temporizador.ferramentas())

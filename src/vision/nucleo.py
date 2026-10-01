@@ -440,11 +440,9 @@ class Nucleo:
         acesso: Path | None = None
         with contextlib.ExitStack() as pilha:
             pilha.callback(self.bandeja.parar)
-            async with montar(self.cfg) as j:
+            async with montar(self.cfg, ao_disparar_timer=self._timer_acabou) as j:
                 self.j = j
                 j.agente.ao_evento = self.barramento.publicar
-                if j.timers is not None:
-                    j.timers.ao_disparar = self._timer_acabou
                 if self.cfg.get("agenda.servidor") in j.host.conexoes:
                     self.agenda = Agenda(self.cfg, j.host)
 
