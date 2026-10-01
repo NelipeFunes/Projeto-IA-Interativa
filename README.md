@@ -32,7 +32,7 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
 ```
 
 - **Bandeja:** abrir, falar agora, pausar escuta, iniciar com o Windows, sair. O ícone muda de cor com o estado.
-- **Conversa:** "Hey Vision" acorda ("Oi, Felipe. Pode falar."); daí tudo o que você fala vai para ele, sem repetir
+- **Conversa:** "Hey Vision" acorda (um bipe, e ele já ouve); daí tudo o que você fala vai para ele, sem repetir
   o nome, até "Vision, standby" ou 2 minutos de silêncio. Fora da conversa, o que você fala perto do PC
   é transcrito só para achar o nome e descartado (não vai para a tela, o log nem o disco).
 - **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.

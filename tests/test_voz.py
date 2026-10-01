@@ -214,9 +214,13 @@ async def test_ativacao_por_modelo_continua_funcionando(pecas, registro, tmp_pat
     laco = _loop(pecas, Agente(LLMFalso([fala("Tudo certo.")]), registro, None), [
         _silencio(0.5), _fala(pecas["en"], "Hey Jarvis"), _silencio(1.5),
         _fala(pecas["pt"], "Tudo bem?"), _silencio(1.5),
-    ], tmp_path, ativacao_por_texto=False)
+    ], tmp_path, ativacao_por_texto=False, bipes=True)
     await laco.rodar()
     assert len(laco.historico) == 1 and laco.em_conversa
+    from vision.voice.audio import bipe
+
+    # Revisão do PR 16: acordar pelo modelo dava dois bipes seguidos (o da saudação e o do laço).
+    assert sum(np.array_equal(t, bipe(subindo=True)) for t in laco.saida.trechos) == 1
 
 
 def test_amostras_de_voz_existem():

@@ -30,6 +30,10 @@ FORTES = {"hey", "hei", "ei", "ey", "eye", "rei", "hi", "oi", "fala", "ola"}
 DESLIGAR = {"dormir", "encerrar", "encerra", "descansar"}
 STANDBY = "standby"
 MAX_PALAVRAS_STANDBY = 20
+# Antes de "standby" na mesma oração, fazem dele assunto ou pedido, não despedida: "coloca o PC em standby",
+# "o modo standby da TV", "a TV ficou em standby", "não entra em standby".
+NAO_E_STANDBY = {"nao", "coloca", "coloque", "colocar", "poe", "por", "bota", "botar", "deixa", "deixar", "explica",
+                 "modo", "ficou", "estava", "esta", "entrou", "liga", "ligar", "desliga", "que"}
 # O que pode vir depois de "desligar" numa despedida. Qualquer outra palavra ("desligar o alarme") é um pedido.
 ENCHIMENTO = {"agora", "ja", "por", "favor", "obrigado", "obrigada", "valeu", "entao", "tchau", "ta", "beleza"}
 MAX_PALAVRAS_DESPEDIDA = 8
@@ -94,15 +98,22 @@ def e_despedida(texto: str) -> bool:
     """"Vision, standby", "pode ficar em standby", "pode dormir", "tchau, Vision": fecha a conversa.
 
     "Standby" vale numa frase de até 20 palavras ("tudo certo, pode ficar em standby que eu te chamo"), menos
-    em pergunta ("não entrou em standby, né?") e com "não" logo antes ("não entra em standby").
+    em pergunta ("não entrou em standby, né?") e quando a oração dele é pedido ou assunto ("não entra em
+    standby", "coloca o PC em standby", "o modo standby da TV").
     """
     palavras = _normalizar(texto)
     if not palavras:
         return False
-    i = _posicao_standby(palavras)
-    if i is not None:
-        return (len(palavras) <= MAX_PALAVRAS_STANDBY and not texto.strip().endswith("?")
-                and "nao" not in palavras[max(0, i - 3):i])
+    if _posicao_standby(palavras) is not None:
+        if len(palavras) > MAX_PALAVRAS_STANDBY or texto.strip().endswith("?"):
+            return False
+        # Só a oração do "standby" conta: em "Não, Vision, standby" o "não" responde a outra coisa.
+        for oracao in re.split(r"[,.;:!?]+", texto):
+            p = _normalizar(oracao)
+            i = _posicao_standby(p)
+            if i is not None:
+                return not (NAO_E_STANDBY & set(p[:i]))
+        return False
     if len(palavras) > MAX_PALAVRAS_DESPEDIDA or "nao" in palavras:  # "não, não vai dormir"
         return False
     nome = lambda p: _e_o_nome(p, True)  # noqa: E731

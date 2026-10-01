@@ -251,8 +251,9 @@ class LoopVoz:
                 self.agente.cancelar_pendente("voz", "voz")  # como no "Hey Vision": nada de antes é confirmado
                 self.pergunta_em = None
                 self._abrir_conversa()
-                await self._saudar()
-                self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
+                if self.saudacao.strip():  # sem saudação, o bipe é o do laço (origem "atalho"): um só
+                    await self._dizer(self.saudacao)
+                    self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
                 return "atalho"
             return ""
         return "candidato" if self._comecou_a_falar(bloco) else ""
