@@ -199,6 +199,23 @@ class Alexa:
         await self._descartar()
 
 
+async def atualizar_lista(cfg: Config) -> int:
+    """`vision alexa-luzes`: busca de novo as luzes na Alexa (depois de renomear no app), sem refazer o login."""
+    a = Alexa(cfg)
+    try:
+        luzes = await a.atualizar_luzes()
+    except SemLogin as e:
+        print(f"{e}.")
+        return 1
+    finally:
+        await a.fechar()
+    print(f"Luzes na Alexa ({len(luzes)}):")
+    for luz in luzes:
+        print(f"  - {luz['nome']}")
+    print("Reinicie o Vision para ele ver a lista nova." if luzes else "Nenhuma luz encontrada.")
+    return 0
+
+
 async def login_interativo(cfg: Config) -> int:
     """`vision alexa-login`: login da Amazon no navegador (pelo proxy local do AlexaPy)."""
     from alexapy import AlexaProxy

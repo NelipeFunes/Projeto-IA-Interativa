@@ -181,3 +181,30 @@ async def test_todas_com_a_alexa_fora_do_ar_para_na_primeira():
 def test_brilho_absurdo_e_recusado():
     with pytest.raises(ErroFerramenta, match="1 a 100"):
         Casa._brilho({"brilho": "inf"})
+
+
+# O caso real (01/10): duas lâmpadas com o mesmo nome, em inglês.
+DUAS = [{"nome": "Bedroom Light", "entity_id": "b1"}, {"nome": "Bedroom Light", "entity_id": "b2"}]
+
+
+@pytest.mark.parametrize("pedido,esperado", [
+    ("luz do quarto", ["b1", "b2"]), ("quarto", ["b1", "b2"]), ("Bedroom Light", ["b1", "b2"]),
+    ("a luz", ["b1", "b2"]), ("", ["b1", "b2"]), ("todas", ["b1", "b2"]),
+    ("Bedroom Light 2", ["b2"]), ("quarto 1", ["b1"]), ("luz 2 do quarto", ["b2"]),
+])
+def test_nome_repetido_em_ingles(pedido, esperado):
+    assert [x["entity_id"] for x in Casa(AlexaFalsa(DUAS))._escolher(pedido)] == esperado
+
+
+@pytest.mark.parametrize("pedido", ["sala", "quarto 3", "cozinha"])
+def test_nome_repetido_sem_casar(pedido):
+    with pytest.raises(ErroFerramenta, match="Bedroom Light 1, Bedroom Light 2"):
+        Casa(AlexaFalsa(DUAS))._escolher(pedido)
+
+
+async def test_confirmacao_e_resposta_com_as_duas():
+    c = Casa(AlexaFalsa(DUAS))
+    f = {x.nome: x for x in c.ferramentas()}
+    assert await f["luz_acender"].descrever({"luz": "quarto"}) == "Vou acender todas as luzes."
+    assert await f["luz_apagar"].descrever({"luz": "quarto 2"}) == "Vou apagar Bedroom Light 2."
+    assert await f["luzes_listar"].executar({}) == "Luzes que o Vision controla (pela Alexa): Bedroom Light 1, Bedroom Light 2."
