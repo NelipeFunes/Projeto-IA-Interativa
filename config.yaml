@@ -64,6 +64,11 @@ mcp:
     oauth: data/wispr-oauth.json
     timeout_s: 30
 
+pc:
+  # Mexer no PC (pedido de 01/10): abrir/fechar programas, sites, volume, mídia, travar, desligar (pede "sim"),
+  # timers e alarmes, e comando do PowerShell quando nada serve (SEMPRE pede "sim", mostrando o comando).
+  ativo: true
+
 alexa:
   ativo: true               # luzes da Alexa pelo AlexaPy (não oficial). Login: vision alexa-login
   dominio: amazon.com.br

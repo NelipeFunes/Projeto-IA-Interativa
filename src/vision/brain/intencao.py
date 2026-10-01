@@ -28,6 +28,14 @@ PADROES = {
     "casa": re.compile(r"\b(luz|luzes|l[aâ]mpada\w*|light\w*|acend\w*|apag(a|ue|ar) a luz|abajur|ilumina\w*|"
                        r"(des)?lig(a|ue|ar) (a|as|o|os) (luz|luzes|l[aâ]mpada\w*|light\w*|abajur|quarto|sala))\b",
                        re.IGNORECASE),
+    # Só verbo + alvo: "qual sua música favorita?" não é pedido para mexer no PC.
+    "pc": re.compile(r"\b(abr(e|a|ir)|fech(a|e|ar)) |\bvolume\b|\bpaus(a|e|ar)\b|\bpr[oó]xima (m[uú]sica|faixa)\b|"
+                     r"\btoca(r)? (a |uma |o |um )?\w|\bno spotify\b|\btrav(a|e|ar) (o pc|a tela|o computador)\b|"
+                     r"\b(deslig|reinici|suspend)\w* o (pc|computador)\b|\bpowershell\b|"
+                     r"\b(lista|listar|mostra|apaga|move|copia|renomeia|cria)\w* (os |as |o |a |uma |um )?"
+                     r"(arquivos?|pastas?)\b", re.IGNORECASE),
+    "timer": re.compile(r"\b(timer|alarme|cron[oô]metro|temporizador|me avis[ae] (daqui|em|às|as|quando der))\b",
+                        re.IGNORECASE),
     "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
     "memoria": re.compile(
         r"(\b(lembr[ae]|anot[ae]|guard[ae]) (que|isso|a[ií])\b|\bn[aã]o esque[cç]a\b|\bvoc[eê] (sabe|lembra)\b|"
@@ -35,6 +43,11 @@ PADROES = {
         re.IGNORECASE,
     ),
 }
+
+
+# Grupos que, em PERGUNTA, não obrigam a chamar ferramenta logo de cara: "abre/fecha/volume" aparecem em
+# pergunta comum ("como abrir uma conta no banco?"). Em pedido, obrigam (revisão do PR 20).
+SEM_INSISTIR = {"pc"}
 
 
 def detectar(texto: str) -> list[str]:
@@ -45,8 +58,11 @@ def detectar(texto: str) -> list[str]:
 # ferramenta, e às vezes imitava a frase de confirmação do sistema ("... Confirma?") sem nada pendente.
 # Só futuro/presente ("vou marcar", "já cancelo", "estou buscando"); "já verifiquei" é resposta legítima.
 ANUNCIO = re.compile(
-    r"\b(vou|j[aá] vou|deixa eu|irei)\s+(te\s+)?(verificar|checar|olhar|consultar|criar|marcar|colocar|agendar|"
-    r"cancelar|apagar|alterar|mudar|lan[cç]ar|registrar|anotar|guardar|buscar|procurar|acender|ligar|desligar)\b"
+    r"\b(vou|j[aá] vou|deixa eu|irei)\s+(te\s+)?(precisar\s+(de\s+)?)?(verificar|checar|olhar|consultar|criar|"
+    r"marcar|colocar|agendar|cancelar|apagar|alterar|mudar|lan[cç]ar|registrar|anotar|guardar|buscar|procurar|"
+    r"acender|ligar|desligar|abrir|fechar|tocar|pausar|colocar um timer|programar|rodar|executar|listar|travar|"
+    r"reiniciar|suspender)\b"
+    r"|\bpreciso\s+(de\s+)?(rodar|executar|abrir)\b"
     r"|\bj[aá]\s+(crio|marco|coloco|agendo|cancelo|apago|altero|mudo|lan[cç]o|registro|anoto|guardo|acendo|ligo|"
     r"desligo)\b"
     r"|\bestou\s+(verificando|checando|olhando|consultando|criando|marcando|agendando|cancelando|apagando|"
@@ -64,7 +80,7 @@ def anunciou_sem_fazer(resposta: str) -> bool:
 # Visto em 01/10: depois de algumas confirmações reais, o 4B passou a imitar o "Feito." sozinho.
 AFIRMACAO = re.compile(
     r"^\W*(feito|ok,? feito|acendi|apaguei|aparei|liguei|desliguei|criei|marquei|agendei|cancelei|lancei|anotei|"
-    r"guardei|alterei|mudei)\b",
+    r"guardei|alterei|mudei|abri|fechei|pausei|coloquei|timer (de .{1,30} )?ligado|aumentei|abaixei|travei|rodei)\b",
     re.IGNORECASE,
 )
 

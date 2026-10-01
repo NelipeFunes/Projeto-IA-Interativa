@@ -31,7 +31,7 @@ from typing import Any
 import numpy as np
 
 from vision.brain.agent import Agente
-from vision.voice.audio import TAXA, bipe, bipe_desligar
+from vision.voice.audio import TAXA, alarme, bipe, bipe_desligar
 from vision.voice.comandos import achar_ativacao, e_despedida, e_interrupcao
 from vision.voice.wake import DetectorFala, PalavraAtivacao
 
@@ -42,6 +42,7 @@ FIM_DE_FRASE = re.compile(r"(?<=[.!?])\s+")
 BLOCO_S = 0.08
 TRECHO_ATIVACAO_S = 2.5  # para achar o nome, basta transcrever o começo da fala (mais leve para a CPU)
 MAXIMO_CANDIDATO_S = 12.0  # fala mais longa que isso, esperando, não é alguém chamando: nem transcreve
+ALARME = object()  # marca, na fila de falas de fora, um aviso de fim de timer
 INTERROMPER_APOS_S = 0.5  # voz contínua enquanto ele fala, antes de cortar: tosse e estalo não cortam
 PASSO_NIVEL_S = 1 / 15  # ~15 atualizações de volume por segundo para a tela
 
@@ -547,8 +548,18 @@ class LoopVoz:
         if texto.strip():
             self.para_falar.put_nowait((texto, voz))
 
+    def pedir_alarme(self, texto: str) -> None:
+        """Fim de timer: o alarme toca mesmo no jogo ou com a escuta pausada (foi pedido); a fala, só fora deles."""
+        self.para_falar.put_nowait((texto, ALARME))
+
     async def _falar_de_fora(self, pedido: tuple[str, Any]) -> None:
         texto, voz = pedido
+        if voz is ALARME:
+            voz = None
+            try:
+                await asyncio.to_thread(self.saida.tocar, alarme(), 22050)
+            except Exception:  # noqa: BLE001
+                log.exception("não consegui tocar o alarme")
         if self._pausado():
             return  # jogo ou escuta pausada: fica só na tela
         fila: asyncio.Queue[str | None] = asyncio.Queue()
