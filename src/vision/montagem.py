@@ -111,7 +111,7 @@ async def montar(
         expira_min=float(cfg.get("conversa.sessao_expira_min", 10)),
         top_k=int(cfg.get("memoria.top_k", 3)),
         similaridade_minima=float(cfg.get("memoria.similaridade_minima", 0.25)),
-        confirmacao=str(cfg.get("assistente.confirmacao", "todas")),
+        confirmacao=_modo_confirmacao(cfg),
     )
     agente.atalhos = atalhos
     async with host:
@@ -122,3 +122,11 @@ async def montar(
                 memorias.fechar()
             if alexa is not None:
                 await alexa.fechar()
+
+
+def _modo_confirmacao(cfg: Config) -> str:
+    """`assistente.confirmacao`; a chave antiga `confirmar_acoes` (PR 14) ainda vale se a nova não existir."""
+    modo = cfg.get("assistente.confirmacao")
+    if modo is None and cfg.get("assistente.confirmar_acoes") is not None:
+        modo = "todas" if cfg.get("assistente.confirmar_acoes") else "nenhuma"
+    return str(modo or "todas")

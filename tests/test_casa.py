@@ -480,3 +480,26 @@ async def test_sem_confirmacao_nem_texto_de_fora_segura_o_pedido():
     assert not r.aguardando_confirmacao and a.feitas == [("b1", True, None), ("b2", True, None)]
     r = await agente.responder("e liga o quarto de novo de outro jeito", "voz", "t")  # vai pelo modelo
     assert not r.aguardando_confirmacao and len(a.feitas) == 4
+
+
+async def test_modo_todas_continua_como_antes_no_excesso_de_luzes():
+    """Modo "todas": luz vai direto até o limite; a partir dali vira pendência (comportamento anterior)."""
+    from vision.brain.agent import MAX_DIRETAS
+    from vision.brain.llm import ChamadaFerramenta, RespostaLLM
+
+    chamadas = [ChamadaFerramenta("luz_acender", {"luz": "quarto 1"}) for _ in range(MAX_DIRETAS + 1)]
+    agente, a = _agente_direto([RespostaLLM(texto="", chamadas=chamadas)])
+    r = await agente.responder("acende muitas vezes", "texto", "t")
+    assert r.aguardando_confirmacao and len(a.feitas) == MAX_DIRETAS
+
+
+def test_chave_antiga_de_confirmacao_ainda_vale(cfg):
+    from vision.montagem import _modo_confirmacao
+
+    cfg.bruto["assistente"].pop("confirmacao", None)
+    cfg.bruto["assistente"]["confirmar_acoes"] = False
+    assert _modo_confirmacao(cfg) == "nenhuma"
+    cfg.bruto["assistente"]["confirmar_acoes"] = True
+    assert _modo_confirmacao(cfg) == "todas"
+    cfg.bruto["assistente"]["confirmacao"] = "sensiveis"
+    assert _modo_confirmacao(cfg) == "sensiveis"

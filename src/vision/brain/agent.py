@@ -17,7 +17,7 @@ from pathlib import Path
 from typing import Any
 
 from vision import tempo
-from vision.brain import confirmacao, intencao, prompt
+from vision.brain import confirmacao as classificador, intencao, prompt
 from vision.brain.llm import LLM, RespostaLLM
 from vision.memory.store import Memorias
 from vision.tools.base import ErroFerramenta, Ferramenta, Registro
@@ -240,7 +240,7 @@ class Agente:
     ) -> Resposta | None:
         p = s.pendente
         assert p is not None
-        tipo = confirmacao.classificar(texto, estrito)
+        tipo = classificador.classificar(texto, estrito)
         if tipo == "outro":
             # O Felipe corrigiu ou mudou de assunto: o modelo decide de novo. Sem esta nota, o modelo
             # achava que o evento já existia e tentava "alterar" (visto na avaliação de 30/09).
