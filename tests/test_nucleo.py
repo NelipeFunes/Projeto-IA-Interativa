@@ -175,10 +175,17 @@ def test_atalho_de_inicializacao_sem_montar_comando_com_texto(monkeypatch, tmp_p
     assert inicializacao.ativo()
     assert str(projeto) not in " ".join(cmd)  # o caminho só vai por variável de ambiente
     assert env["VISION_PASTA"] == str(projeto) and env["VISION_LNK"].endswith("Vision.lnk")
+    assert env["VISION_ICONE"].endswith("vision.ico")  # o orbe como ícone do atalho
     assert inicializacao.primeira_vez(marcador, projeto) is False  # só na primeira vez
+    assert len(chamadas) == 1  # nem refaz: o atalho já é da versão de agora
+    marcador.write_text("configurado (versão antiga, sem ícone)\n", encoding="utf-8")
+    assert inicializacao.primeira_vez(marcador, projeto) is False
+    assert inicializacao.primeira_vez(marcador, projeto) is False
+    assert len(chamadas) == 2  # o atalho antigo foi refeito uma vez só (pega o ícone)
     inicializacao.desligar()
     assert not inicializacao.ativo()
     assert inicializacao.primeira_vez(marcador, projeto) is False  # desligado pela bandeja: continua desligado
+    assert len(chamadas) == 2 and not inicializacao.ativo()
 
 
 @pytest.mark.skipif(sys.platform != "win32", reason="mutex do Windows")
@@ -261,3 +268,13 @@ def test_transcricoes_nao_vao_para_o_log_em_info(caplog):
         escrever("Vision: Feito.")
         escrever("Microfone: Logi C920e")
     assert [r.getMessage() for r in caplog.records] == ["Microfone: Logi C920e"]
+
+
+def test_icone_do_app_existe():
+    from PIL import Image
+
+    from vision import interface
+
+    assert interface.ICONE.exists() and inicializacao.ICONE == interface.ICONE
+    tamanhos = Image.open(interface.ICONE).info["sizes"]
+    assert {(16, 16), (32, 32), (256, 256)} <= set(tamanhos)
