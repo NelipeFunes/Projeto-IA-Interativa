@@ -17,6 +17,17 @@ float fbm(vec2 p) {
 }
 `;
 
+/** Quando não desenhar nada. `visivel`: o núcleo avisa ao esconder ou mostrar a janela (a WebView escondida
+ * nem sempre marca document.hidden). `jogo`: modo jogo, a GPU é do jogo. */
+const busca = new URLSearchParams(window.location.search);
+export const pausaGl = {
+  visivel: !(busca.get("oculta") === "1" || busca.get("janela") === "bolha"),
+  jogo: false,
+};
+(window as unknown as { __visivel: (v: boolean) => void }).__visivel = (v) => {
+  pausaGl.visivel = v;
+};
+
 const VERTEX = `attribute vec2 p; void main() { gl_Position = vec4(p, 0.0, 1.0); }`;
 
 export interface Desenho {
@@ -71,7 +82,7 @@ export function iniciarShader(
   };
   const passo = (agora: number) => {
     quadro = requestAnimationFrame(passo);
-    if (document.hidden || agora - ultimo < 1000 / 30) return;
+    if (document.hidden || !pausaGl.visivel || pausaGl.jogo || agora - ultimo < 1000 / 30) return;
     ultimo = agora;
     ajustar();
     gl.uniform2f(uniforms.uRes, canvas.width, canvas.height);

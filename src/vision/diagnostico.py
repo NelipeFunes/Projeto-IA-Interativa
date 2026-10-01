@@ -41,7 +41,8 @@ async def _ollama(cfg: Config) -> bool:
         return False
     t = time.perf_counter()
     r = await cli.chat(model=cfg.get("modelo.nome"), messages=[{"role": "user", "content": "Diga só: pronto."}],
-                       think=False, keep_alive=cfg.get("modelo.manter_carregado", "30m"))
+                       think=False, keep_alive=cfg.get("modelo.manter_carregado", "30m"),
+                       options={"num_ctx": int(cfg.get("modelo.contexto", 8192))})  # o mesmo do agente
     total = time.perf_counter() - t
     tps = (r.eval_count or 0) / max((r.eval_duration or 1) / 1e9, 1e-6)
     carga = (r.load_duration or 0) / 1e9

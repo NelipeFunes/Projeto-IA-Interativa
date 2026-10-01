@@ -460,7 +460,8 @@ class Nucleo:
                     raise RuntimeError(f"porta {self.porta} ocupada") from e
                 pilha.callback(sock.close)
                 servidor = uvicorn.Server(uvicorn.Config(app, host="127.0.0.1", port=self.porta,
-                                                         log_level="warning", log_config=None))
+                                                         log_level="warning", log_config=None,
+                                                         timeout_graceful_shutdown=2))  # sem esperar a janela fechar o /ws
                 tarefa_servidor = asyncio.create_task(servidor.serve(sockets=[sock]))
                 for _ in range(100):
                     if servidor.started or tarefa_servidor.done():
@@ -484,6 +485,8 @@ class Nucleo:
                     await self._subir_voz(pilha, tarefas)
                 if aviso := aviso_login(self.cfg):
                     self.barramento.publicar({"tipo": "aviso", "texto": aviso})
+                if self.laco is None or not self.laco.jogando:
+                    tarefas.append(asyncio.create_task(j.agente.carregar()))  # a 1ª pergunta não espera o modelo
                 log.info("%s pronto", self.nome)
                 try:
                     await self.parar.wait()

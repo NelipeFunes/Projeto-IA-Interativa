@@ -109,6 +109,14 @@ def fechar() -> None:
             janela.destroy()
 
 
+def _visivel(janela, sim: bool) -> None:
+    """Liga ou desliga a animação da página (WebGL) junto com a janela: escondida, não gasta GPU."""
+    try:
+        janela.evaluate_js(f"window.__visivel && window.__visivel({'true' if sim else 'false'})")
+    except Exception:  # noqa: BLE001 - página ainda carregando: ela começa no estado certo pela URL
+        pass
+
+
 def mostrar_bolha() -> None:
     janela = _JANELAS.get("bolha")
     if janela is None:
@@ -121,6 +129,7 @@ def mostrar_bolha() -> None:
         return
     _cantos_arredondados(hwnd)
     _mostrar_sem_foco(hwnd)
+    _visivel(janela, True)
     janela.evaluate_js("window.__reiniciarBolha && window.__reiniciarBolha()")
 
 
@@ -128,6 +137,7 @@ def esconder_bolha() -> None:
     janela = _JANELAS.get("bolha")
     if janela is not None:
         janela.hide()
+        _visivel(janela, False)
 
 
 def mostrar_principal() -> None:
@@ -137,6 +147,7 @@ def mostrar_principal() -> None:
     esconder_bolha()
     janela.show()
     janela.restore()
+    _visivel(janela, True)
     _MODO["principal_visivel"] = True
 
 
@@ -144,6 +155,7 @@ def esconder_principal() -> None:
     janela = _JANELAS.get("principal")
     if janela is not None:
         janela.hide()
+        _visivel(janela, False)
     _MODO["principal_visivel"] = False
 
 
@@ -200,7 +212,7 @@ def _posicao_bolha(webview: Any) -> tuple[int, int]:
 def criar_janelas(webview: Any, url: str, nome: str, *, escondida: bool = False, sufixo: str = "") -> None:
     """`sufixo` vai depois dos parâmetros da URL (no núcleo, o `#t=<token>`, que nunca sai do navegador)."""
     principal = webview.create_window(
-        nome, url + sufixo, width=1280, height=800, min_size=(1040, 680),
+        nome, url + ("&oculta=1" if escondida else "") + sufixo, width=1280, height=800, min_size=(1040, 680),
         frameless=True, easy_drag=False, background_color="#05040d", hidden=escondida,
     )
     _MODO["principal_visivel"] = not escondida

@@ -58,7 +58,8 @@ async def _dormir(cfg: config.Config, dormir: bool) -> None:
         print(f"{modelo} descarregado da VRAM. Palavra de ativação pausada (o atalho continua valendo).")
     else:
         flag.unlink(missing_ok=True)
-        await cliente.generate(model=modelo, prompt="", keep_alive=cfg.get("modelo.manter_carregado", "30m"))
+        await cliente.generate(model=modelo, prompt="", keep_alive=cfg.get("modelo.manter_carregado", "30m"),
+                               options={"num_ctx": int(cfg.get("modelo.contexto", 8192))})
         print(f"{modelo} carregado e pronto.")
 
 
@@ -109,6 +110,7 @@ def main(argv: list[str] | None = None) -> int:
     t = sub.add_parser("teste", help="checagem geral do ambiente")
     t.add_argument("parte", nargs="?", default="tudo", choices=["tudo", "ollama", "agenda", "orbit", "voz"])
     sub.add_parser("google-login", help="refaz o login do Google Agenda (a cada 7 dias)")
+    sub.add_parser("wispr-login", help="liga o Vision às suas reuniões e notas do Wispr Flow (login no navegador)")
     sub.add_parser("dormir", help="tira o modelo da VRAM e pausa a palavra de ativação")
     sub.add_parser("acordar", help="carrega o modelo e reativa a palavra de ativação")
     sub.add_parser("memorias", help="lista o que o assistente lembra")
@@ -156,6 +158,10 @@ def main(argv: list[str] | None = None) -> int:
         from vision.google_login import fazer_login
 
         return fazer_login(cfg)
+    elif args.comando == "wispr-login":
+        from vision.wispr import login
+
+        return asyncio.run(login(cfg))
     elif args.comando in ("dormir", "acordar"):
         asyncio.run(_dormir(cfg, args.comando == "dormir"))
     elif args.comando == "memorias":

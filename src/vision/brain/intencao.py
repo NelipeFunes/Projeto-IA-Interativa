@@ -20,6 +20,11 @@ PADROES = {
         r"quanto (eu )?(j[aá] )?(gastei|paguei)|lan[cç]a(r)?|sobrou|reserva)\b",
         re.IGNORECASE,
     ),
+    "reunioes": re.compile(
+        r"\b(reuni[oõ]\w*|daily|standup|transcri[cç]\w*|discutimos|falamos|combinamos|decidimos|ata|"
+        r"wispr|nota(s)? (do|da|que)|minhas notas|pr[oó]ximos passos)\b",
+        re.IGNORECASE,
+    ),
     "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
     "memoria": re.compile(
         r"(\b(lembr[ae]|anot[ae]|guard[ae]) (que|isso|a[ií])\b|\bn[aã]o esque[cç]a\b|\bvoc[eê] (sabe|lembra)\b|"

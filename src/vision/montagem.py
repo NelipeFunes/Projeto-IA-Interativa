@@ -83,6 +83,10 @@ async def montar(
         from vision.tools.orbit import FerramentasOrbit
 
         registro.adicionar(*FerramentasOrbit(host).ferramentas())
+    if "wispr" in host.conexoes:
+        from vision.tools.reunioes import Reunioes
+
+        registro.adicionar(*Reunioes(cfg, host).ferramentas())
     agente = Agente(
         llm or criar_llm(cfg),
         registro,

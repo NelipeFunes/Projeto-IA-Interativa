@@ -263,6 +263,8 @@ class LoopVoz:
     # ------------------------------------------------------------------ abrir e fechar a conversa
 
     def _abrir_conversa(self) -> None:
+        # O modelo pode ter saído da VRAM (30 min parado, jogo): carrega enquanto ele cumprimenta e você fala.
+        self._carregando = asyncio.ensure_future(self.agente.carregar())
         self.em_conversa = True
         self.silencio = 0
         self.escrever("(conversa aberta: fale à vontade; para encerrar, 'Beleza, Vision, pode desligar')")
@@ -481,6 +483,7 @@ class LoopVoz:
                 if self.estado == "ocioso":
                     self._mostrar("ocioso")
                 self.escrever("[modo jogo] fim do jogo; 'Hey Vision' de volta.")
+                await self.agente.carregar()
             await asyncio.sleep(a_cada_s)
 
 

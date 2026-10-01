@@ -387,6 +387,13 @@ class Agente:
     async def descarregar(self) -> None:
         await self.llm.descarregar()
 
+    async def carregar(self) -> None:
+        """Deixa o modelo pronto (ao subir, ao sair do jogo, ao ouvir "Hey Vision"). Falha só vai para o log."""
+        try:
+            await self.llm.carregar()
+        except Exception:  # noqa: BLE001
+            log.warning("não consegui pré-carregar o modelo", exc_info=True)
+
     def _registrar(self, canal: str, sessao: str, texto: str, r: Resposta) -> None:
         if self.pasta_conversas is None:
             return

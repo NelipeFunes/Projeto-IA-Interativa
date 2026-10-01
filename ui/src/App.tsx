@@ -8,6 +8,7 @@ import { PainelAgenda, PainelConversa, PainelMemoria, PainelStatus } from "./com
 import { type Conexao, conectar } from "./conexao";
 import { AJUSTES_DEMO, Demo, eventosAte } from "./demo";
 import { type Acao, inicial, reduzir } from "./estado";
+import { pausaGl } from "./gl";
 import { niveis } from "./niveis";
 import { noApp, parametros } from "./ponte";
 
@@ -63,6 +64,9 @@ export function App() {
     else emitir({ tipo: "ajustes", ...AJUSTES_DEMO });
   };
   const fecharAjustes = useCallback(() => setAjustesAbertos(false), []);
+  useEffect(() => {
+    pausaGl.jogo = s.estado === "jogo"; // a nebulosa e o orbe param: a GPU é do jogo
+  }, [s.estado]);
   useEffect(() => {
     if (DEMO && parametros.get("ajustes") === "1") emitir({ tipo: "ajustes", ...AJUSTES_DEMO });
   }, [emitir]);

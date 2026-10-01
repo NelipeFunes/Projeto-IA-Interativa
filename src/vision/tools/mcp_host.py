@@ -21,6 +21,13 @@ from vision.config import Config
 log = logging.getLogger(__name__)
 
 
+class Remoto:
+    """Servidor MCP pela internet (Streamable HTTP). `criar()` devolve um transporte novo a cada conexão."""
+
+    def __init__(self, criar):
+        self.criar = criar
+
+
 @dataclass
 class ResultadoMCP:
     ok: bool
@@ -59,6 +66,8 @@ class ConexaoMCP:
                 self.pasta_logs.mkdir(parents=True, exist_ok=True)
                 errlog = open(self.pasta_logs / f"mcp-{self.nome}.log", "a", encoding="utf-8")  # noqa: SIM115
                 alvo = stdio_client(alvo, errlog=errlog)
+            elif isinstance(alvo, Remoto):
+                alvo = alvo.criar()
             async with Client(alvo, read_timeout_seconds=self.timeout_s) as c:
                 self.cliente = c
                 self.erro = None
@@ -115,6 +124,12 @@ class HostMCP:
         conexoes = {}
         for nome, s in (cfg.get("mcp") or {}).items():
             if not s.get("ativo", True):
+                continue
+            if s.get("tipo") == "wispr":
+                from vision import wispr
+
+                if wispr.tem_login(cfg):  # sem login, nem tenta: `vision wispr-login` primeiro
+                    conexoes[nome] = ConexaoMCP(nome, wispr.transporte(cfg), float(s.get("timeout_s", 30)))
                 continue
             env = dict(os.environ)
             for k, v in (s.get("env") or {}).items():
