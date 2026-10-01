@@ -131,3 +131,29 @@ def e_despedida(texto: str) -> bool:
         # "tchau, Vision" sim; "tchau Vision, marca dentista amanhã" é um pedido
         return all(p in ENCHIMENTO or p in FECHAMENTO or nome(p) for p in palavras)
     return False
+
+
+# Interromper por voz enquanto ele fala (pedido de 01/10). A frase inteira tem que ser só de parar: a própria
+# voz dele vazando no microfone ("vou marcar para amanhã") nunca é só isso.
+PARAR = {"para", "pare", "parar", "paro", "chega", "silencio", "cala", "calado", "calada", "stop", "espera",
+         "espere", "pera", "perai", "quieto", "quieta", "basta", "shh", "psiu"}
+# Sem "um pouco": "espere um pouco" é frase que ele mesmo diz (revisão do PR 17).
+JUNTO_DO_PARAR = {"ai", "a", "boca", "de", "falar", "ja", "ta", "bom", "ok", "pode", "por", "favor", "e", "ei",
+                  "hey", "entendi", "obrigado", "valeu", "mais", "isso", "beleza"}
+MAX_PALAVRAS_PARAR = 6
+
+
+def e_interrupcao(texto: str) -> str | None:
+    """Dito enquanto o Vision fala: "standby" (corta e fecha a conversa), "parar" (corta e continua ouvindo)
+    ou None (não era com ele: segue falando)."""
+    palavras = _normalizar(texto)
+    if not palavras:
+        return None
+    # Só "standby" explícito: "pode descansar" ou "encerrar" podem ser a própria voz vazando (revisão do PR 17).
+    if _posicao_standby(palavras) is not None and e_despedida(texto):
+        return "standby"
+    if len(palavras) > MAX_PALAVRAS_PARAR or not PARAR & set(palavras):
+        return None
+    if all(p in PARAR or p in JUNTO_DO_PARAR or _e_o_nome(p, True) for p in palavras):
+        return "parar"
+    return None

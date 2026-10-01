@@ -95,6 +95,9 @@ voz:
   confirmacao_prazo_s: 30     # "sim" por voz só vale até esse tempo depois do "Confirma?" (TV/fundo não confirma)
   saudacao: ""                # vazio: "Hey Vision" só dá um bipe e já ouve (pedido de 01/10); um texto aqui é falado
   despedida: ""               # "Vision, standby" só dá o bipe de desligar; um texto aqui é falado antes dele
+  # Enquanto ele fala, "para", "chega", "pera aí" cortam a fala (e ele segue ouvindo); "standby" corta e fecha.
+  # Com caixa de som em vez de headset, a própria voz pode vazar no microfone: se cortar sozinho, ponha false.
+  interromper_por_voz: true
   silencio_fim_ms: 800        # quanto silêncio encerra a sua fala
   maximo_fala_s: 20
 
