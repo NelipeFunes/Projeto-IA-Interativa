@@ -127,6 +127,10 @@ def test_nao_despedidas(ouvido):
     ("Para quando é a prova?", None),
     ("Hoje você tem aula para fazer", None),
     ("Espera que eu vou ver a agenda de amanhã e já te falo tudo", None),
+    # revisão do PR 17: frases que ele mesmo diz não cortam a própria fala
+    ("Espere um pouco.", None),
+    ("Pode descansar.", None),
+    ("Encerrar.", None),
     ("", None),
 ])
 def test_interrupcao_por_voz(ouvido, motivo):

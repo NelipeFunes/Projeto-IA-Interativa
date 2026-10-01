@@ -137,8 +137,9 @@ def e_despedida(texto: str) -> bool:
 # voz dele vazando no microfone ("vou marcar para amanhã") nunca é só isso.
 PARAR = {"para", "pare", "parar", "paro", "chega", "silencio", "cala", "calado", "calada", "stop", "espera",
          "espere", "pera", "perai", "quieto", "quieta", "basta", "shh", "psiu"}
+# Sem "um pouco": "espere um pouco" é frase que ele mesmo diz (revisão do PR 17).
 JUNTO_DO_PARAR = {"ai", "a", "boca", "de", "falar", "ja", "ta", "bom", "ok", "pode", "por", "favor", "e", "ei",
-                  "hey", "entendi", "obrigado", "valeu", "um", "pouco", "mais", "que", "isso", "beleza"}
+                  "hey", "entendi", "obrigado", "valeu", "mais", "isso", "beleza"}
 MAX_PALAVRAS_PARAR = 6
 
 
@@ -148,7 +149,8 @@ def e_interrupcao(texto: str) -> str | None:
     palavras = _normalizar(texto)
     if not palavras:
         return None
-    if e_despedida(texto):
+    # Só "standby" explícito: "pode descansar" ou "encerrar" podem ser a própria voz vazando (revisão do PR 17).
+    if _posicao_standby(palavras) is not None and e_despedida(texto):
         return "standby"
     if len(palavras) > MAX_PALAVRAS_PARAR or not PARAR & set(palavras):
         return None

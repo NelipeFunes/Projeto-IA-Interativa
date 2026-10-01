@@ -449,7 +449,7 @@ async def test_fala_de_fora_que_falha_nao_derruba_a_escuta(pecas, registro, tmp_
     assert not isinstance(laco.voz, VozQuebrada)
 
 
-LONGA = "Hoje você tem aula às sete. Depois tem academia às nove. À noite tem estudo de álgebra até as onze."
+LONGA = "Amanhã o dia começa às sete. Depois há uma reunião curta. À noite não há nenhum compromisso marcado."
 
 
 def _loop_que_escuta_falando(pecas, registro, tmp_path, interrupcao):
@@ -482,3 +482,21 @@ async def test_outra_fala_enquanto_ele_fala_nao_corta(pecas, registro, tmp_path)
     laco = _loop_que_escuta_falando(pecas, registro, tmp_path, _fala(pecas["pt"], "Qual é a minha agenda de amanhã?"))
     await laco.rodar()
     assert laco.historico[0]["interrompido"] is None and len(laco.saida.trechos) == 3
+
+
+async def test_cortar_o_confirma_cancela_a_pendencia(pecas, registro, tmp_path, servidor_agenda):
+    """Revisão do PR 17: cortado antes do "Confirma?" inteiro, um "sim" depois não pode valer."""
+    from vision.voice.audio import SaidaArquivo
+    from vision.voice.wake import DetectorFala
+
+    amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
+    agente = Agente(LLMFalso([chama("agenda_criar", titulo="Barbeiro", data=amanha, hora_inicio="16:00")]),
+                    registro, None)
+    laco = _loop(pecas, agente, [
+        _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Marca barbeiro amanhã às quatro."),
+        _silencio(1.0), _fala(pecas["pt"], "Para de falar."), _silencio(2.0),
+    ], tmp_path, saida=SaidaArquivo(tempo_real=True),
+        vigia=DetectorFala(MODELOS / "openwakeword" / "silero_vad.onnx", 500, 4))
+    await laco.rodar()
+    assert laco.historico[0]["interrompido"] == "parar"
+    assert agente.sessao("voz", "voz").pendente is None and laco.pergunta_em is None

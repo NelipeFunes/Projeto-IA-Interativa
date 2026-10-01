@@ -43,6 +43,7 @@ BLOCO_S = 0.08
 TRECHO_ATIVACAO_S = 2.5  # para achar o nome, basta transcrever o começo da fala (mais leve para a CPU)
 MAXIMO_CANDIDATO_S = 12.0  # fala mais longa que isso, esperando, não é alguém chamando: nem transcreve
 MAXIMO_INTERRUPCAO_S = 3.0  # "para de falar" cabe nisso; mais longo é conversa (ou a própria voz): nem transcreve
+MINIMO_INTERRUPCAO_S = 0.4  # menos que isso é tosse ou estalo: nem transcreve
 PASSO_NIVEL_S = 1 / 15  # ~15 atualizações de volume por segundo para a tela
 
 
@@ -364,6 +365,7 @@ class LoopVoz:
         fila.put_nowait(texto)
         fila.put_nowait(None)
         await self._falador(fila, [])
+        await self._depois_de_interrompido()
         self._mostrar("ocioso")
 
     async def _responder(self, texto: str, t_stt: float) -> None:
@@ -404,6 +406,10 @@ class LoopVoz:
             self.historico.append({"felipe": texto, "vision": FALA_DE_ERRO, "erro": True})
             return
         self.pergunta_em = time.monotonic() if r.aguardando_confirmacao else None
+        if r.aguardando_confirmacao and self.interrompido_por is not None:
+            # Cortado antes de você ouvir o "Confirma?" inteiro: um "sim" depois não pode valer (revisão do PR 17).
+            self.agente.cancelar_pendente("voz", "voz")
+            self.pergunta_em = None
         usadas = ", ".join(f["nome"] for f in r.ferramentas)
         ate_falar = (primeira_fala[0] - t1) if primeira_fala else 0.0
         self.escrever(f"{self.agente.nome_assistente}: {r.texto}")
@@ -426,6 +432,11 @@ class LoopVoz:
                     continue
                 voz = self.voz  # uma vez por frase: a tela de ajustes pode trocar a voz no meio
                 audio = await asyncio.to_thread(voz.sintetizar, frase)
+                if self.interrompido_por is not None or (vigia is not None and self.saida.interromper.is_set()):
+                    # Cortado (por voz ou atalho) enquanto esta frase era sintetizada: ela não toca. O `tocar`
+                    # limparia o pedido de corte (revisão do PR 17).
+                    interrompido = True
+                    continue
                 if not primeira_fala:
                     primeira_fala.append(time.perf_counter())
                 self._mostrar("falando")
@@ -435,6 +446,8 @@ class LoopVoz:
                 try:
                     if not await asyncio.to_thread(self.saida.tocar, audio, voz.taxa):
                         interrompido = True
+                        if vigia is not None:  # cortou (voz ou atalho): o vigia não escuta o próximo pedido
+                            vigia.cancel()
                 finally:
                     if ondas is not None:
                         ondas.cancel()
@@ -451,7 +464,13 @@ class LoopVoz:
         antes: deque[np.ndarray] = deque(maxlen=4)
         gravado: list[np.ndarray] = []
         seguidos = 0
+        ignorando = False  # fala longa (TV, a própria voz): ignora até ela acabar, em vez de pegar o fim dela
         async for bloco in self.entrada.blocos():
+            if ignorando:
+                ignorando = not d.bloco(bloco)
+                if not ignorando:
+                    d.zerar()
+                continue
             if not gravado:
                 antes.append(bloco)
                 seguidos = seguidos + 1 if d.tem_voz(bloco) else 0
@@ -462,7 +481,10 @@ class LoopVoz:
             gravado.append(bloco)
             if not d.bloco(bloco) and len(gravado) * BLOCO_S <= MAXIMO_INTERRUPCAO_S:
                 continue
-            if len(gravado) * BLOCO_S <= MAXIMO_INTERRUPCAO_S:
+            duracao = len(gravado) * BLOCO_S
+            if duracao > MAXIMO_INTERRUPCAO_S:
+                ignorando = True
+            elif duracao >= MINIMO_INTERRUPCAO_S:
                 motivo = e_interrupcao(await self._transcrever(np.concatenate(gravado)))
                 if motivo is not None:
                     self.interrompido_por = motivo
@@ -511,6 +533,7 @@ class LoopVoz:
             self.voz = voz
         try:
             await self._falador(fila, [])
+            await self._depois_de_interrompido()
         except Exception:  # noqa: BLE001 - uma fala que falha (síntese, alto-falante) não derruba a escuta
             log.exception("não consegui falar uma frase pedida de fora do laço")
         finally:

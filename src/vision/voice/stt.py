@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+import threading
 import time
 from pathlib import Path
 
@@ -32,6 +33,8 @@ class Transcritor:
         opcoes = ort.SessionOptions()
         opcoes.intra_op_num_threads = threads  # i7-8700: 6 núcleos físicos
         self.nome = nome
+        # Uma transcrição por vez: a do vigia (durante a fala) pode seguir rodando na thread depois de cancelada.
+        self._trava = threading.Lock()
         self.modelo = onnx_asr.load_model(
             tipo, caminho, quantization=quant, sess_options=opcoes, providers=["CPUExecutionProvider"]
         )
@@ -43,7 +46,8 @@ class Transcritor:
             audio = audio.astype(np.float32) / (32768.0 if np.issubdtype(audio.dtype, np.integer) else 1.0)
         if taxa != TAXA:
             audio = reamostrar(audio, taxa, TAXA)
-        return corrigir_nomes(str(self.modelo.recognize(audio, sample_rate=TAXA)).strip())
+        with self._trava:
+            return corrigir_nomes(str(self.modelo.recognize(audio, sample_rate=TAXA)).strip())
 
 
 # O Parakeet ouve "Jarvis" com sotaque como "Jarves"/"Jarvi" (visto na calibração de 30/09).
