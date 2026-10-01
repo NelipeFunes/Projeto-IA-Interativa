@@ -470,10 +470,10 @@ async def test_atalho_com_erro_da_alexa_nao_aparece_como_sucesso():
 
 
 async def test_sem_confirmacao_nem_texto_de_fora_segura_o_pedido():
-    """`confirmar_acoes=False` (pedido de 01/10): a agenda lida antes não faz a luz voltar a perguntar."""
+    """Modo "sensiveis" (pedido de 01/10): a reunião lida antes não faz a luz voltar a perguntar."""
     agente, a = _agente_direto([chama("reuniao_falsa"), fala("Resumo."), chama("luz_acender", luz="quarto"),
                                 fala("Acendi.")])
-    agente.confirmar_acoes = False
+    agente.confirmacao = "sensiveis"
     agente.atalhos = [Casa(a, confirmar=False).atalho]
     await agente.responder("resume a reunião", "voz", "t")
     r = await agente.responder("acende a luz do quarto", "voz", "t")  # vai pelo atalho, sem o modelo

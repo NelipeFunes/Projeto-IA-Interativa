@@ -1,7 +1,8 @@
 """Ferramentas que o modelo pode chamar.
 
 Cada ferramenta tem um esquema simples, em português, pensado para modelo pequeno.
-As de escrita (`escrita=True`) pedem confirmação antes, a não ser que o agente esteja com `confirmar_acoes=False`.
+As de escrita (`escrita=True`) podem pedir confirmação antes; quais pedem depende de `assistente.confirmacao`
+(no modo "sensiveis", só as `sensivel=True`).
 """
 
 from __future__ import annotations
@@ -56,6 +57,8 @@ class Ferramenta:
     # Não é escrita "de fora" (guardar memória), mas grava algo que volta em todo prompt: depois de ler texto de
     # terceiros, vira confirmação, para uma transcrição não plantar uma "memória" com instruções.
     confirmar_se_externo: bool = False
+    # Escrita que não dá para desfazer ou mexe com dinheiro: no modo "sensiveis", só estas pedem "Confirma?".
+    sensivel: bool = False
 
     def para_ollama(self) -> dict[str, Any]:
         return {

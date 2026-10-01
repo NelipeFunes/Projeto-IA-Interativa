@@ -17,7 +17,7 @@ async def cliente_e_agenda(cfg, host, memorias, servidor_agenda):
         chama("agenda_criar", titulo="Academia", data=amanha, hora_inicio="07:00"),
         fala("Sim o quê?"),
     ])
-    cfg.bruto.setdefault("assistente", {})["confirmar_acoes"] = True  # este teste é do modo com confirmação
+    cfg.bruto.setdefault("assistente", {})["confirmacao"] = "todas"  # este teste é do modo com confirmação
     async with montar(cfg, llm=llm, host=host, memorias=memorias) as j:
         app = criar_app(cfg, vision=j, token="segredo-de-teste")
         async with httpx.AsyncClient(transport=httpx.ASGITransport(app=app), base_url="http://vision",
@@ -25,9 +25,9 @@ async def cliente_e_agenda(cfg, host, memorias, servidor_agenda):
             yield c, servidor_agenda
 
 
-async def test_sem_confirmacao_o_pedido_e_feito_na_hora(cfg, host, memorias, servidor_agenda):
-    """`assistente.confirmar_acoes: false` (pedido de 01/10): marcar já marca."""
-    cfg.bruto.setdefault("assistente", {})["confirmar_acoes"] = False
+async def test_criar_nao_e_sensivel_e_e_feito_na_hora(cfg, host, memorias, servidor_agenda):
+    """`assistente.confirmacao: sensiveis` (pedido de 01/10): marcar já marca."""
+    cfg.bruto.setdefault("assistente", {})["confirmacao"] = "sensiveis"
     amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
     llm = LLMFalso([
         chama("agenda_criar", titulo="Academia", data=amanha, hora_inicio="07:00"),

@@ -81,6 +81,7 @@ class FerramentasMemoria:
                 esquema(["consulta"], consulta=texto("Descrição do fato a esquecer")),
                 self.esquecer,
                 escrita=True,
+                sensivel=True,  # não dá para desfazer
                 descrever=self.descrever_esquecer,
                 grupo="memoria",
             ),

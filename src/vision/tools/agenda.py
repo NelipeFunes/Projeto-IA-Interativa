@@ -328,6 +328,7 @@ class Agenda:
                 esquema(["evento_id"], evento_id=texto("id do evento")),
                 self.apagar,
                 escrita=True,
+                sensivel=True,  # não dá para desfazer
                 descrever=self.descrever_apagar,
                 grupo="agenda",
                 previa=lambda a: {"id": str(a.get("evento_id") or "")} if a.get("evento_id") else None,

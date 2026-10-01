@@ -2,9 +2,12 @@
 
 assistente:
   nome: Vision              # no prompt, na janela e na bandeja; "Hey Vision" acorda (voz.ativacao)
-  # false (pedido de 01/10): tudo o que ele pedir é feito na hora (agenda, luzes, memória...), sem "Confirma?".
-  # true volta a pedir "sim" antes de criar, alterar ou apagar.
-  confirmar_acoes: false
+  # Quando o Vision pede "sim" antes de agir (pedido de 01/10: só no que é sensível de verdade):
+  #   sensiveis: luzes, criar/mudar evento, tarefa e memória vão direto; apagar evento, esquecer memória e
+  #              lançar gasto perguntam. Guardar memória logo depois de ler reunião/convite/nota também pergunta.
+  #   todas:     toda escrita pergunta (menos luzes, ver alexa.confirmar_luzes).
+  #   nenhuma:   nada pergunta.
+  confirmacao: sensiveis
 
 usuario:
   nome: Felipe
@@ -64,7 +67,7 @@ mcp:
 alexa:
   ativo: true               # luzes da Alexa pelo AlexaPy (não oficial). Login: vision alexa-login
   dominio: amazon.com.br
-  # Só vale com assistente.confirmar_acoes: true. Aí as luzes ainda ligam direto, mas perguntam se ele acabou
+  # Só vale com assistente.confirmacao: todas. Aí as luzes ainda ligam direto, mas perguntam se ele acabou
   # de ler reunião, agenda ou nota (texto de terceiros). true aqui faz as luzes perguntarem sempre.
   confirmar_luzes: false
 
