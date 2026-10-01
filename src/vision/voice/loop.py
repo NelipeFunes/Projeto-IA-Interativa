@@ -279,9 +279,9 @@ class LoopVoz:
                 self._abrir_conversa()
                 if self.saudacao.strip():  # sem saudação, o bipe é o do laço (origem "atalho"): um só
                     await self._dizer(self.saudacao)
-                    if self._retomar is None:
-                        self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
-                    self._retomar = None  # falou por cima: o resto da fala está na fila e a gravação começa agora
+                    if self._retomar is not None:
+                        return ""  # falou por cima da saudação: o próximo bloco retoma a sua fala (ver rodar)
+                    self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
                 return "atalho"
             return ""
         return "candidato" if self._comecou_a_falar(bloco) else ""
