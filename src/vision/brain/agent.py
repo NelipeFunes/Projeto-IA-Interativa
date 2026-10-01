@@ -65,6 +65,13 @@ class Resposta:
     insistiu: bool = False
 
 
+
+def _fingiu_que_fez(r: RespostaLLM, usadas: list, insistiu: bool, pedido_de_acao: bool) -> bool:
+    """A resposta final (já depois da cobrança) diz que fez ou vai fazer, sem nenhuma ferramenta no turno."""
+    if r.chamadas or usadas or not insistiu or not pedido_de_acao:
+        return False
+    return intencao.afirmou_sem_fazer(r.texto) or intencao.anunciou_sem_fazer(r.texto)
+
 class Agente:
     def __init__(
         self,
@@ -287,6 +294,9 @@ class Agente:
         ferramentas = self.registro.para_ollama()
         usadas: list[dict[str, Any]] = []
         grupos = [g for g in intencao.detectar(texto) if self.registro.nomes_do_grupo(g)]
+        # Só um pedido de ação (não pergunta, nem resposta a uma pendência que acabou de ser descartada) pode ter
+        # um "Feito." de mentira: "já marquei a prova?" → "Marquei sim, dia 5" é resposta legítima.
+        pedido_de_acao = bool(grupos) and not texto.strip().endswith("?") and not nota
         insistiu = False
         final = ""
 
@@ -295,7 +305,7 @@ class Agente:
             r: RespostaLLM = await self.llm.conversar(mensagens, ferramentas, transmitir)
             transmitido = transmitir is not None
 
-            afirmou = not r.chamadas and not usadas and intencao.afirmou_sem_fazer(r.texto)
+            afirmou = pedido_de_acao and not r.chamadas and not usadas and intencao.afirmou_sem_fazer(r.texto)
             anunciou = not r.chamadas and (intencao.anunciou_sem_fazer(r.texto) or afirmou)
             if not r.chamadas and not insistiu and ((volta == 0 and grupos) or anunciou):
                 insistiu = True
@@ -313,10 +323,9 @@ class Agente:
                 r = await self.llm.conversar([*mensagens, *extra, {"role": "system", "content": puxao}], ferramentas, None)
                 transmitido = False
 
-            if not r.chamadas and not usadas and (afirmou or anunciou) and (
-                    intencao.afirmou_sem_fazer(r.texto) or intencao.anunciou_sem_fazer(r.texto)):
+            if _fingiu_que_fez(r, usadas, insistiu, pedido_de_acao):
                 # Cobrado e mesmo assim nada foi chamado: não deixa passar "Feito." de mentira.
-                log.warning("o modelo disse que fez/ia fazer sem chamar ferramenta: %r", r.texto[:120])
+                log.warning("o modelo disse que fez/ia fazer sem chamar ferramenta (%d caracteres)", len(r.texto))
                 r = RespostaLLM(texto="Não fiz nada ainda: não consegui executar esse pedido. Pode repetir?")
                 transmitido = False
             if not r.chamadas:

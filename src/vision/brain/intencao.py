@@ -51,7 +51,7 @@ ANUNCIO = re.compile(
     r"desligo)\b"
     r"|\bestou\s+(verificando|checando|olhando|consultando|criando|marcando|agendando|cancelando|apagando|"
     r"alterando|lan[cç]ando|buscando|procurando)\b"
-    r"|\bconfirm\w*\?\s*$",
+    r"|\bconfirm(a|ou|e)\?\s*$",
     re.IGNORECASE,
 )
 
@@ -63,8 +63,8 @@ def anunciou_sem_fazer(resposta: str) -> bool:
 # Pior que anunciar: dizer que FEZ ("Feito.", "Ligado.", "Apaguei as luzes") sem ter chamado nada no turno.
 # Visto em 01/10: depois de algumas confirmações reais, o 4B passou a imitar o "Feito." sozinho.
 AFIRMACAO = re.compile(
-    r"^\W*(feito|ok,? feito|ligad[oa]s?|desligad[oa]s?|apagad[oa]s?|acesas?|acesos?|acendi|apaguei|liguei|"
-    r"desliguei|criei|marquei|agendei|cancelei|lancei|anotei|guardei|alterei|mudei)\b",
+    r"^\W*(feito|ok,? feito|acendi|apaguei|liguei|desliguei|criei|marquei|agendei|cancelei|lancei|anotei|"
+    r"guardei|alterei|mudei)\b",
     re.IGNORECASE,
 )
 

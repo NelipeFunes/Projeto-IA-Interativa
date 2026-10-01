@@ -84,7 +84,7 @@ def test_conversa_fiada_sem_intencao():
 
 
 @pytest.mark.parametrize("texto,afirma", [
-    ("Feito.", True), ("Ligado.", True), ("Apaguei todas as luzes.", True), ("Liguei a luz.", True),
+    ("Feito.", True), ("Ligado.", False), ("Acesa.", False), ("Apaguei todas as luzes.", True), ("Liguei a luz.", True),
     ("Pronto, Felipe! Como posso ajudar?", False), ("Boa tarde, Felipe!", False), ("Hoje você tem aula.", False),
 ])
 def test_afirmou_sem_fazer(texto, afirma):

@@ -271,3 +271,32 @@ async def test_cobrado_o_modelo_chama_a_ferramenta():
 def test_lista_agrupa_as_lampadas_do_mesmo_nome():
     assert Casa(AlexaFalsa(DUAS)).resumo() == ("'Bedroom Light' (2 lâmpadas: use 'Bedroom Light' para todas juntas, "
                                                "ou 'Bedroom Light 1' / 'Bedroom Light 2' para uma só)")
+
+
+def _agente_luzes(roteiro):
+    a = AlexaFalsa(DUAS)
+    r = Registro()
+    r.adicionar(*Casa(a).ferramentas())
+    return Agente(LLMFalso(roteiro), r, None), a
+
+
+async def test_puxao_por_intencao_seguido_de_feito_tambem_e_pego():
+    agente, a = _agente_luzes([fala(""), fala("Feito.")])
+    resp = await agente.responder("liga a luz do quarto", "voz", "t")
+    assert resp.texto.startswith("Não fiz nada") and a.feitas == []
+
+
+@pytest.mark.parametrize("pergunta,resposta", [
+    ("já marquei a prova de cálculo?", "Marquei sim, dia 5."),
+    ("a luz do quarto tá acesa?", "Acesa, pelo que sei."),
+])
+async def test_resposta_legitima_sem_ferramenta_nao_e_trocada(pergunta, resposta):
+    agente, _ = _agente_luzes([fala(resposta), fala(resposta)])
+    resp = await agente.responder(pergunta, "texto", "t")
+    assert resp.texto == resposta
+
+
+async def test_pergunta_de_esclarecimento_nao_vira_erro():
+    agente, _ = _agente_luzes([fala("Qual das duas? Pode confirmar?"), fala("Qual das duas? Pode confirmar?")])
+    resp = await agente.responder("liga a luz", "texto", "t")
+    assert resp.texto == "Qual das duas? Pode confirmar?"
