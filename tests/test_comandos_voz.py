@@ -42,15 +42,18 @@ def test_falas_que_nao_acordam(ouvido):
 
 
 @pytest.mark.parametrize("ouvido", [
-    "Beleza, Visium pode desligar.",
-    "Beleza, Vision, pode desligar.",
-    "Valeu, Visium, pode desligar.",
-    "Beleza Vision Poe Desliger.",
+    "Vision, standby.",
+    "Vision standby",
+    "Stand by.",
+    "Beleza, Vision Standry.",  # voz sintética, mal ouvido
+    "Vision, a standby",
+    "Pode ficar em stand-by.",
+    # o que ele disse de verdade em 01/10
+    "Tudo certinho. Agora pode ficar em standby e que se eu precisar, eu te chamo de novo.",
+    "Não, não precisa de mais nada, pode ficar em standby.",
     "Pode dormir.",
-    "pode desligar agora, valeu",
     "Tchau, Vision.",
     "pode encerrar por favor",
-    "Beleza, Vision pode dizer I.",  # "desligar" mal ouvido (30/09)
 ])
 def test_despedidas(ouvido):
     assert e_despedida(ouvido)
@@ -59,6 +62,13 @@ def test_despedidas(ouvido):
 @pytest.mark.parametrize("ouvido", [
     "Pode desligar o alarme de amanhã",  # é um pedido
     "Desliga a luz da sala",
+    # 01/10: "desligar" agora é só pedido (luz); quem fecha a conversa é "standby"
+    "Pode desligar.",
+    "Não, não precisa de mais nada, não. Pode desligar.",
+    "Beleza, Vision, pode desligar.",
+    "Mas não entrou em stand-by perfeito, né?",  # pergunta
+    "Não entra em standby agora",
+    "Me explica o que é o modo standby da TV e quanto ele gasta de energia por mês aqui em casa, por favor, rapidinho",
     "Marca o dentista amanhã às nove",
     "Beleza, Vision, pode marcar o dentista",
     "Beleza Vision pode me falar",

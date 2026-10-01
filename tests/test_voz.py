@@ -60,7 +60,7 @@ def _loop(pecas, agente, audios, tmp_path, **opcoes):
         agente, pecas["pt"], pecas["stt"], ArquivoComoMicrofone(audios), SaidaArquivo(),
         DetectorFala(pasta / "silero_vad.onnx", silencio_fim_ms=800),
         PalavraAtivacao(pasta, limiar=0.5) if por_modelo else None,
-        flag_dormindo=tmp_path / "dormindo.flag", escrever=lambda _t: None, bipes=False, **opcoes,
+        flag_dormindo=tmp_path / "dormindo.flag", escrever=lambda _t: None, bipes=opcoes.pop("bipes", False), **opcoes,
     )
 
 
@@ -71,22 +71,26 @@ def registro(cfg, host):
     return r
 
 
-async def test_hey_vision_cumprimenta_e_responde(pecas, registro, tmp_path):
+async def test_hey_vision_da_bipe_e_responde(pecas, registro, tmp_path):
+    """Pedido de 01/10: "Hey Vision" sozinho não fala "Oi, Felipe"; só dá o bipe e já ouve o pedido."""
+    from vision.voice.audio import bipe
+
     hoje = tempo.agora().date().isoformat()
     llm = LLMFalso([chama("agenda_listar", data_inicio=hoje), fala("Hoje você tem aula de Cálculo às 19:30.")])
     laco = _loop(pecas, Agente(llm, registro, None), [
         _silencio(0.5), _chama(pecas), _silencio(1.5),
         _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),
-    ], tmp_path)
+    ], tmp_path, bipes=True)
     eventos = []
     laco.ao_evento = eventos.append
     await laco.rodar()
-    assert {"tipo": "resposta", "texto": "Oi, Felipe. Pode falar."} in eventos  # cumprimentou
+    assert not any(e.get("tipo") == "resposta" and "Felipe" in e.get("texto", "") for e in eventos)
+    assert np.array_equal(laco.saida.trechos[0], bipe(subindo=True))  # a 1ª coisa que tocou foi o bipe
     assert len(laco.historico) == 1 and "agenda" in laco.historico[0]["felipe"].lower()
     assert laco.historico[0]["ferramentas"] == "agenda_listar"
     assert laco.em_conversa  # continua ouvindo até você mandar desligar
     ouvido = pecas["stt"].transcrever(laco.saida.audio(), laco.saida.taxa).lower()
-    assert "pode falar" in ouvido and ("cálcul" in ouvido or "calcul" in ouvido)
+    assert "pode falar" not in ouvido and ("cálcul" in ouvido or "calcul" in ouvido)
 
 
 async def test_hey_vision_com_o_pedido_junto_responde_sem_cumprimentar(pecas, registro, tmp_path):
@@ -116,7 +120,7 @@ async def test_sem_hey_vision_nada_acontece_nem_aparece(pecas, registro, tmp_pat
     assert eventos == [{"tipo": "estado", "valor": "ocioso"}]  # nem o orbe se mexeu: nada foi para a tela
 
 
-async def test_conversa_continua_ate_pode_desligar(pecas, registro, tmp_path):
+async def test_conversa_continua_ate_o_standby(pecas, registro, tmp_path):
     hoje = tempo.agora().date().isoformat()
     llm = LLMFalso([
         fala("Não consigo gerar esse relatório agora."),
@@ -127,7 +131,7 @@ async def test_conversa_continua_ate_pode_desligar(pecas, registro, tmp_path):
         _silencio(0.5), _chama(pecas), _silencio(1.5),
         _fala(pecas["pt"], "Me faz um relatório dos gastos."), _silencio(1.5),
         _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),  # sem repetir o nome
-        _fala(pecas["pt"], "Beleza, Vision, pode desligar."), _silencio(1.5),
+        _fala(pecas["en"], "Vision standby"), _silencio(1.5),
         _fala(pecas["pt"], "E amanhã, o que eu tenho?"), _silencio(1.5),  # conversa fechada: ignorada
     ], tmp_path)
     eventos = []
@@ -137,7 +141,7 @@ async def test_conversa_continua_ate_pode_desligar(pecas, registro, tmp_path):
     assert laco.historico[1]["vision"].startswith("Hoje você tem aula")
     assert not laco.em_conversa
     estados = [e["valor"] for e in eventos if e["tipo"] == "estado"]
-    assert estados[:4] == ["ocioso", "ouvindo", "falando", "ouvindo"]  # acordou, cumprimentou, ouvindo
+    assert estados[:3] == ["ocioso", "ouvindo", "pensando"]  # acordou com bipe, sem falar nada, e já ouviu
     assert estados[-2:] == ["pensando", "ocioso"]  # sem falar nada: bipe e volta a esperar
 
 
@@ -174,7 +178,7 @@ async def test_desligar_com_confirmacao_no_ar_cancela_ela(pecas, registro, tmp_p
     laco = _loop(pecas, agente, [
         _silencio(0.5), _chama(pecas), _silencio(1.5),
         _fala(pecas["pt"], "Marca barbeiro amanhã às quatro da tarde."), _silencio(1.2),
-        _fala(pecas["pt"], "Beleza, Vision, pode desligar."), _silencio(1.5),
+        _fala(pecas["en"], "Vision standby"), _silencio(1.5),
     ], tmp_path)
     await laco.rodar()
     assert any(e["tipo"] == "pendente_resolvido" and e["resultado"] == "cancelada" for e in eventos)
@@ -225,7 +229,7 @@ def test_amostras_de_voz_existem():
 async def test_volume_para_a_tela_e_escuta_pausada(pecas, registro, tmp_path):
     laco = _loop(pecas, Agente(LLMFalso([fala("Tudo certo.")]), registro, None), [
         _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Tudo bem?"), _silencio(1.5),
-        _fala(pecas["pt"], "Beleza, pode desligar."), _silencio(1.5),
+        _fala(pecas["en"], "Vision standby"), _silencio(1.5),
     ], tmp_path)
     eventos = []
     laco.ao_evento = eventos.append
@@ -266,7 +270,7 @@ async def test_pausar_no_meio_da_conversa_encerra_ela(pecas, registro, tmp_path,
 
     def ao_evento(ev):
         eventos.append(ev)
-        if ev == {"tipo": "resposta", "texto": "Oi, Felipe. Pode falar."}:  # conversa aberta: pausa agora
+        if ev == {"tipo": "estado", "valor": "ouvindo"}:  # conversa aberta: pausa agora
             if como == "bandeja":
                 (tmp_path / "dormindo.flag").touch()
             else:
@@ -294,7 +298,7 @@ async def test_confirmacao_que_demorou_nao_vale(pecas, registro, tmp_path, servi
 
 async def test_hey_vision_pode_desligar_com_a_conversa_fechada_nao_faz_nada(pecas, registro, tmp_path):
     laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
-        _silencio(0.5), _chama(pecas), _silencio(0.2), _fala(pecas["pt"], "Beleza, pode desligar."), _silencio(1.5),
+        _silencio(0.5), _chama(pecas), _silencio(0.2), _fala(pecas["en"], "Vision standby"), _silencio(1.5),
     ], tmp_path)
     await laco.rodar()
     assert not laco.em_conversa and laco.saida.trechos == []
@@ -374,7 +378,7 @@ async def test_despedida_configurada_fala_e_depois_bipa(pecas, registro, tmp_pat
     from vision.voice.audio import bipe_desligar
 
     laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
-        _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Beleza, Vision, pode desligar."),
+        _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["en"], "Vision standby"),
         _silencio(1.5),
     ], tmp_path, despedida="Até mais.")
     laco.bipes = True
@@ -385,12 +389,12 @@ async def test_despedida_configurada_fala_e_depois_bipa(pecas, registro, tmp_pat
     assert np.array_equal(laco.saida.trechos[-1], bipe_desligar())
 
 
-async def test_pode_desligar_so_da_o_bipe_sem_falar(pecas, registro, tmp_path):
+async def test_standby_so_da_o_bipe_sem_falar(pecas, registro, tmp_path):
     from vision.voice.audio import bipe_desligar
 
     laco = _loop(pecas, Agente(LLMFalso([fala("Tudo certo.")]), registro, None), [
         _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Tudo bem?"), _silencio(1.5),
-        _fala(pecas["pt"], "Beleza, Vision, pode desligar."), _silencio(1.5),
+        _fala(pecas["en"], "Vision standby"), _silencio(1.5),
     ], tmp_path)
     laco.bipes = True
     eventos = []
@@ -398,8 +402,8 @@ async def test_pode_desligar_so_da_o_bipe_sem_falar(pecas, registro, tmp_path):
     await laco.rodar()
     assert not laco.em_conversa and laco.historico[-1]["despedida"]
     assert np.array_equal(laco.saida.trechos[-1], bipe_desligar())  # o último som é o bipe de desligar
-    # As falas do próprio laço (fora do modelo) foram só a saudação: nenhuma despedida falada nem escrita.
-    assert [e["texto"] for e in eventos if e["tipo"] == "resposta"] == ["Oi, Felipe. Pode falar."]
+    # O próprio laço (fora do modelo) não falou nada: nem saudação nem despedida.
+    assert [e["texto"] for e in eventos if e["tipo"] == "resposta"] == []
     assert laco.historico[-1]["vision"] == ""
 
 

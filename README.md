@@ -33,7 +33,7 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
 
 - **Bandeja:** abrir, falar agora, pausar escuta, iniciar com o Windows, sair. O ícone muda de cor com o estado.
 - **Conversa:** "Hey Vision" acorda ("Oi, Felipe. Pode falar."); daí tudo o que você fala vai para ele, sem repetir
-  o nome, até "Beleza, Vision, pode desligar" ou 2 minutos de silêncio. Fora da conversa, o que você fala perto do PC
+  o nome, até "Vision, standby" ou 2 minutos de silêncio. Fora da conversa, o que você fala perto do PC
   é transcrito só para achar o nome e descartado (não vai para a tela, o log nem o disco).
 - **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.
 - **Janela fechada:** falando com ele, aparece uma bolha no canto, sem tirar o foco (não aparece no modo jogo).
@@ -43,9 +43,9 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
 
 ```bash
 vision chat              # conversa por texto
-vision voz               # "Hey Vision" (ou ctrl+alt+j) abre a conversa; "Beleza, Vision, pode desligar" fecha
+vision voz               # "Hey Vision" (ou ctrl+alt+j) abre a conversa; "Vision, standby" fecha
 vision teste             # checagem geral (ollama, agenda, orbit, voz)
-vision teste voz         # testa o "Hey Vision" e o "pode desligar" com a sua voz
+vision teste voz         # testa o "Hey Vision" e o "standby" com a sua voz
 vision google-login      # a cada 7 dias (app do Google em modo teste)
 vision memorias          # o que o Vision lembra de você
 vision dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Vision"

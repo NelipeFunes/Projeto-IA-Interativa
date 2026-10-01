@@ -161,7 +161,7 @@ def _calibrar_nome(cfg, p, OK, AVISO, ok, mic) -> bool:
         print(f"   entendi: \"{texto}\" → {'acordaria' if acordou else 'NÃO acordaria'}")
     p(OK if acertos == 3 else AVISO, f"'Hey {nome}': acordaria em {acertos} de 3"
       + ("" if acertos == 3 else ". Mande o que ele entendeu: dá para ensinar a grafia em voice/comandos.py"))
-    input(f"\nAperte Enter e diga 'Beleza, {nome}, pode desligar' (3 s)...")
+    input(f"\nAperte Enter e diga '{nome}, standby' (3 s)...")
     texto = stt.transcrever(_gravar(mic, 3.0))
     desligaria = e_despedida(texto)
     p(OK if desligaria else AVISO, f"despedida: \"{texto}\" → {'encerraria' if desligaria else 'NÃO encerraria'}")

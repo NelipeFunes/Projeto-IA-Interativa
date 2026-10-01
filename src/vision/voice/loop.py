@@ -1,8 +1,8 @@
 """Loop de voz com conversa aberta e fechada por você.
 
-- Esperando: só "Hey Vision" (ou o atalho) acorda. Ele diz "Oi, Felipe. Pode falar." e abre a conversa.
-  "Hey Vision, o que eu tenho hoje?" abre e já responde.
-- Em conversa: tudo o que você fala vai para ele, sem repetir o nome, até "Beleza, Vision, pode desligar"
+- Esperando: só "Hey Vision" (ou o atalho) acorda. Ele dá um bipe e já ouve o pedido (sem "Oi, Felipe",
+  pedido de 01/10). "Hey Vision, o que eu tenho hoje?" abre e já responde.
+- Em conversa: tudo o que você fala vai para ele, sem repetir o nome, até "Vision, standby"
   ou 2 minutos de silêncio. Aí ele volta a esperar o "Hey Vision".
 - O atalho durante a fala interrompe e começa a ouvir.
 
@@ -79,7 +79,7 @@ class LoopVoz:
         ativacao_por_texto: bool = True,
         silencio_max_s: float = 120.0,
         prazo_confirmacao_s: float = 30.0,
-        saudacao: str = "Oi, Felipe. Pode falar.",
+        saudacao: str = "",
         despedida: str = "",
         ao_evento: Callable[[dict[str, Any]], None] | None = None,
     ):
@@ -251,7 +251,7 @@ class LoopVoz:
                 self.agente.cancelar_pendente("voz", "voz")  # como no "Hey Vision": nada de antes é confirmado
                 self.pergunta_em = None
                 self._abrir_conversa()
-                await self._dizer(self.saudacao)
+                await self._saudar()
                 self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
                 return "atalho"
             return ""
@@ -269,7 +269,7 @@ class LoopVoz:
             self._carregando = asyncio.ensure_future(self.agente.carregar())
         self.em_conversa = True
         self.silencio = 0
-        self.escrever("(conversa aberta: fale à vontade; para encerrar, 'Beleza, Vision, pode desligar')")
+        self.escrever("(conversa aberta: fale à vontade; para encerrar, 'Vision, standby')")
         self._mostrar("ouvindo")
 
     async def _fechar_conversa(self, falar: bool) -> None:
@@ -299,14 +299,15 @@ class LoopVoz:
                 if resto is None:
                     resto = inteiro.strip()
         if resto and e_despedida(resto):
-            return  # "Hey Vision, pode desligar" com a conversa já fechada: nada a fazer
+            return  # "Hey Vision, standby" com a conversa já fechada: nada a fazer
         # Pendência de antes da conversa (atalho no modo jogo) nunca é respondida por um "Hey Vision, sim".
         self.agente.cancelar_pendente("voz", "voz")
         self.pergunta_em = None
         self._abrir_conversa()
         if not resto:
-            await self._dizer(self.saudacao)
+            await self._saudar()
             return
+        await self._bipe(subindo=True)  # "Hey Vision, <pedido>": o bipe avisa que ouviu
         self._mostrar("pensando")
         await self._responder(resto, 0.0)
 
@@ -338,6 +339,14 @@ class LoopVoz:
         except Exception:  # noqa: BLE001
             log.exception("o STT falhou num trecho de %.1f s", pcm.size / TAXA)
             return ""
+
+    async def _saudar(self) -> None:
+        """Acordou só com "Hey Vision": um bipe e já ouve (a `voz.saudacao`, se houver, é falada no lugar)."""
+        if self.saudacao.strip():
+            await self._dizer(self.saudacao)
+        else:
+            await self._bipe(subindo=True)
+            self._mostrar("ouvindo")
 
     async def _dizer(self, texto: str) -> None:
         """Uma frase dele fora das respostas do modelo (saudação, despedida): falada e mostrada na tela."""
@@ -533,7 +542,7 @@ def preparar_voz(
                        ativacao_por_texto=com_ativacao and por_texto,
                        silencio_max_s=float(cfg.get("voz.conversa_silencio_max_s", 120)),
                        prazo_confirmacao_s=float(cfg.get("voz.confirmacao_prazo_s", 30)),
-                       saudacao=cfg.get("voz.saudacao", f"Oi, {agente.nome}. Pode falar."),
+                       saudacao=cfg.get("voz.saudacao") or "",
                        despedida=cfg.get("voz.despedida") or "")
         loop = asyncio.get_running_loop()
         atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
@@ -561,7 +570,7 @@ async def rodar_voz(cfg, com_ativacao: bool = True) -> None:
     async with montar(cfg) as j:
         with preparar_voz(cfg, j.agente, com_ativacao=com_ativacao) as (laco, atalho):
             print(f"Diga 'Hey {nome}'" + (f" ou aperte {atalho.combinacao}" if atalho.ativo else "")
-                  + f". Para encerrar a conversa: 'Beleza, {nome}, pode desligar'. Ctrl+C para sair.")
+                  + f". Para encerrar a conversa: '{nome}, standby'. Ctrl+C para sair.")
             for servidor, st in j.host.status().items():
                 if st != "ok":
                     print(f"  [aviso] MCP {servidor}: {st[:120]}")

@@ -97,7 +97,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--modelo", help="sobrescreve modelo.nome (ex.: qwen3.5:9b)")
     sub = ap.add_subparsers(dest="comando", required=True)
     sub.add_parser("chat", help="conversa por texto no terminal")
-    v = sub.add_parser("voz", help="modo voz: 'Hey Vision' abre a conversa, 'pode desligar' fecha")
+    v = sub.add_parser("voz", help="modo voz: 'Hey Vision' abre a conversa, 'Vision, standby' fecha")
     v.add_argument("--sem-ativacao", action="store_true", help="só o atalho, sem palavra de ativação")
     sub.add_parser("servidor", help="cérebro como serviço HTTP em 127.0.0.1")
     n = sub.add_parser("nucleo", help="o assistente completo em segundo plano (voz, bandeja, janela), com log no console")
