@@ -53,6 +53,9 @@ class Ferramenta:
     confirmar: bool = True
     # Leitura cujo resultado tem texto de terceiros (convites da agenda, transcrições, notas).
     conteudo_externo: bool = False
+    # Não é escrita "de fora" (guardar memória), mas grava algo que volta em todo prompt: depois de ler texto de
+    # terceiros, vira confirmação, para uma transcrição não plantar uma "memória" com instruções.
+    confirmar_se_externo: bool = False
 
     def para_ollama(self) -> dict[str, Any]:
         return {

@@ -44,6 +44,9 @@ class FerramentasMemoria:
         await self.m.esquecer(alvo.id)
         return ComDados(f"Memória apagada: {alvo.texto}", {"id": alvo.id})
 
+    async def descrever_lembrar(self, args: dict[str, Any]) -> str:
+        return f"Vou guardar na memória: \"{str(args.get('fato') or '').strip()[:200]}\"."
+
     async def descrever_esquecer(self, args: dict[str, Any]) -> str:
         alvo = await self._alvo(args)
         return f"Vou esquecer isto: \"{alvo.texto}\"."
@@ -62,6 +65,8 @@ class FerramentasMemoria:
                 ),
                 self.lembrar,
                 grupo="memoria",
+                confirmar_se_externo=True,
+                descrever=self.descrever_lembrar,
             ),
             Ferramenta(
                 "buscar_memoria",

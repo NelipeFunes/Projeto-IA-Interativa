@@ -56,6 +56,9 @@ def comando_de_luz(texto: str) -> tuple[bool, str, int | None] | None:
     if brilho is not None and not ligar:
         return None  # "apaga em 30%" não faz sentido: deixa o modelo perguntar
     alvo = " ".join(resto)
+    tem_luz = bool({"luz", "luzes", "lampada", "lampadas", "abajur"} & set(palavras)) or brilho is not None
+    if not alvo and not tem_luz:
+        return None  # "desliga", "me desliga": sem dizer o quê, não apaga a casa
     return ligar, ("todas" if alvo in {"tudo", "todas", "todos", "toda casa", "casa toda", "casa"} else alvo), brilho
 
 
@@ -202,8 +205,8 @@ class Casa:
 
         return descrever
 
-    async def atalho(self, texto: str) -> tuple[str, dict[str, Any], str] | None:
-        """Comando curto de luz sem passar pelo modelo: (ferramenta, args, resposta). None = o modelo decide.
+    async def atalho(self, texto: str) -> tuple[str, dict[str, Any], str, bool] | None:
+        """Comando curto de luz sem passar pelo modelo: (ferramenta, args, resposta, ok). None = o modelo decide.
 
         Só sem confirmação (com `confirmar`, o caminho normal é que pergunta). Um nome que não casa com nenhuma
         luz também volta para o modelo, que pode perguntar qual."""
@@ -220,10 +223,9 @@ class Casa:
         args: dict[str, Any] = {"luz": luz} if not brilho else {"luz": luz, "brilho": brilho}
         nome = "luz_acender" if ligar else "luz_apagar"
         try:
-            resposta = await self._mudar(ligar)(args)
+            return nome, args, await self._mudar(ligar)(args), True
         except ErroFerramenta as e:
-            resposta = str(e)
-        return nome, args, resposta
+            return nome, args, str(e), False
 
     def ferramentas(self) -> list[Ferramenta]:
         luz = texto("Nome da luz ou do lugar (ex.: 'quarto'), ou 'todas'. Sem número = todas as lâmpadas com esse "

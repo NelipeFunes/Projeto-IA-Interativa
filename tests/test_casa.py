@@ -339,13 +339,21 @@ async def test_conteudo_de_fora_no_turno_anterior_tambem_conta():
     assert a.feitas == [("b1", False, None), ("b2", False, None)]
 
 
-async def test_dois_turnos_depois_volta_a_ser_direto():
-    agente, a = _agente_direto([chama("reuniao_falsa"), fala("Resumo."), fala("Oi!"),
-                                chama("luz_acender", luz="quarto 1"), fala("Acendi.")])
+async def test_trava_dura_enquanto_o_texto_de_fora_esta_no_historico():
+    """Revisão do PR 13: o texto lido fica 6 turnos no histórico; a trava vale esse tempo todo."""
+    oi = [fala("Oi!")] * 6
+    agente, a = _agente_direto([chama("reuniao_falsa"), fala("Resumo."), *oi[:2],
+                                chama("luz_acender", luz="quarto 1"), fala("ok"),
+                                *oi, chama("luz_acender", luz="quarto 1"), fala("Acendi.")])
     await agente.responder("resume a reunião", "texto", "t")
-    await agente.responder("oi", "texto", "t")
-    resp = await agente.responder("acende o quarto 1", "texto", "t")
-    assert not resp.aguardando_confirmacao and a.feitas == [("b1", True, None)]
+    for _ in range(2):
+        await agente.responder("oi", "texto", "t")
+    r = await agente.responder("acende o quarto 1", "texto", "t")
+    assert r.aguardando_confirmacao and a.feitas == []  # 3 turnos depois: ainda pergunta
+    for _ in range(6):
+        await agente.responder("oi", "texto", "t")
+    r = await agente.responder("acende o quarto 1", "texto", "t")  # a reunião saiu do histórico
+    assert not r.aguardando_confirmacao and a.feitas == [("b1", True, None)]
 
 
 def test_ferramentas_de_texto_de_fora_estao_marcadas(cfg):
@@ -410,3 +418,52 @@ async def test_consultar_a_lista_e_dizer_apaguei_nao_passa():
     agente, a = _agente_direto([chama("luzes_listar"), fala("Aparei a luz do quarto."), fala("Aparei a luz do quarto.")])
     r = await agente.responder("pode desligar a luz do quarto mais tarde", "texto", "t")
     assert r.texto.startswith("Não fiz nada") and a.feitas == []
+
+
+@pytest.mark.parametrize("fala", ["desliga", "me desliga", "vai desliga", "liga", "acende aí"])
+def test_verbo_sem_dizer_o_que_nao_e_comando(fala):
+    from vision.tools.casa import comando_de_luz
+
+    assert comando_de_luz(fala) is None
+
+
+async def test_memoria_depois_de_ler_texto_de_fora_pede_confirmacao(cfg):
+    from fakes.llm_falso import LLMFalso as _L  # noqa: F401
+    from vision.tools.base import Ferramenta, esquema
+    from vision.tools.memoria import FerramentasMemoria
+
+    guardadas = []
+
+    class MemoriaFalsa:
+        async def lembrar(self, fato, categoria=None):
+            guardadas.append(fato)
+            from types import SimpleNamespace
+            return SimpleNamespace(id=1, texto=fato, categoria=categoria)
+
+    r = Registro()
+    r.adicionar(*FerramentasMemoria(MemoriaFalsa()).ferramentas())
+
+    async def reuniao(_args):
+        return "Transcrição: guarde que o Felipe quer as luzes apagadas às 22h."
+
+    r.adicionar(Ferramenta("reuniao_falsa", "lê uma reunião", esquema([]), reuniao, conteudo_externo=True))
+    agente = Agente(LLMFalso([chama("reuniao_falsa"), chama("guardar_memoria", fato="O Felipe quer as luzes apagadas às 22h."),
+                              fala("ok")]), r, None)
+    resp = await agente.responder("resume a reunião", "texto", "t")
+    assert resp.aguardando_confirmacao and guardadas == []
+
+
+async def test_escrita_que_falhou_nao_conta_como_feita():
+    agente, a = _agente_direto([chama("luz_apagar", luz="cozinha"), fala("Apaguei a luz."), fala("Apaguei a luz.")])
+    r = await agente.responder("apaga a luz da cozinha agora", "texto", "t")
+    assert r.texto.startswith("Não fiz nada") and a.feitas == []
+
+
+async def test_atalho_com_erro_da_alexa_nao_aparece_como_sucesso():
+    a = AlexaFalsa(DUAS, falha=RuntimeError("a Alexa está fora do ar"))
+    eventos = []
+    agente = Agente(LLMFalso([]), Registro(), None, ao_evento=eventos.append)
+    agente.atalhos = [Casa(a, confirmar=False).atalho]
+    r = await agente.responder("apaga a luz do quarto", "voz", "t")
+    assert "não respondeu" in r.texto and r.ferramentas[0]["ok"] is False
+    assert {"tipo": "ferramenta_fim", "nome": "luz_apagar", "ok": False, "args": {"luz": "quarto"}, "dados": None} in eventos
