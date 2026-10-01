@@ -272,6 +272,7 @@ class Agenda:
                 esquema(["data_inicio"], data_inicio=data_p, data_fim=texto("Data final AAAA-MM-DD (opcional; padrão = data_inicio)")),
                 self.listar,
                 grupo="agenda",
+                conteudo_externo=True,  # título e descrição de convite vêm de outras pessoas
             ),
             Ferramenta(
                 "agenda_buscar",
@@ -279,6 +280,7 @@ class Agenda:
                 esquema(["texto"], texto=texto("O que procurar"), data_inicio=data_p, data_fim=data_p),
                 self.buscar,
                 grupo="agenda",
+                conteudo_externo=True,  # título e descrição de convite vêm de outras pessoas
             ),
             Ferramenta(
                 "agenda_criar",

@@ -88,6 +88,7 @@ async def montar(
 
         registro.adicionar(*Reunioes(cfg, host).ferramentas())
     alexa = None
+    atalhos = []
     if cfg.get("alexa.ativo", True):
         from vision import alexa as modulo_alexa
 
@@ -95,7 +96,9 @@ async def montar(
             from vision.tools.casa import Casa
 
             alexa = modulo_alexa.Alexa(cfg)
-            registro.adicionar(*Casa(alexa).ferramentas())
+            casa = Casa(alexa, confirmar=bool(cfg.get("alexa.confirmar_luzes", False)))
+            registro.adicionar(*casa.ferramentas())
+            atalhos.append(casa.atalho)
     agente = Agente(
         llm or criar_llm(cfg),
         registro,
@@ -109,6 +112,7 @@ async def montar(
         top_k=int(cfg.get("memoria.top_k", 3)),
         similaridade_minima=float(cfg.get("memoria.similaridade_minima", 0.25)),
     )
+    agente.atalhos = atalhos
     async with host:
         try:
             yield Vision(cfg, agente, registro, host, memorias)

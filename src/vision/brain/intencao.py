@@ -63,7 +63,7 @@ def anunciou_sem_fazer(resposta: str) -> bool:
 # Pior que anunciar: dizer que FEZ ("Feito.", "Ligado.", "Apaguei as luzes") sem ter chamado nada no turno.
 # Visto em 01/10: depois de algumas confirmações reais, o 4B passou a imitar o "Feito." sozinho.
 AFIRMACAO = re.compile(
-    r"^\W*(feito|ok,? feito|acendi|apaguei|liguei|desliguei|criei|marquei|agendei|cancelei|lancei|anotei|"
+    r"^\W*(feito|ok,? feito|acendi|apaguei|aparei|liguei|desliguei|criei|marquei|agendei|cancelei|lancei|anotei|"
     r"guardei|alterei|mudei)\b",
     re.IGNORECASE,
 )

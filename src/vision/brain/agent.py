@@ -11,7 +11,7 @@ import itertools
 import json
 import logging
 import time
-from collections.abc import Callable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -54,6 +54,8 @@ class Sessao:
     trava: asyncio.Lock = field(default_factory=asyncio.Lock)
     atrasada: asyncio.Task | None = None
     nota: str | None = None  # aviso de sistema para a próxima volta (ex.: pendente descartada)
+    # Até que turno o texto de terceiros lido (agenda, reunião, nota) ainda está no histórico que o modelo vê.
+    externo_ate_turno: int = -1
 
 
 @dataclass
@@ -66,9 +68,10 @@ class Resposta:
 
 
 
-def _fingiu_que_fez(r: RespostaLLM, usadas: list, insistiu: bool, pedido_de_acao: bool) -> bool:
-    """A resposta final (já depois da cobrança) diz que fez ou vai fazer, sem nenhuma ferramenta no turno."""
-    if r.chamadas or usadas or not insistiu or not pedido_de_acao:
+def _fingiu_que_fez(r: RespostaLLM, escreveu: bool, insistiu: bool, pedido_de_acao: bool) -> bool:
+    """A resposta final (já depois da cobrança) diz que fez ou vai fazer, sem nenhuma ferramenta de escrita no
+    turno (consultar a lista de luzes e dizer "Apaguei" também é mentira)."""
+    if r.chamadas or escreveu or not insistiu or not pedido_de_acao:
         return False
     return intencao.afirmou_sem_fazer(r.texto) or intencao.anunciou_sem_fazer(r.texto)
 
@@ -108,6 +111,8 @@ class Agente:
         # Quem quiser acompanhar o que acontece (a tela, pelo núcleo) recebe eventos aqui. Ver ui/src/tipos.ts.
         self.ao_evento = ao_evento
         self._ids_pendente = itertools.count(1)
+        # Comandos curtos resolvidos sem o modelo (ex.: luzes): texto → (ferramenta, args, resposta) ou None.
+        self.atalhos: list[Callable[[str], Awaitable[tuple[str, dict[str, Any], str, bool] | None]]] = []
 
     def _emitir(self, tipo: str, **campos: Any) -> None:
         if self.ao_evento is None:
@@ -286,6 +291,11 @@ class Agente:
         return msgs
 
     async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None) -> Resposta:
+        if not self._ainda_tem_externo(s) and not s.nota:  # depois de ler texto de fora, quem decide é o caminho normal
+            for atalho in self.atalhos:
+                feito = await atalho(texto)
+                if feito is not None:
+                    return self._registrar_atalho(s, texto, feito, ao_texto)
         sistema = await self._contexto(texto, canal)
         turno: list[dict[str, Any]] = [{"role": "user", "content": texto}]
         nota = [{"role": "system", "content": s.nota}] if s.nota else []
@@ -293,6 +303,8 @@ class Agente:
         mensagens = [{"role": "system", "content": sistema}, *self._historico(s), *nota, *turno]
         ferramentas = self.registro.para_ollama()
         usadas: list[dict[str, Any]] = []
+        leu_de_fora = self._ainda_tem_externo(s)
+        diretas = 0
         grupos = [g for g in intencao.detectar(texto) if self.registro.nomes_do_grupo(g)]
         # Só um pedido de ação (não pergunta, nem resposta a uma pendência que acabou de ser descartada) pode ter
         # um "Feito." de mentira: "já marquei a prova?" → "Marquei sim, dia 5" é resposta legítima.
@@ -305,7 +317,8 @@ class Agente:
             r: RespostaLLM = await self.llm.conversar(mensagens, ferramentas, transmitir)
             transmitido = transmitir is not None
 
-            afirmou = pedido_de_acao and not r.chamadas and not usadas and intencao.afirmou_sem_fazer(r.texto)
+            escreveu = any(u["ok"] and (f := self.registro.get(u["nome"])) is not None and f.escrita for u in usadas)
+            afirmou = pedido_de_acao and not r.chamadas and not escreveu and intencao.afirmou_sem_fazer(r.texto)
             anunciou = not r.chamadas and (intencao.anunciou_sem_fazer(r.texto) or afirmou)
             if not r.chamadas and not insistiu and ((volta == 0 and grupos) or anunciou):
                 insistiu = True
@@ -323,7 +336,8 @@ class Agente:
                 r = await self.llm.conversar([*mensagens, *extra, {"role": "system", "content": puxao}], ferramentas, None)
                 transmitido = False
 
-            if _fingiu_que_fez(r, usadas, insistiu, pedido_de_acao):
+            escreveu = any(u["ok"] and (f := self.registro.get(u["nome"])) is not None and f.escrita for u in usadas)
+            if _fingiu_que_fez(r, escreveu, insistiu, pedido_de_acao):
                 # Cobrado e mesmo assim nada foi chamado: não deixa passar "Feito." de mentira.
                 log.warning("o modelo disse que fez/ia fazer sem chamar ferramenta (%d caracteres)", len(r.texto))
                 r = RespostaLLM(texto="Não fiz nada ainda: não consegui executar esse pedido. Pode repetir?")
@@ -347,7 +361,14 @@ class Agente:
                 if f is not None:
                     c.args = f.normalizar_args(c.args)
                 self._emitir("ferramenta_inicio", nome=c.nome, args=c.args)
-                if f is not None and f.escrita:
+                direta = f is not None and f.escrita and not f.confirmar and not leu_de_fora and diretas < 3
+                pede_por_externo = f is not None and not f.escrita and f.confirmar_se_externo and leu_de_fora
+                if direta:
+                    # Sem "Confirma?": o pedido é do Felipe, e nada de fora foi lido antes neste turno.
+                    diretas += 1
+                    ok, resultado, dados = await self.registro.rodar_com_dados(c.nome, c.args)
+                    self._emitir("ferramenta_fim", nome=c.nome, ok=ok, args=c.args, dados=dados)
+                elif f is not None and (f.escrita or pede_por_externo):
                     if nova_pendente is not None:
                         ok, resultado = False, "Só uma alteração por vez; esta foi ignorada."
                     else:
@@ -362,6 +383,8 @@ class Agente:
                 else:
                     ok, resultado, dados = await self.registro.rodar_com_dados(c.nome, c.args)
                     self._emitir("ferramenta_fim", nome=c.nome, ok=ok, args=c.args, dados=dados)
+                    if f is not None and f.conteudo_externo:
+                        leu_de_fora = True
                 usadas.append({"nome": c.nome, "args": c.args, "ok": ok, "resultado": resultado[:300]})
                 msg_tool = {"role": "tool", "content": resultado, "tool_name": c.nome}
                 mensagens.append(msg_tool)
@@ -385,7 +408,31 @@ class Agente:
                 ao_texto(final)
         turno.append({"role": "assistant", "content": final})
         s.turnos.append(turno)
+        if any((f := self.registro.get(u["nome"])) is not None and f.conteudo_externo for u in usadas):
+            # O resultado fica no histórico por `turnos_historico` turnos: a trava vale esse tempo todo.
+            s.externo_ate_turno = len(s.turnos) - 1 + self.turnos_historico
         return Resposta(final, usadas, s.pendente is not None, insistiu=insistiu)
+
+    @staticmethod
+    def _ainda_tem_externo(s: Sessao) -> bool:
+        return len(s.turnos) <= s.externo_ate_turno
+
+    def _registrar_atalho(self, s: Sessao, texto: str, feito: tuple[str, dict[str, Any], str, bool],
+                          ao_texto: Callable[[str], None] | None) -> Resposta:
+        """Um comando resolvido sem o modelo entra no histórico como se ele tivesse chamado a ferramenta:
+        assim o modelo aprende o jeito certo pelo exemplo, em vez de imitar um "Feito." solto."""
+        nome, args, resposta, ok = feito
+        self._emitir("ferramenta_inicio", nome=nome, args=args)
+        self._emitir("ferramenta_fim", nome=nome, ok=ok, args=args, dados=None)
+        s.turnos.append([
+            {"role": "user", "content": texto},
+            {"role": "assistant", "content": "", "tool_calls": [{"function": {"name": nome, "arguments": args}}]},
+            {"role": "tool", "content": resposta, "tool_name": nome},
+            {"role": "assistant", "content": resposta},
+        ])
+        if ao_texto:
+            ao_texto(resposta)
+        return Resposta(resposta, [{"nome": nome, "args": args, "ok": ok, "resultado": resposta[:300]}])
 
     # ------------------------------------------------------------------ utilidades
 

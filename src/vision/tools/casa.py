@@ -8,6 +8,7 @@ Acender e apagar são escrita: passam pela confirmação, como a agenda.
 from __future__ import annotations
 
 import difflib
+import re
 from typing import Any
 
 from vision.alexa import Alexa, SemLogin, normalizar
@@ -23,14 +24,53 @@ VAZIAS = {"a", "o", "as", "os", "do", "da", "de", "dos", "das", "no", "na", "nos
           "luzes", "lampada", "lampadas", "light", "lights", "lamp", "lampadinha", "meu", "minha", "e"}
 
 
+# Comando curto de luz, entendido sem o modelo (ele esquece de chamar a ferramenta e "lembra" do estado).
+VERBOS = {"acende": True, "acenda": True, "acender": True, "liga": True, "ligue": True, "ligar": True,
+          "apaga": False, "apague": False, "apagar": False, "desliga": False, "desligue": False, "desligar": False}
+ANTES_DO_VERBO = {"vision", "visao", "visium", "hey", "ei", "oi", "pode", "por", "favor", "ai", "e", "entao",
+                  "agora", "ja", "beleza", "ok", "okay", "vai", "me", "faz", "o", "favor"}
+NAO_E_COMANDO = {"nao", "lembra", "lembre", "lembrar", "amanha", "depois", "quando", "daqui", "minuto", "minutos",
+                 "hora", "horas", "se", "porque", "pq", "como", "qual", "quais", "deveria", "devo", "tarde", "noite",
+                 "logo", "antes", "enquanto", "ate", "manha", "semana", "segundos", "dormir", "sair", "chegar"}
+SOBRA = {"a", "o", "as", "os", "luz", "luzes", "lampada", "lampadas", "do", "da", "de", "dos", "das", "em", "com",
+         "brilho", "pra", "para", "mim", "pf", "pfv", "por", "favor", "porfavor", "aqui", "agora", "ai", "ja", "no", "na"}
+
+
+def comando_de_luz(texto: str) -> tuple[bool, str, int | None] | None:
+    """"liga a luz do quarto 2 em 30%" → (True, "quarto 2", 30). None se não for um comando curto e claro."""
+    t = normalizar(re.sub(r"[^\w%\s]", " ", str(texto)))
+    brilho = None
+    if m := re.search(r"\b(\d{1,3})\s*(%|por cento)", t):
+        brilho = int(m.group(1))
+        t = (t[:m.start()] + " " + t[m.end():]).strip()
+    palavras = t.split()
+    if not palavras or len(palavras) > 10 or NAO_E_COMANDO & set(palavras) or re.search(r"\b\d+\s*h\b|\bas \d", t):
+        return None
+    i = 0
+    while i < len(palavras) and palavras[i] in ANTES_DO_VERBO:
+        i += 1
+    if i >= len(palavras) or palavras[i] not in VERBOS:
+        return None
+    ligar = VERBOS[palavras[i]]
+    resto = [p for p in palavras[i + 1:] if p not in SOBRA]
+    if brilho is not None and not ligar:
+        return None  # "apaga em 30%" não faz sentido: deixa o modelo perguntar
+    alvo = " ".join(resto)
+    tem_luz = bool({"luz", "luzes", "lampada", "lampadas", "abajur"} & set(palavras)) or brilho is not None
+    if not alvo and not tem_luz:
+        return None  # "desliga", "me desliga": sem dizer o quê, não apaga a casa
+    return ligar, ("todas" if alvo in {"tudo", "todas", "todos", "toda casa", "casa toda", "casa"} else alvo), brilho
+
+
 def _chaves(texto: str) -> set[str]:
     palavras = (TRADUCAO.get(p, p) for p in normalizar(texto).split())
     return {p for p in palavras if p and p not in VAZIAS}
 
 
 class Casa:
-    def __init__(self, alexa: Alexa):
+    def __init__(self, alexa: Alexa, confirmar: bool = True):
         self.alexa = alexa
+        self.confirmar = confirmar
 
     def _rotuladas(self) -> list[dict[str, str]]:
         """As luzes com um rótulo único: nomes repetidos na Alexa viram "Bedroom Light 1", "Bedroom Light 2"."""
@@ -144,7 +184,13 @@ class Casa:
                 raise ErroFerramenta("A Alexa não respondeu: " + "; ".join(falhas))
             verbo = "Acendi" if ligar else "Apaguei"
             extra = f" em {brilho}%" if brilho else ""
-            texto_ok = f"{verbo} {', '.join(feitas)}{extra}."
+            if len(feitas) > 1 and len(feitas) == len(self.alexa.luzes()):
+                quais = "todas as luzes"  # falado soa melhor que a lista de nomes
+            elif len(feitas) > 1:
+                quais = f"as {len(feitas)} luzes ({', '.join(feitas)})"
+            else:
+                quais = feitas[0]
+            texto_ok = f"{verbo} {quais}{extra}."
             return texto_ok + (f" Não consegui: {'; '.join(falhas)}." if falhas else "")
 
         return executar
@@ -159,6 +205,28 @@ class Casa:
 
         return descrever
 
+    async def atalho(self, texto: str) -> tuple[str, dict[str, Any], str, bool] | None:
+        """Comando curto de luz sem passar pelo modelo: (ferramenta, args, resposta, ok). None = o modelo decide.
+
+        Só sem confirmação (com `confirmar`, o caminho normal é que pergunta). Um nome que não casa com nenhuma
+        luz também volta para o modelo, que pode perguntar qual."""
+        if self.confirmar:
+            return None
+        cmd = comando_de_luz(texto)
+        if cmd is None:
+            return None
+        ligar, luz, brilho = cmd
+        try:
+            self._escolher(luz)
+        except ErroFerramenta:
+            return None
+        args: dict[str, Any] = {"luz": luz} if not brilho else {"luz": luz, "brilho": brilho}
+        nome = "luz_acender" if ligar else "luz_apagar"
+        try:
+            return nome, args, await self._mudar(ligar)(args), True
+        except ErroFerramenta as e:
+            return nome, args, str(e), False
+
     def ferramentas(self) -> list[Ferramenta]:
         luz = texto("Nome da luz ou do lugar (ex.: 'quarto'), ou 'todas'. Sem número = todas as lâmpadas com esse "
                     "nome; com número = só aquela. Repasse o que o Felipe disse")
@@ -167,7 +235,9 @@ class Casa:
                        grupo="casa"),
             Ferramenta("luz_acender", "Acende uma luz da casa (pela Alexa), opcionalmente com brilho.",
                        esquema([], luz=luz, brilho=numero("Brilho de 1 a 100, opcional")),
-                       self._mudar(True), escrita=True, descrever=self._descrever(True), grupo="casa"),
+                       self._mudar(True), escrita=True, descrever=self._descrever(True), grupo="casa",
+                       confirmar=self.confirmar),
             Ferramenta("luz_apagar", "Apaga uma luz da casa (pela Alexa).", esquema([], luz=luz),
-                       self._mudar(False), escrita=True, descrever=self._descrever(False), grupo="casa"),
+                       self._mudar(False), escrita=True, descrever=self._descrever(False), grupo="casa",
+                       confirmar=self.confirmar),
         ]

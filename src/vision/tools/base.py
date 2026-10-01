@@ -48,6 +48,14 @@ class Ferramenta:
     grupo: str = "geral"
     # Para escrita: como a tela mostra a ação pendente (ex.: o cartão do evento), sem chamar nada externo.
     previa: Previa | None = None
+    # Escrita que roda sem "Confirma?" (luzes, a pedido do Felipe em 01/10). Mesmo assim pergunta se o turno
+    # (ou o anterior) leu conteúdo de fora: um texto de reunião não pode apagar as luzes sozinho.
+    confirmar: bool = True
+    # Leitura cujo resultado tem texto de terceiros (convites da agenda, transcrições, notas).
+    conteudo_externo: bool = False
+    # Não é escrita "de fora" (guardar memória), mas grava algo que volta em todo prompt: depois de ler texto de
+    # terceiros, vira confirmação, para uma transcrição não plantar uma "memória" com instruções.
+    confirmar_se_externo: bool = False
 
     def para_ollama(self) -> dict[str, Any]:
         return {

@@ -170,7 +170,7 @@ class Reunioes:
                        esquema([], texto=texto("Palavra ou assunto, opcional"),
                                data=texto("Dia da reunião AAAA-MM-DD, opcional"),
                                limite=numero("Quantas, padrão 8")),
-                       self.buscar, grupo="reunioes"),
+                       self.buscar, grupo="reunioes", conteudo_externo=True),
             Ferramenta("reuniao_ler",
                        "Lê uma reunião gravada: resumo, notas e transcrição (para responder o que foi dito ou "
                        "quais são os próximos passos).",
@@ -178,14 +178,14 @@ class Reunioes:
                                transcricao={"type": "boolean",
                                             "description": "true para ler também a transcrição (quem disse o quê)"},
                                a_partir_de=numero("Para continuar uma transcrição longa: posição em caracteres")),
-                       self.ler, grupo="reunioes"),
+                       self.ler, grupo="reunioes", conteudo_externo=True),
             Ferramenta("reunioes_proximas",
                        "Reuniões que vêm por aí segundo o Wispr Flow, com participantes (para 'me prepara para a "
                        "próxima reunião').",
                        esquema([], horas=numero("Janela em horas, padrão 24, máximo 168")),
-                       self.proximas, grupo="reunioes"),
+                       self.proximas, grupo="reunioes", conteudo_externo=True),
             Ferramenta("notas_buscar",
                        "Procura nas notas (scratchpad) do Felipe no Wispr Flow.",
                        esquema([], texto=texto("Palavra ou assunto, opcional"), limite=numero("Quantas, padrão 8")),
-                       self.notas, grupo="reunioes"),
+                       self.notas, grupo="reunioes", conteudo_externo=True),
         ]
