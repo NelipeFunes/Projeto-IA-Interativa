@@ -7,6 +7,9 @@ sozinho; a renovação pode trocar o refresh token, por isso cada troca é grava
 
 Tocar exige um "dispositivo" ativo: se o Spotify do PC estiver fechado, ele é aberto e o Vision espera ele
 aparecer na conta antes de mandar tocar.
+
+O padrão é SEMPRE o PC (pedido de 02/10: a música começou no Echo Dot só porque ele era o último ativo). Outro
+aparelho (Alexa/Echo, celular, TV) só quando o Felipe disser onde: `tocar(..., onde="alexa")`.
 """
 
 from __future__ import annotations
@@ -18,7 +21,9 @@ import json
 import logging
 import os
 import secrets
+import socket
 import time
+import unicodedata
 import webbrowser
 from collections.abc import Callable
 from pathlib import Path
@@ -37,7 +42,7 @@ ESCOPOS = "user-read-playback-state user-modify-playback-state user-read-current
 URL_CONTAS = "https://accounts.spotify.com"
 URL_API = "https://api.spotify.com/v1"
 PRAZO_LOGIN_S = 300
-ESPERA_DISPOSITIVO_S = 15
+ESPERA_DISPOSITIVO_S = 22  # Spotify abrindo do zero leva ~10 s; cabe no prazo de 30 s da ferramenta
 
 
 class SemLogin(RuntimeError):
@@ -248,20 +253,26 @@ class Spotify:
         return list(r.json().get("devices") or [])
 
     @staticmethod
-    def _escolher(dispositivos: list[dict[str, Any]]) -> dict[str, Any] | None:
-        """O que já está tocando; senão o computador (este PC); senão o primeiro."""
+    def _escolher(dispositivos: list[dict[str, Any]], onde: str | None = None) -> dict[str, Any] | None:
+        """Sem `onde`: o Spotify deste PC (pelo nome do computador; senão qualquer "Computer"). Nunca cai num
+        Echo ou celular por conta própria. Com `onde`: o aparelho com esse nome ou tipo ("alexa" = Echo)."""
         uteis = [d for d in dispositivos if not d.get("is_restricted")]
-        for criterio in (lambda d: d.get("is_active"), lambda d: d.get("type") == "Computer", lambda d: True):
-            achado = next((d for d in uteis if criterio(d)), None)
-            if achado is not None:
-                return achado
-        return None
+        if onde:
+            return achar_aparelho(uteis, onde)
+        pcs = [d for d in uteis if d.get("type") == "Computer"]
+        este = _sem_acento(socket.gethostname())
+        return next((d for d in pcs if _sem_acento(d.get("name", "")) == este), None) or \
+            next((d for d in pcs if d.get("is_active")), None) or (pcs[0] if pcs else None)
 
-    async def dispositivo(self) -> dict[str, Any]:
-        """Um dispositivo para tocar. Sem nenhum, abre o Spotify do PC e espera ele aparecer na conta."""
-        d = self._escolher(await self.dispositivos())
+    async def dispositivo(self, onde: str | None = None) -> dict[str, Any]:
+        """Onde tocar. Sem `onde`, o PC: com o Spotify fechado, abre e espera ele aparecer na conta."""
+        disponiveis = await self.dispositivos()
+        d = self._escolher(disponiveis, onde)
         if d is not None:
             return d
+        if onde:
+            nomes = ", ".join(x.get("name", "?") for x in disponiveis) or "nenhum"
+            raise ErroSpotify(f"Não achei '{onde}' no Spotify (aparelhos ligados agora: {nomes}).")
         await asyncio.to_thread(self._abrir_app, "spotify:")
         prazo = time.monotonic() + ESPERA_DISPOSITIVO_S
         while time.monotonic() < prazo:
@@ -283,16 +294,17 @@ class Spotify:
             raise ErroSpotify(f"Não achei '{busca}' no Spotify.")
         return itens[0]
 
-    async def tocar(self, busca: str, tipo: str = "musica") -> str:
+    async def tocar(self, busca: str, tipo: str = "musica", onde: str | None = None) -> str:
         item = await self.buscar(busca, tipo)
-        disp = await self.dispositivo()
+        disp = await self.dispositivo(onde)
         corpo = {"uris": [item["uri"]]} if tipo == "musica" else {"context_uri": item["uri"]}
         r = await self._api("PUT", "/me/player/play", params={"device_id": disp["id"]}, json=corpo)
         if r.status_code == 403:
             raise ErroSpotify("O Spotify recusou tocar (a conta precisa ser Premium).")
         if r.status_code not in (200, 202, 204):
             raise ErroSpotify(f"O Spotify não conseguiu tocar ({r.status_code}).")
-        return descrever_item(item, tipo)
+        tocando = descrever_item(item, tipo)
+        return f"{tocando} ({disp.get('name') or 'outro aparelho'})" if onde else tocando
 
     async def controlar(self, acao: str) -> str:
         metodo, caminho, feito = {
@@ -320,6 +332,31 @@ class Spotify:
             return "Nada está tocando no Spotify."
         estado = "Tocando" if dados.get("is_playing") else "Pausado"
         return f"{estado}: {descrever_item(item, 'musica')}."
+
+
+def _sem_acento(s: str) -> str:
+    s = unicodedata.normalize("NFKD", s.lower())
+    return "".join(c for c in s if not unicodedata.combining(c)).strip()
+
+
+# Como o Felipe chama cada tipo de aparelho do Spotify Connect.
+APELIDOS = {
+    "alexa": "Speaker", "echo": "Speaker", "echo dot": "Speaker", "caixa": "Speaker", "caixinha": "Speaker",
+    "celular": "Smartphone", "telefone": "Smartphone", "tv": "TV", "televisao": "TV",
+    "pc": "Computer", "computador": "Computer",
+}
+
+
+def achar_aparelho(dispositivos: list[dict[str, Any]], onde: str) -> dict[str, Any] | None:
+    """"alexa" → o primeiro Speaker; "echo da sala" → pelo nome; "pc" → o computador."""
+    alvo = _sem_acento(onde).removeprefix("na ").removeprefix("no ").strip()
+    por_nome = next((d for d in dispositivos if alvo and alvo in _sem_acento(d.get("name", ""))), None)
+    if por_nome is not None:
+        return por_nome
+    tipo = next((t for apelido, t in APELIDOS.items() if apelido in alvo.split() or apelido == alvo), None)
+    if tipo is None:
+        return None
+    return next((d for d in dispositivos if d.get("type") == tipo), None)
 
 
 def descrever_item(item: dict[str, Any], tipo: str) -> str:
