@@ -113,6 +113,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("alexa-login", help="liga o Vision às luzes da sua Alexa (login da Amazon no navegador)")
     sub.add_parser("alexa-luzes", help="atualiza a lista de luzes da Alexa (depois de renomear no app)")
     sub.add_parser("wispr-login", help="liga o Vision às suas reuniões e notas do Wispr Flow (login no navegador)")
+    s = sub.add_parser("spotify-login", help="liga o Vision ao seu Spotify (Premium) para tocar música")
+    s.add_argument("--client-id", help="Client ID do app criado em developer.spotify.com")
     sub.add_parser("dormir", help="tira o modelo da VRAM e pausa a palavra de ativação")
     sub.add_parser("acordar", help="carrega o modelo e reativa a palavra de ativação")
     sub.add_parser("memorias", help="lista o que o assistente lembra")
@@ -172,6 +174,10 @@ def main(argv: list[str] | None = None) -> int:
         from vision.wispr import login
 
         return asyncio.run(login(cfg))
+    elif args.comando == "spotify-login":
+        from vision.spotify import login as spotify_login
+
+        return asyncio.run(spotify_login(cfg, args.client_id))
     elif args.comando in ("dormir", "acordar"):
         asyncio.run(_dormir(cfg, args.comando == "dormir"))
     elif args.comando == "memorias":

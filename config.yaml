@@ -69,6 +69,11 @@ pc:
   # timers e alarmes, e comando do PowerShell quando nada serve (SEMPRE pede "sim", mostrando o comando).
   ativo: true
 
+spotify:
+  # Música pelo Spotify (conta Premium). Login uma vez: `vision spotify-login --client-id SEU_ID` (o Client ID é
+  # de um app seu em developer.spotify.com, com retorno http://127.0.0.1:8769/callback). Sem login, nada aparece.
+  ativo: true
+
 alexa:
   ativo: true               # luzes da Alexa pelo AlexaPy (não oficial). Login: vision alexa-login
   dominio: amazon.com.br

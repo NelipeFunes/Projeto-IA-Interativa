@@ -67,6 +67,10 @@ def regras(ferramentas: set[str] | None = None, confirmacao: str = "todas") -> s
     if tem("timer_criar"):
         linhas.append("11. Timer e alarme: `timer_criar` (\"timer de 10 minutos\", \"me avisa às 15h\" = hora "
                       "15:00). O Vision toca e avisa sozinho no fim; não diga que vai lembrar sem chamar a ferramenta.")
+    if tem("musica_tocar"):
+        linhas.append("12. Música: \"toca X\" é `musica_tocar` com busca=X (ele abre o Spotify sozinho; não use "
+                      "programa_abrir antes). tipo=artista/album/playlist quando o Felipe disser. Pausar, continuar, "
+                      "pular: `musica_controlar`. \"Que música é essa?\": `musica_tocando`.")
     if ferramentas is not None and not any(n.startswith("financas_") for n in ferramentas):
         linhas.append("7. Finanças e tarefas (app Orbit) estão DESLIGADAS por enquanto. Se o Felipe perguntar de "
                       "gastos, saldo ou tarefas, diga isso em uma frase; não invente valores.")

@@ -34,6 +34,8 @@ PADROES = {
                      r"\b(deslig|reinici|suspend)\w* o (pc|computador)\b|\bpowershell\b|"
                      r"\b(lista|listar|mostra|apaga|move|copia|renomeia|cria)\w* (os |as |o |a |uma |um )?"
                      r"(arquivos?|pastas?)\b", re.IGNORECASE),
+    "musica": re.compile(r"\btoca(r)? (a |uma |o |um )?\w|\bspotify\b|\bplaylist\b|\b[aá]lbum\b|"
+                         r"\b(que|qual) m[uú]sica (est[aá] |t[aá] )?tocando\b", re.IGNORECASE),
     "timer": re.compile(r"\b(timer|alarme|cron[oô]metro|temporizador|me avis[ae] (daqui|em|às|as|quando der))\b",
                         re.IGNORECASE),
     "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
@@ -47,7 +49,7 @@ PADROES = {
 
 # Grupos que, em PERGUNTA, não obrigam a chamar ferramenta logo de cara: "abre/fecha/volume" aparecem em
 # pergunta comum ("como abrir uma conta no banco?"). Em pedido, obrigam (revisão do PR 20).
-SEM_INSISTIR = {"pc"}
+SEM_INSISTIR = {"pc", "musica"}
 
 
 def detectar(texto: str) -> list[str]:
