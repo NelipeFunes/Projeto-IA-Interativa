@@ -49,6 +49,7 @@ agenda:
   # pelo Vision. "O que tenho amanhã?" responde sem esperar o Google. Mais velho que cache_min, consulta direto.
   cache_dias: 7
   cache_min: 10
+  avisar_antes_min: 10      # o Vision avisa sozinho (fala + tela) antes de cada compromisso; 0 desliga
 
 mcp:
   google-calendar:
@@ -71,10 +72,23 @@ mcp:
     oauth: data/wispr-oauth.json
     timeout_s: 30
 
+sistema:
+  alertas: true             # avisa sozinho com placa de vídeo a 85°C+, memória ou disco a 95%+ (1x por hora cada)
+
 pc:
   # Mexer no PC (pedido de 01/10): abrir/fechar programas, sites, volume, mídia, travar, desligar (pede "sim"),
   # timers e alarmes, e comando do PowerShell quando nada serve (SEMPRE pede "sim", mostrando o comando).
   ativo: true
+
+protocolos:
+  # Uma frase, várias ações (como o "House Party Protocol" do JARVIS). Ficam em data/protocolos.yaml, criado com
+  # dois exemplos na 1ª vez. Ferramentas que pedem "sim" não podem ser passo.
+  ativo: true
+clima:
+  # Clima pela Open-Meteo (grátis, sem chave) e o "bom dia" (resumo: hora, clima, agenda de hoje, timers).
+  # A cidade fica em data/config-local.yaml (clima.cidade: "Sua Cidade"), fora do git.
+  ativo: true
+  cidade: ""
 
 web:
   # Busca na internet (pedido de 01/10). Com TAVILY_API_KEY no .env usa a Tavily (1.000 buscas grátis por mês,
@@ -101,11 +115,17 @@ voz:
   alto_falante: [HyperX]
   # xtts: voz natural na placa de vídeo (~2 GB, ~1 s por frase; no modo jogo sai da placa e fala o Piper).
   # piper: instantânea, na CPU, mais robótica. Sem o XTTS instalado ou sem o modelo, cai no Piper sozinho.
-  motor: xtts
-  xtts_falante: Tanja Adelina # vozes de estúdio do XTTS-v2 (amostras de 01/10: Tanja escolhida)
+  # 02/10: o Felipe preferiu voltar ao Piper (a Tanja do XTTS não agradou). O XTTS continua disponível.
+  motor: piper
+  xtts_falante: Tanja Adelina # vozes de estúdio do XTTS-v2 (amostras de 01/10)
   piper_ate_caracteres: 45    # com o XTTS, resposta de uma frase só até esse tamanho sai pelo Piper, na hora (0 = nunca)
   voz_piper: pt_BR-faber-medium
   velocidade_fala: 1.0        # >1 fala mais devagar
+  # Acabamento do Piper (02/10): pausa entre frases e variação da entonação/ritmo (vazio = padrão do modelo,
+  # 0,667 e 0,8; menor = mais estável e "certinho", maior = mais solto). Amostras em amostras/piper-*.wav.
+  pausa_entre_frases_s: 0.14
+  piper_variacao:
+  piper_variacao_ritmo:
   # parakeet-base-int8 (650 MB, carrega em 2,6 s) ou parakeet-ptbr (ajuste fino PT-BR, 2,5 GB, 4,3 s).
   # Com a sua voz (30/09) os dois transcreveram igual ("…quanto eu gastei com iFood esse mês?"), mas o
   # base carrega em 3,2 s contra 7,7 s e transcreve mais rápido. Fica o base.
@@ -131,6 +151,12 @@ voz:
   interromper_apos_s: 0.5     # quanto tempo de voz sua antes de cortar (tosse e estalo não cortam)
   silencio_fim_ms: 800        # quanto silêncio encerra a sua fala
   maximo_fala_s: 20
+
+wyoming:
+  # `vision wyoming`: a transcrição e a voz do Vision para o Home Assistant e os satélites dos cômodos (docs/futuro).
+  # O protocolo não tem senha nem criptografia: só 127.0.0.1, a não ser com permitir_rede (rede confiável apenas).
+  endereco: tcp://127.0.0.1:10300
+  permitir_rede: false
 
 modo_jogo:
   ativo: true
