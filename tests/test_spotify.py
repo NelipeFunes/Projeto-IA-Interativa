@@ -239,3 +239,86 @@ async def test_tipo_com_acento(com_login):
     await Musica(sp).tocar({"busca": "foco", "tipo": "Playlist"})
     assert ("PUT", "/v1/me/player/play", {"context_uri": "spotify:playlist:9"}) in api.chamadas
     await sp.fechar()
+
+
+class ApiComEcho(ApiFalsa):
+    """O Echo Dot é o último aparelho ativo, como em 02/10; o PC também está ligado (ou não)."""
+
+    def __init__(self, com_pc=True, **kw):
+        super().__init__(dispositivos_depois=0, **kw)
+        self.com_pc = com_pc
+
+    def __call__(self, req):
+        if req.url.path == "/v1/me/player/devices":
+            self.chamadas.append((req.method, req.url.path, {}))
+            aparelhos = [{"id": "echo1", "name": "Echo Dot", "type": "Speaker", "is_active": True}]
+            if self.com_pc:
+                aparelhos.append({"id": "pc1", "name": "DESKTOP-X", "type": "Computer", "is_active": False})
+            return httpx.Response(200, json={"devices": aparelhos})
+        return super().__call__(req)
+
+
+def _onde_tocou(api):
+    return [c for c in api.chamadas if c[1] == "/v1/me/player/play"]
+
+
+async def test_padrao_e_o_pc_mesmo_com_o_echo_ativo(com_login):
+    api = ApiComEcho()
+    async with _sp(com_login, api) as sp:
+        assert await sp.tocar("bohemian rhapsody") == "Bohemian Rhapsody, de Queen"
+        disp = await sp.dispositivo()
+    assert disp["id"] == "pc1"
+
+
+async def test_pc_fechado_abre_o_spotify_em_vez_de_tocar_no_echo(com_login, monkeypatch):
+    monkeypatch.setattr(spotify, "ESPERA_DISPOSITIVO_S", 0.05)
+    api, abertos = ApiComEcho(com_pc=False), []
+
+    async def dorme_pouco(_s):
+        await asyncio.sleep(0.01)
+
+    sp = spotify.Spotify(com_login, abrir_app=abertos.append, transporte=httpx.MockTransport(api), dormir=dorme_pouco)
+    with pytest.raises(spotify.ErroSpotify, match="não apareceu"):
+        await sp.tocar("x")
+    await sp.fechar()
+    assert abertos == ["spotify:"] and not _onde_tocou(api)  # nunca tocou no Echo
+
+
+async def test_na_alexa_so_quando_pedido(com_login):
+    api = ApiComEcho()
+    async with _sp(com_login, api) as sp:
+        assert await sp.tocar("bohemian rhapsody", onde="alexa") == "Bohemian Rhapsody, de Queen (Echo Dot)"
+        assert (await sp.dispositivo("echo"))["id"] == "echo1"
+        with pytest.raises(spotify.ErroSpotify, match="Não achei 'celular'"):
+            await sp.dispositivo("celular")
+
+
+def test_atalho_entende_o_aparelho_no_fim():
+    assert comando_de_musica("toca Queen na Alexa") == {"busca": "queen", "tipo": "musica", "onde": "alexa"}
+    assert comando_de_musica("toca a playlist foco no echo dot") == {"busca": "foco", "tipo": "playlist",
+                                                                     "onde": "echo dot"}
+    assert comando_de_musica("toca garota de ipanema") == {"busca": "garota de ipanema", "tipo": "musica"}
+    assert comando_de_musica("toca na alexa") is None
+
+
+async def test_ferramenta_no_pc_e_o_padrao(com_login):
+    api = ApiComEcho()
+    async with _sp(com_login, api) as sp:
+        assert await Musica(sp).tocar({"busca": "queen", "onde": "no PC"}) == "Tocando Bohemian Rhapsody, de Queen."
+
+
+
+async def test_confirmacao_diz_o_aparelho_e_nome_curto_nao_casa(com_login):
+    api = ApiComEcho()
+    async with _sp(com_login, api) as sp:
+        m = Musica(sp)
+        assert await m.descrever_tocar({"busca": "Queen", "onde": "alexa"}) == "Vou tocar no Spotify: Queen, em alexa."
+        assert await m.descrever_tocar({"busca": "Queen"}) == "Vou tocar no Spotify do PC: Queen."
+    assert spotify.achar_aparelho([{"name": "Echo Dot", "type": "Speaker"}], "na") is None
+
+
+def test_hostname_vence_outro_computador(monkeypatch):
+    monkeypatch.setattr(spotify.socket, "gethostname", lambda: "MEU-PC")
+    aparelhos = [{"id": "nb", "name": "Notebook", "type": "Computer", "is_active": True},
+                 {"id": "pc", "name": "MEU-PC", "type": "Computer", "is_active": False}]
+    assert spotify.Spotify._escolher(aparelhos)["id"] == "pc"
