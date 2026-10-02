@@ -21,6 +21,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import re
+import threading
 import time
 from collections import deque
 from collections.abc import Callable, Iterator
@@ -39,6 +40,25 @@ log = logging.getLogger(__name__)
 
 FALA_DE_ERRO = "Não consegui pensar agora. O modelo pode estar carregando; tenta de novo em um instante."
 FIM_DE_FRASE = re.compile(r"(?<=[.!?])\s+")
+# A 1ª frase sai já na 1ª vírgula ("Amanhã às dez você tem barbeiro, e…"): começa a falar antes do ponto.
+PRIMEIRA_VIRGULA = re.compile(r"(.+?,)\s+(.*)", re.DOTALL)
+PALAVRAS_ANTES_DA_VIRGULA = 3  # "Pronto, Felipe." não corta: pedaço curto demais soa picotado
+PIPER_ATE_CARACTERES = 45
+
+
+def fatiar(texto: str, primeira: bool) -> tuple[list[str], str]:
+    """Texto do modelo chegando aos poucos → (frases prontas para falar, resto ainda incompleto).
+
+    `primeira`: nada foi falado ainda; aí a 1ª vírgula já fecha um pedaço, se ele tiver 3+ palavras e o ponto
+    ainda não tiver chegado (resposta de atalho chega inteira: cortar não adianta e a tiraria do Piper)."""
+    prontas: list[str] = []
+    if primeira:
+        m = PRIMEIRA_VIRGULA.fullmatch(texto)
+        if m and len(m.group(1).split()) >= PALAVRAS_ANTES_DA_VIRGULA and not re.search(r"[.!?]", texto):
+            prontas.append(m.group(1))
+            texto = m.group(2)
+    *completas, resto = FIM_DE_FRASE.split(texto)
+    return prontas + completas, resto
 BLOCO_S = 0.08
 TRECHO_ATIVACAO_S = 2.5  # para achar o nome, basta transcrever o começo da fala (mais leve para a CPU)
 MAXIMO_CANDIDATO_S = 12.0  # fala mais longa que isso, esperando, não é alguém chamando: nem transcreve
@@ -88,8 +108,11 @@ class LoopVoz:
         ao_evento: Callable[[dict[str, Any]], None] | None = None,
         vigia: DetectorFala | None = None,
         interromper_apos_s: float = INTERROMPER_APOS_S,
+        piper_ate_caracteres: int = PIPER_ATE_CARACTERES,
     ):
         self.agente = agente
+        # Com o XTTS: resposta de uma frase só até esse tamanho ("Acendi a luz do quarto.") sai pelo Piper, na hora.
+        self.piper_ate_caracteres = piper_ate_caracteres
         self.voz = voz
         self.stt = transcritor
         self.entrada = entrada
@@ -407,11 +430,12 @@ class LoopVoz:
         primeira_fala: list[float] = []
 
         def ao_texto(parte: str) -> None:
-            pendente[0] += parte
-            pedacos = FIM_DE_FRASE.split(pendente[0])
-            for frase in pedacos[:-1]:
+            prontas, pendente[0] = fatiar(pendente[0] + parte, primeira=enviadas[0] == 0)
+            for frase in prontas:
                 fila.put_nowait(frase)
-            pendente[0] = pedacos[-1]
+                enviadas[0] += 1
+
+        enviadas = [0]
 
         falador = asyncio.create_task(self._falador(fila, primeira_fala))
         t1 = time.perf_counter()
@@ -446,33 +470,97 @@ class LoopVoz:
                                "stt_s": t_stt, "pensar_s": r.segundos, "ate_falar_s": ate_falar,
                                "interrompido": self.interrompido_por})
 
+    async def _sintetizador(self, fila: asyncio.Queue[str | None],
+                            prontas: asyncio.Queue[tuple[int, np.ndarray] | Exception | None],
+                            parar: threading.Event) -> None:
+        """Gera o áudio das frases na ordem, em pedaços (`(taxa, áudio)`), enquanto o falador toca os anteriores.
+
+        - XTTS: streaming, o 1º pedaço sai em ~0,6 s.
+        - Resposta inteira de uma frase curta (luz, timer, "feito"): sai pela reserva (Piper), instantânea.
+        - Um erro de síntese vai pela fila e o falador o levanta."""
+        loop = asyncio.get_running_loop()
+
+        def entregar(item: tuple[int, np.ndarray]) -> None:
+            loop.call_soon_threadsafe(prontas.put_nowait, item)
+
+        def cortado() -> bool:
+            return parar.is_set() or self.interrompido_por is not None
+
+        adiante: list[str | None] = []
+        primeira = True
+        try:
+            while (frase := adiante.pop(0) if adiante else await fila.get()) is not None:
+                if cortado() or not frase.strip():
+                    continue  # cortado: não gasta a placa com o que não vai tocar
+                voz = self.voz  # uma vez por frase: a tela de ajustes pode trocar a voz no meio
+                fonte = voz
+                reserva = getattr(voz, "reserva", None)
+                if primeira and reserva is not None and len(frase.strip()) <= self.piper_ate_caracteres:
+                    if not fila.empty():
+                        adiante.append(fila.get_nowait())
+                    if adiante == [None]:  # é a resposta inteira: rapidez vale mais que a voz bonita aqui
+                        fonte = reserva
+                primeira = False
+                await asyncio.to_thread(self._gerar, fonte, frase, entregar, cortado)
+        except Exception as e:  # noqa: BLE001 - repassado ao falador
+            prontas.put_nowait(e)
+            return
+        prontas.put_nowait(None)
+
+    @staticmethod
+    def _gerar(voz: Any, frase: str, entregar: Callable[[tuple[int, np.ndarray]], None],
+               cortado: Callable[[], bool]) -> None:
+        """Na thread: os pedaços do streaming (XTTS) ou a frase inteira (Piper)."""
+        if not hasattr(voz, "pedacos"):
+            entregar((voz.taxa, voz.sintetizar(frase)))
+            return
+        gerador = voz.pedacos(frase)
+        try:
+            for pedaco in gerador:
+                if cortado():
+                    return
+                entregar((voz.taxa, pedaco))
+        finally:
+            gerador.close()  # solta a trava da placa já, na mesma thread
+
     async def _falador(self, fila: asyncio.Queue[str | None], primeira_fala: list[float]) -> None:
         self.saida.interromper.clear()
         self.interrompido_por = None
         interrompido = False
         vigia: asyncio.Task | None = None
+        fluxo: Any = None
+        parar = threading.Event()
+        prontas: asyncio.Queue[tuple[int, np.ndarray] | Exception | None] = asyncio.Queue()
+        sintetizador = asyncio.create_task(self._sintetizador(fila, prontas, parar))
+        # Abrir o fone leva ~0,2 s (MME): já abre enquanto ele pensa e gera o 1º pedaço.
+        abrindo = asyncio.create_task(asyncio.to_thread(self.saida.abrir, getattr(self.voz, "taxa", 22050)))
         try:
-            while (frase := await fila.get()) is not None:
-                if self.interrompido_por is not None:  # cortado por voz entre uma frase e outra
+            while (pronta := await prontas.get()) is not None:
+                if isinstance(pronta, Exception):
+                    raise pronta
+                taxa, audio = pronta
+                if self.interrompido_por is not None or (fluxo is not None and self.saida.interromper.is_set()):
+                    # Cortado (por voz ou atalho) entre um pedaço e outro: o resto não toca.
                     interrompido = True
-                if interrompido or not frase.strip():
+                if interrompido:
+                    parar.set()
                     continue
-                voz = self.voz  # uma vez por frase: a tela de ajustes pode trocar a voz no meio
-                audio = await asyncio.to_thread(voz.sintetizar, frase)
-                if self.interrompido_por is not None or (vigia is not None and self.saida.interromper.is_set()):
-                    # Cortado (por voz ou atalho) enquanto esta frase era sintetizada: ela não toca. O `tocar`
-                    # limparia o pedido de corte (revisão do PR 17).
-                    interrompido = True
+                if audio.size == 0:
                     continue
+                if fluxo is None:  # um fluxo só para a resposta toda: os pedaços emendam sem buraco
+                    fluxo = await abrindo
+                    # Como no `tocar` antigo: um atalho apertado enquanto ele pensava não corta a resposta.
+                    self.saida.interromper.clear()
                 if not primeira_fala:
                     primeira_fala.append(time.perf_counter())
                 self._mostrar("falando")
                 if vigia is None and self.vigia is not None:
                     vigia = asyncio.create_task(self._vigiar_interrupcao())
-                ondas = asyncio.create_task(self._emitir_voz(envelope(audio, voz.taxa))) if self.ao_evento else None
+                ondas = asyncio.create_task(self._emitir_voz(envelope(audio, taxa))) if self.ao_evento else None
                 try:
-                    if not await asyncio.to_thread(self.saida.tocar, audio, voz.taxa):
+                    if not await asyncio.to_thread(fluxo.escrever, audio, taxa):
                         interrompido = True
+                        parar.set()
                         if vigia is not None and self.interrompido_por is None:  # atalho: o vigia para aqui
                             vigia.cancel()
                 finally:
@@ -480,6 +568,18 @@ class LoopVoz:
                         ondas.cancel()
                         self._emitir({"tipo": "nivel", "fonte": "voz", "valor": 0.0})
         finally:
+            parar.set()
+            sintetizador.cancel()
+            await asyncio.gather(sintetizador, return_exceptions=True)
+            if fluxo is None:  # nada tocou (resposta vazia, erro, cortado antes): fecha o que abriu
+                fluxo = (await asyncio.gather(abrindo, return_exceptions=True))[0]
+                if isinstance(fluxo, BaseException):
+                    fluxo = None
+            if fluxo is not None:
+                try:
+                    await asyncio.to_thread(fluxo.fechar, not interrompido)
+                except Exception:  # noqa: BLE001 - o alto-falante sumiu no meio: a escuta continua
+                    log.exception("não consegui fechar a saída de som")
             if vigia is not None:
                 vigia.cancel()
                 await asyncio.gather(vigia, return_exceptions=True)
@@ -588,7 +688,9 @@ class LoopVoz:
 
     async def falar(self, texto: str) -> None:
         """Fala uma frase fora de conversa (aviso de login, lembrete)."""
-        await asyncio.to_thread(self.saida.tocar, self.voz.sintetizar(texto), self.voz.taxa)
+        voz = self.voz
+        audio = await asyncio.to_thread(voz.sintetizar, texto)  # o XTTS leva ~1 s: fora do laço de eventos
+        await asyncio.to_thread(self.saida.tocar, audio, voz.taxa)
 
     async def _bipe(self, subindo: bool) -> None:
         if self.bipes:
@@ -615,6 +717,7 @@ class LoopVoz:
                 if self.estado == "ocioso":
                     self._mostrar("ocioso")  # vira "jogo"
                 await self.agente.descarregar()
+                await self._voz_na_placa(False)
                 self.escrever("[modo jogo] modelo fora da VRAM; 'Hey Vision' pausado, o atalho continua valendo.")
             elif not agora and self.jogando:
                 self.jogando = False
@@ -622,7 +725,18 @@ class LoopVoz:
                     self._mostrar("ocioso")
                 self.escrever("[modo jogo] fim do jogo; 'Hey Vision' de volta.")
                 await self.agente.liberar_modelo()
+                await self._voz_na_placa(True)
             await asyncio.sleep(a_cada_s)
+
+    async def _voz_na_placa(self, sim: bool) -> None:
+        """XTTS: sai da VRAM durante o jogo (fala com o Piper) e volta depois. O Piper não usa a placa."""
+        metodo = getattr(self.voz, "acordar" if sim else "descansar", None)
+        if metodo is None:
+            return
+        try:
+            await asyncio.to_thread(metodo)
+        except Exception:  # noqa: BLE001 - sem a placa, a voz de reserva continua falando
+            log.exception("não consegui mover a voz %s da placa de vídeo", "para a" if sim else "para fora")
 
 
 @contextmanager
@@ -633,6 +747,7 @@ def preparar_voz(
     com_ativacao: bool = True,
     escrever: Callable[[str], None] = print,
     ao_evento: Callable[[dict[str, Any]], None] | None = None,
+    voz: Any = None,
 ) -> Iterator[tuple[LoopVoz, Any]]:
     """Carrega voz, transcrição, ativação e microfone e monta o LoopVoz (usado pelo `vision voz` e pelo núcleo).
 
@@ -640,11 +755,11 @@ def preparar_voz(
     """
     from vision.voice.audio import Microfone, Saida
     from vision.voice.stt import carregar_transcritor
-    from vision.voice.tts import carregar_voz
+    from vision.voice.tts import carregar_voz, descrever
     from vision.voice.wake import Atalho
 
     t = time.perf_counter()
-    voz = carregar_voz(cfg)
+    voz = voz or carregar_voz(cfg)  # o núcleo carrega antes, numa thread: o XTTS leva 15–30 s
     stt = carregar_transcritor(cfg)
     pasta_oww = cfg.modelos / "openwakeword"
     ativacao = None
@@ -658,7 +773,7 @@ def preparar_voz(
     detector = DetectorFala(pasta_oww / "silero_vad.onnx", int(cfg.get("voz.silencio_fim_ms", 800)),
                             float(cfg.get("voz.maximo_fala_s", 20)))
     saida = Saida(cfg)
-    escrever(f"Voz carregada em {time.perf_counter() - t:.1f}s (STT: {stt.nome}, voz: {cfg.get('voz.voz_piper')})")
+    escrever(f"Voz carregada em {time.perf_counter() - t:.1f}s (STT: {stt.nome}, voz: {descrever(voz, cfg)})")
     with Microfone(cfg) as mic:
         laco = LoopVoz(agente, voz, stt, mic, saida, detector, ativacao,
                        flag_dormindo=cfg.dados / "dormindo.flag", escrever=escrever, ao_evento=ao_evento,
@@ -669,7 +784,8 @@ def preparar_voz(
                        despedida=cfg.get("voz.despedida") or "",
                        vigia=(DetectorFala(pasta_oww / "silero_vad.onnx", 500, 60)
                               if cfg.get("voz.interromper_por_voz", True) else None),
-                       interromper_apos_s=float(cfg.get("voz.interromper_apos_s", INTERROMPER_APOS_S)))
+                       interromper_apos_s=float(cfg.get("voz.interromper_apos_s", INTERROMPER_APOS_S)),
+                       piper_ate_caracteres=int(cfg.get("voz.piper_ate_caracteres", PIPER_ATE_CARACTERES)))
         loop = asyncio.get_running_loop()
         atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
         for nota in mic.notas:

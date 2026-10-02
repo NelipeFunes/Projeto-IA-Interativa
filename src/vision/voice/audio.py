@@ -87,6 +87,46 @@ class Saida:
         return True
 
 
+    def abrir(self, taxa: int) -> FluxoSaida:
+        """Uma resposta inteira num fluxo só: os pedaços do XTTS emendam sem buraco entre eles."""
+        return FluxoSaida(self.dispositivo, taxa, self.interromper)
+
+
+class FluxoSaida:
+    PASSO_S = 0.05  # escreve em fatias de 50 ms para o corte (por voz ou atalho) valer na hora
+
+    def __init__(self, dispositivo: int | None, taxa: int, interromper: threading.Event):
+        import sounddevice as sd
+
+        self.taxa = taxa
+        self.interromper = interromper
+        self.stream = sd.OutputStream(samplerate=taxa, channels=1, dtype="float32", device=dispositivo)
+        self.stream.start()
+
+    def escrever(self, audio: np.ndarray, taxa: int) -> bool:
+        """Espera o pedaço entrar no buffer (o ritmo da fala). False se foi interrompido."""
+        from vision.voice.stt import reamostrar
+
+        if taxa != self.taxa:
+            audio = reamostrar(audio, taxa, self.taxa)
+        passo = max(1, int(self.taxa * self.PASSO_S))
+        for i in range(0, audio.size, passo):
+            if self.interromper.is_set():
+                return False
+            self.stream.write(np.ascontiguousarray(audio[i : i + passo], dtype=np.float32).reshape(-1, 1))
+        return not self.interromper.is_set()
+
+    def fechar(self, drenar: bool = True) -> None:
+        """`drenar`: deixa o fim do buffer tocar (o `stop` do PortAudio espera); senão corta na hora."""
+        try:
+            if drenar and not self.interromper.is_set():
+                self.stream.stop()
+            else:
+                self.stream.abort()
+        finally:
+            self.stream.close()
+
+
 class SaidaArquivo:
     """Guarda tudo o que seria tocado (para testes)."""
 
@@ -96,17 +136,30 @@ class SaidaArquivo:
         self.interromper = threading.Event()
         self.tempo_real = tempo_real  # demora o tempo do áudio (e pode ser interrompida), como o alto-falante
 
-    def tocar(self, audio: np.ndarray, taxa: int) -> bool:
+    def tocar(self, audio: np.ndarray, taxa: int, _limpar: bool = True) -> bool:
         from vision.voice.stt import reamostrar
 
+        if not _limpar and self.interromper.is_set():
+            return False  # no fluxo, um corte anterior vale (o `tocar` sozinho começa do zero)
         self.trechos.append(reamostrar(audio, taxa, self.taxa))
         if self.tempo_real:
-            self.interromper.clear()
+            if _limpar:
+                self.interromper.clear()
             fim = time.monotonic() + audio.size / taxa
             while time.monotonic() < fim:
                 if self.interromper.wait(0.01):
                     return False
         return True
+
+    def abrir(self, _taxa: int) -> SaidaArquivo:
+        """O mesmo papel do `FluxoSaida`: cada pedaço escrito vira um trecho."""
+        return self
+
+    def escrever(self, audio: np.ndarray, taxa: int) -> bool:
+        return self.tocar(audio, taxa, _limpar=False) and not self.interromper.is_set()
+
+    def fechar(self, drenar: bool = True) -> None:
+        pass
 
     def audio(self) -> np.ndarray:
         return np.concatenate(self.trechos) if self.trechos else np.zeros(0, dtype=np.float32)

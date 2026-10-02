@@ -43,10 +43,28 @@ dev = [
     "pytest-asyncio>=0.24",
     "respx>=0.21",
 ]
+# Voz XTTS-v2 (voz.motor: xtts) na placa de vídeo. Sem este grupo, o Vision fala com o Piper.
+# Licença do modelo: Coqui Public Model License (só uso não comercial).
+xtts = [
+    "torch==2.8.*",
+    "torchaudio==2.8.*",
+    "coqui-tts>=0.27,<0.28",
+    "transformers>=4.43,<5",  # o 5.x tirou o isin_mps_friendly que o XTTS importa
+]
 
 [tool.uv]
 # O Vision só roda no Windows; sem isso o uv tenta resolver o tflite-runtime do Linux.
 environments = ["sys_platform == 'win32'"]
+default-groups = ["dev", "xtts"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"  # RTX 50xx (Blackwell) precisa do CUDA 12.8
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }
 
 [build-system]
 requires = ["hatchling"]

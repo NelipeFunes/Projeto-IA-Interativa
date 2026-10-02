@@ -84,8 +84,13 @@ alexa:
 voz:
   microfone: [HyperX, C920]   # procura por nome, na ordem
   alto_falante: [HyperX]
+  # xtts: voz natural na placa de vídeo (~2 GB, ~1 s por frase; no modo jogo sai da placa e fala o Piper).
+  # piper: instantânea, na CPU, mais robótica. Sem o XTTS instalado ou sem o modelo, cai no Piper sozinho.
+  motor: xtts
+  xtts_falante: Tanja Adelina # vozes de estúdio do XTTS-v2 (amostras de 01/10: Tanja escolhida)
+  piper_ate_caracteres: 45    # com o XTTS, resposta de uma frase só até esse tamanho sai pelo Piper, na hora (0 = nunca)
   voz_piper: pt_BR-faber-medium
-  velocidade_fala: 1.0        # >1 fala mais devagar (length_scale do Piper)
+  velocidade_fala: 1.0        # >1 fala mais devagar
   # parakeet-base-int8 (650 MB, carrega em 2,6 s) ou parakeet-ptbr (ajuste fino PT-BR, 2,5 GB, 4,3 s).
   # Com a sua voz (30/09) os dois transcreveram igual ("…quanto eu gastei com iFood esse mês?"), mas o
   # base carrega em 3,2 s contra 7,7 s e transcreve mais rápido. Fica o base.
