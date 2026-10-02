@@ -81,7 +81,9 @@ class SaidaLenta:
         return not self.interromper.is_set()
 
     def fechar(self, drenar: bool = True) -> None:
-        self.fechou_drenando.append(drenar)
+        if not self.fechou_drenando:  # como o FluxoSaida: fechar de novo não faz nada
+            self.fechou_drenando.append(drenar)
+            self.fechou_em = time.monotonic()
 
 
 def _laco(voz, saida, **opcoes):
@@ -178,6 +180,130 @@ async def test_frase_longa_sozinha_fica_no_xtts():
     voz, saida = XTTSFalso(), SaidaLenta(duracao_s=0)
     await _falar(_laco(voz, saida), ["Amanhã às dez você tem barbeiro e às três a reunião do projeto."])
     assert voz.reserva.sintetizadas == [] and len(voz.sintetizadas) == 1
+
+
+async def test_corte_enquanto_o_modelo_ainda_escreve_para_o_som_na_hora():
+    """Revisão do PR 22: cortado por voz entre uma frase e a próxima (o modelo ainda pensando), o fone fecha já,
+    sem esperar a resposta acabar."""
+    voz, saida = VozLenta(atraso_s=0), SaidaLenta(duracao_s=0)
+    laco = _laco(voz, saida)
+    fila: asyncio.Queue[str | None] = asyncio.Queue()
+    fila.put_nowait("Um.")
+    falador = asyncio.create_task(laco._falador(fila, []))
+    await asyncio.sleep(0.1)
+    laco.interrompido_por = "fala"
+    await asyncio.sleep(0.15)
+    assert saida.fechou_drenando == [False]  # já fechou, cortando
+    fila.put_nowait("Dois.")
+    fila.put_nowait(None)
+    await falador
+    assert len(saida.tocadas) == 1
+
+
+async def test_fone_que_nao_abre_sem_nada_para_tocar_nao_quebra():
+    class SaidaSemFone(SaidaLenta):
+        def abrir(self, _taxa):
+            raise OSError("dispositivo ocupado")
+
+    laco = _laco(VozLenta(atraso_s=0), SaidaSemFone())
+    await _falar(laco, ["  "])  # nada a falar: o erro de abrir não importa
+    with pytest.raises(OSError, match="ocupado"):
+        await _falar(laco, ["Um."])  # algo a falar: o erro sobe, como antes no `tocar`
+
+
+class _StreamFalso:
+    def __init__(self, falha_no_start=False, **_kw):
+        self.escritos: list[int] = []
+        self.eventos: list[str] = []
+        self.falha_no_start = falha_no_start
+
+    def start(self):
+        if self.falha_no_start:
+            raise OSError("ocupado")
+        self.eventos.append("start")
+
+    def write(self, dados):
+        self.escritos.append(len(dados))
+
+    def stop(self):
+        self.eventos.append("stop")
+
+    def abort(self):
+        self.eventos.append("abort")
+
+    def close(self):
+        self.eventos.append("close")
+
+
+def _fluxo(monkeypatch, **kw):
+    import sys
+    import types
+
+    from vision.voice.audio import FluxoSaida
+
+    criados: list[_StreamFalso] = []
+
+    def criar(**args):
+        criados.append(_StreamFalso(**kw))
+        return criados[-1]
+
+    monkeypatch.setitem(sys.modules, "sounddevice", types.SimpleNamespace(OutputStream=criar))
+    evento = threading.Event()
+    return FluxoSaida(None, 1000, evento), evento, criados
+
+
+def test_fluxo_escreve_em_fatias_e_drena_no_fim(monkeypatch):
+    fluxo, _corte, (stream,) = _fluxo(monkeypatch)
+    assert fluxo.escrever(np.zeros(120, dtype=np.float32), 1000)
+    assert stream.escritos == [50, 50, 20]  # fatias de 50 ms
+    assert fluxo.escrever(np.zeros(2000, dtype=np.float32), 2000)  # outra taxa: reamostrado para 1 kHz
+    assert sum(stream.escritos) == 120 + 1000
+    fluxo.fechar()
+    fluxo.fechar(False)  # de novo: nada
+    assert stream.eventos == ["start", "stop", "close"]
+
+
+def test_fluxo_cortado_para_de_escrever_e_aborta(monkeypatch):
+    fluxo, corte, (stream,) = _fluxo(monkeypatch)
+    corte.set()
+    assert not fluxo.escrever(np.zeros(120, dtype=np.float32), 1000)
+    assert stream.escritos == []
+    fluxo.fechar()  # pediu para drenar, mas foi cortado: corta
+    assert stream.eventos == ["start", "abort", "close"]
+
+
+def test_fluxo_que_nao_inicia_fecha_o_stream(monkeypatch):
+    import sys
+    import types
+
+    from vision.voice.audio import FluxoSaida
+
+    criados: list[_StreamFalso] = []
+    monkeypatch.setitem(sys.modules, "sounddevice", types.SimpleNamespace(
+        OutputStream=lambda **_a: criados.append(_StreamFalso(falha_no_start=True)) or criados[-1]))
+    with pytest.raises(OSError):
+        FluxoSaida(None, 1000, threading.Event())
+    assert criados[0].eventos == ["close"]
+
+
+def test_acordar_sem_vram_desfaz_e_continua_na_reserva():
+    class ModeloSemVRAM:
+        def __init__(self):
+            self.onde = "cpu"
+
+        def cuda(self):
+            self.onde = "metade"
+            raise RuntimeError("CUDA out of memory")
+
+        def cpu(self):
+            self.onde = "cpu"
+
+    voz = _xtts_sem_modelo(_Reserva())
+    voz.modelo = ModeloSemVRAM()
+    with pytest.raises(RuntimeError, match="out of memory"):
+        voz.acordar()
+    assert voz.modelo.onde == "cpu" and voz.descansando  # nada pela metade na placa; fala a reserva
+    assert voz._trava.acquire(blocking=False)
 
 
 def test_primeira_virgula_ja_vira_frase_enquanto_o_resto_chega():

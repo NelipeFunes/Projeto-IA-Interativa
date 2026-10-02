@@ -66,7 +66,9 @@ def baixar_wakeword() -> None:
 
 def baixar_xtts() -> None:
     # Voz natural (voz.motor: xtts), ~1,9 GB. Licença Coqui Public Model License: só uso não comercial.
-    snapshot_download("coqui/XTTS-v2", local_dir=MODELOS / "xtts_v2",
+    # Revisão fixa (a última, de 12/2023): o repositório da Coqui está parado, mas não é nosso.
+    snapshot_download("coqui/XTTS-v2", revision="6c2b0d75eae4b7047358e3b6bd9325f857d43f77",
+                      local_dir=MODELOS / "xtts_v2",
                       allow_patterns=["model.pth", "config.json", "vocab.json", "speakers_xtts.pth"])
     print("xtts-v2 ok")
 

@@ -101,7 +101,12 @@ class FluxoSaida:
         self.taxa = taxa
         self.interromper = interromper
         self.stream = sd.OutputStream(samplerate=taxa, channels=1, dtype="float32", device=dispositivo)
-        self.stream.start()
+        self.fechado = False
+        try:
+            self.stream.start()
+        except BaseException:  # dispositivo ocupado: não deixa o stream aberto (revisão do PR 22)
+            self.stream.close()
+            raise
 
     def escrever(self, audio: np.ndarray, taxa: int) -> bool:
         """Espera o pedaço entrar no buffer (o ritmo da fala). False se foi interrompido."""
@@ -117,7 +122,11 @@ class FluxoSaida:
         return not self.interromper.is_set()
 
     def fechar(self, drenar: bool = True) -> None:
-        """`drenar`: deixa o fim do buffer tocar (o `stop` do PortAudio espera); senão corta na hora."""
+        """`drenar`: deixa o fim do buffer tocar (o `stop` do PortAudio espera); senão corta na hora. Pode ser
+        chamado mais de uma vez (o corte fecha na hora, e o fim da resposta fecha de novo)."""
+        if self.fechado:
+            return
+        self.fechado = True
         try:
             if drenar and not self.interromper.is_set():
                 self.stream.stop()

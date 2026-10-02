@@ -24,7 +24,8 @@ class Ajuste:
 
 LISTA = [
     Ajuste("assistente.nome", "texto", "Nome do assistente (a ativação continua \"Hey Vision\")", ao_vivo=False),
-    Ajuste("voz.voz_piper", "escolha", "Voz", ao_vivo=True),
+    # Com voz.motor: xtts, esta é só a voz rápida (respostas curtas e modo jogo); a principal é a do XTTS.
+    Ajuste("voz.voz_piper", "escolha", "Voz rápida (Piper: respostas curtas e modo jogo)", ao_vivo=True),
     Ajuste("voz.velocidade_fala", "numero", "Ritmo da fala (maior = mais devagar)", ao_vivo=True, minimo=0.7, maximo=1.5),
     Ajuste("voz.conversa_silencio_max_s", "numero", "Fecha a conversa depois de quantos segundos sem falar",
            ao_vivo=True, minimo=30, maximo=600),

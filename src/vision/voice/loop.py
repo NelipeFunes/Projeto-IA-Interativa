@@ -46,6 +46,16 @@ PALAVRAS_ANTES_DA_VIRGULA = 3  # "Pronto, Felipe." não corta: pedaço curto dem
 PIPER_ATE_CARACTERES = 45
 
 
+def _fechar_quando_abrir(abrindo: asyncio.Future) -> None:
+    """O fluxo do fone abriu depois que a resposta já tinha acabado (ou foi cancelada): fecha sem tocar nada."""
+    if abrindo.cancelled() or abrindo.exception() is not None:
+        return
+    try:
+        abrindo.result().fechar(False)
+    except Exception:  # noqa: BLE001
+        log.exception("não consegui fechar a saída de som")
+
+
 def fatiar(texto: str, primeira: bool) -> tuple[list[str], str]:
     """Texto do modelo chegando aos poucos → (frases prontas para falar, resto ainda incompleto).
 
@@ -534,21 +544,39 @@ class LoopVoz:
         sintetizador = asyncio.create_task(self._sintetizador(fila, prontas, parar))
         # Abrir o fone leva ~0,2 s (MME): já abre enquanto ele pensa e gera o 1º pedaço.
         abrindo = asyncio.create_task(asyncio.to_thread(self.saida.abrir, getattr(self.voz, "taxa", 22050)))
+        def foi_cortado() -> bool:
+            return self.interrompido_por is not None or (fluxo is not None and self.saida.interromper.is_set())
+
+        async def cortar() -> None:
+            """Para o som já: o que estava no buffer do fone não toca (revisão do PR 22)."""
+            nonlocal interrompido
+            interrompido = True
+            parar.set()
+            if fluxo is not None:
+                await asyncio.to_thread(fluxo.fechar, False)
+
+        async def proxima() -> tuple[int, np.ndarray] | Exception | None:
+            # Enquanto espera o próximo pedaço (o modelo ainda escrevendo), o corte também vale na hora.
+            while True:
+                try:
+                    return await asyncio.wait_for(prontas.get(), 0.05)
+                except TimeoutError:
+                    if not interrompido and foi_cortado():
+                        await cortar()
+
         try:
-            while (pronta := await prontas.get()) is not None:
+            while (pronta := await proxima()) is not None:
                 if isinstance(pronta, Exception):
                     raise pronta
                 taxa, audio = pronta
-                if self.interrompido_por is not None or (fluxo is not None and self.saida.interromper.is_set()):
-                    # Cortado (por voz ou atalho) entre um pedaço e outro: o resto não toca.
-                    interrompido = True
+                if not interrompido and foi_cortado():  # cortado (voz ou atalho) entre um pedaço e outro
+                    await cortar()
                 if interrompido:
-                    parar.set()
                     continue
                 if audio.size == 0:
                     continue
                 if fluxo is None:  # um fluxo só para a resposta toda: os pedaços emendam sem buraco
-                    fluxo = await abrindo
+                    fluxo = await asyncio.shield(abrindo)  # cancelado aqui, o `finally` ainda fecha o fluxo
                     # Como no `tocar` antigo: um atalho apertado enquanto ele pensava não corta a resposta.
                     self.saida.interromper.clear()
                 if not primeira_fala:
@@ -559,8 +587,7 @@ class LoopVoz:
                 ondas = asyncio.create_task(self._emitir_voz(envelope(audio, taxa))) if self.ao_evento else None
                 try:
                     if not await asyncio.to_thread(fluxo.escrever, audio, taxa):
-                        interrompido = True
-                        parar.set()
+                        await cortar()
                         if vigia is not None and self.interrompido_por is None:  # atalho: o vigia para aqui
                             vigia.cancel()
                 finally:
@@ -572,9 +599,11 @@ class LoopVoz:
             sintetizador.cancel()
             await asyncio.gather(sintetizador, return_exceptions=True)
             if fluxo is None:  # nada tocou (resposta vazia, erro, cortado antes): fecha o que abriu
-                fluxo = (await asyncio.gather(abrindo, return_exceptions=True))[0]
-                if isinstance(fluxo, BaseException):
-                    fluxo = None
+                if abrindo.done():
+                    fluxo = None if abrindo.cancelled() or abrindo.exception() else abrindo.result()
+                else:
+                    # Ainda abrindo (ou o falador foi cancelado): fecha quando terminar, sem esperar aqui.
+                    abrindo.add_done_callback(_fechar_quando_abrir)
             if fluxo is not None:
                 try:
                     await asyncio.to_thread(fluxo.fechar, not interrompido)
@@ -724,8 +753,10 @@ class LoopVoz:
                 if self.estado == "ocioso":
                     self._mostrar("ocioso")
                 self.escrever("[modo jogo] fim do jogo; 'Hey Vision' de volta.")
+                await self._voz_na_placa(True)  # antes do Qwen: com ele de volta, a VRAM pode não caber
                 await self.agente.liberar_modelo()
-                await self._voz_na_placa(True)
+            elif not agora and getattr(self.voz, "descansando", False):
+                await self._voz_na_placa(True)  # a volta falhou (VRAM cheia): tenta de novo a cada checagem
             await asyncio.sleep(a_cada_s)
 
     async def _voz_na_placa(self, sim: bool) -> None:

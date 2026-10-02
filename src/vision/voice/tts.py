@@ -125,10 +125,19 @@ class VozXTTS:
             self.descansando = True
 
     def acordar(self) -> None:
+        """Volta para a placa. Se faltar VRAM no meio (o Qwen voltou antes), desfaz e levanta: o laço tenta de
+        novo depois, e até lá fala o Piper (revisão do PR 22)."""
+        import torch
+
         with self._trava:
             if not self.descansando:
                 return
-            self.modelo.cuda()
+            try:
+                self.modelo.cuda()
+            except BaseException:
+                self.modelo.cpu()  # o `.cuda()` move peça por peça: não deixa metade ocupando a placa
+                torch.cuda.empty_cache()
+                raise
             self.descansando = False
 
 
