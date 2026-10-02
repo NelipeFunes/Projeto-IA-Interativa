@@ -37,7 +37,6 @@ boa noite:
     - luz_apagar: {luz: quarto}
     - pc_energia: {acao: desligar}
     - comando_rodar: {comando: "Remove-Item C:/ -Recurse"}
-    - nao_existe: {}
   dizer: Boa noite, Felipe.
 vazio:
   passos:
@@ -68,7 +67,7 @@ def test_problemas_ficam_no_log(tmp_path):
     arq.write_text(YAML, encoding="utf-8")
     _, problemas = ler(arq, _registro([]))
     texto = "\n".join(problemas)
-    assert "pc_energia" in texto and "comando_rodar" in texto and "nao_existe" in texto
+    assert "pc_energia" in texto and "comando_rodar" in texto
 
 
 async def test_passo_que_falha_nao_para_os_outros(tmp_path):
@@ -95,3 +94,23 @@ def test_cria_o_exemplo_na_primeira_vez_e_arquivo_ruim_nao_quebra(tmp_path):
     assert "boa noite" in p.protocolos  # os passos que existem neste registro (volume, música) ficam
     arq.write_text("[isso: nao é: yaml", encoding="utf-8")
     assert Protocolos(arq, _registro([])).ferramentas() == []
+
+
+async def test_escrita_que_pediria_sim_nao_vira_passo_e_nome_com_modo_funciona(tmp_path):
+    from vision.tools.base import Ferramenta
+
+    chamadas = []
+    r = _registro(chamadas)
+    r.adicionar(Ferramenta("agenda_criar", "cria", esquema([]), lambda a: None, escrita=True))  # confirmar=True
+    arq = tmp_path / "p.yaml"
+    arq.write_text("modo foco:\n  passos:\n    - agenda_criar: {}\n    - musica_sem_login: {}\n"
+                   "    - volume: {acao: definir, nivel: 25}\n  dizer: Foco ligado.\n", encoding="utf-8")
+    p = Protocolos(arq, r)
+    proto = p.achar("modo foco")
+    assert proto is not None and [f for f, _ in proto.passos] == ["volume"] and proto.descartados == 1
+    resposta = await p.executar({"nome": "modo foco"})
+    assert "1 de 2 passos feitos" in resposta and "não estão disponíveis" in resposta
+    assert await p.atalho("ativa o modo foco") is not None
+    assert await p.descrever({"nome": "modo foco"}) == "Vou rodar o protocolo modo foco (volume)."
+    f = p.ferramentas()[0]
+    assert f.devolve_saida and f.descrever is not None
