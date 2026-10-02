@@ -188,6 +188,20 @@ def test_atalho_de_inicializacao_sem_montar_comando_com_texto(monkeypatch, tmp_p
     assert len(chamadas) == 2 and not inicializacao.ativo()
 
 
+def test_pasta_de_dados_nova_nao_toma_o_lugar_de_um_atalho_existente(tmp_path, monkeypatch):
+    """02/10: o pacote de teste, com data/ vazio, trocou o atalho de inicialização do projeto."""
+    from vision import inicializacao
+
+    monkeypatch.setattr(inicializacao, "pasta_inicializar", lambda: tmp_path / "Startup")
+    chamadas = []
+    monkeypatch.setattr(inicializacao.subprocess, "run", lambda *a, **k: chamadas.append(1))
+    (tmp_path / "Startup").mkdir()
+    (tmp_path / "Startup" / inicializacao.NOME_ATALHO).write_bytes(b"atalho de outra instalacao")
+    marcador = tmp_path / "data-nova" / "inicializacao.txt"
+    assert inicializacao.primeira_vez(marcador, tmp_path) is False
+    assert not chamadas and marcador.exists()  # não mexeu no atalho, e não pergunta de novo
+
+
 @pytest.mark.skipif(sys.platform != "win32", reason="mutex do Windows")
 def test_so_um_nucleo_por_vez():
     from vision.nucleo import InstanciaUnica

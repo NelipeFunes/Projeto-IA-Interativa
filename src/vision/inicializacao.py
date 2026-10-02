@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from vision import empacotado
+
 NOME_ATALHO = "Vision.lnk"
 ICONE = Path(__file__).parent / "recursos" / "vision.ico"
 
@@ -34,6 +36,8 @@ def atalho() -> Path:
 
 def alvo() -> tuple[Path, str]:
     """O que o atalho executa: o visionw.exe do ambiente (sem console) ou, na falta, pythonw -m vision.nucleo."""
+    if empacotado.empacotado():  # o próprio Vision.exe, no modo núcleo (sem abrir a janela)
+        return Path(sys.executable), "--nucleo"
     scripts = Path(sys.executable).parent
     visionw = scripts / "visionw.exe"
     if visionw.exists():
@@ -79,7 +83,11 @@ def primeira_vez(marcador: Path, pasta_projeto: Path) -> bool:
                 ligar(pasta_projeto)
             marcador.write_text(_TEXTO_MARCADOR.format(VERSAO_ATALHO), encoding="utf-8")
         return False
-    ligar(pasta_projeto)
     marcador.parent.mkdir(parents=True, exist_ok=True)
     marcador.write_text(_TEXTO_MARCADOR.format(VERSAO_ATALHO), encoding="utf-8")
+    if ativo():
+        # Outra instalação (a do projeto, o pacote de teste...) já cuida do início com o Windows: uma pasta de dados
+        # nova não toma o lugar do atalho dela (visto em 02/10 ao testar o pacote independente).
+        return False
+    ligar(pasta_projeto)
     return True
