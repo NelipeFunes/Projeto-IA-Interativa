@@ -457,7 +457,8 @@ class PC:
                        self.travar, escrita=True, grupo="pc", confirmar=False, confirmar_se_externo=True,
                        descrever=_descrever("Vou travar o PC."),
                        prazo_s=10),
-            Ferramenta("pc_energia", "Desliga, reinicia ou suspende o PC.",
+            Ferramenta("pc_energia", "Desliga, reinicia ou suspende o PC. Só se o Felipe falar do PC/computador: "
+                       "'standby' sozinho é ele mandando o Vision descansar, nunca suspender o PC.",
                        esquema(["acao"], acao={"type": "string", "enum": ["desligar", "reiniciar", "suspender"]}),
                        self.energia, escrita=True, sensivel=True, sempre_confirmar=True,
                        descrever=self.descrever_energia, grupo="pc", prazo_s=PRAZO_PC_S),

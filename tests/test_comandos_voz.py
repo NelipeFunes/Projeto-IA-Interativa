@@ -64,6 +64,11 @@ def test_falas_que_nao_acordam(ouvido):
     "Pode dormir.",
     "Tchau, Vision.",
     "pode encerrar por favor",
+    # 02/10: "modo" não barra mais, e o Parakeet com sotaque
+    "Não, não, não, pode reparar, pode entrar em modo standby.",
+    "Pode entrar em modo standby",
+    "Stand you by.",
+    "Entra em standby",
 ])
 def test_despedidas(ouvido):
     assert e_despedida(ouvido)
@@ -83,6 +88,14 @@ def test_despedidas(ouvido):
     "Deixa a TV em standby",
     "A TV ficou em standby a noite toda",
     "Me explica o que é o modo standby da TV",
+    "Deixa em standby o PC",  # aparelho depois do standby
+    # revisão do PR 42: pergunta sobre o modo standby, a música, e "stand X by" que não é o Parakeet
+    "Me explica o modo standby",
+    "Quanto gasta o modo standby",
+    "Como ativo o modo standby no Windows",
+    "Toca Stand by Me do Ben E. King",
+    "Stand up by 5pm",
+    "stand 3 by 4",
     "Me explica o que é o modo standby da TV e quanto ele gasta de energia por mês aqui em casa, por favor, rapidinho",
     "Marca o dentista amanhã às nove",
     "Beleza, Vision, pode marcar o dentista",
@@ -137,3 +150,11 @@ def test_interrupcao_por_voz(ouvido, motivo):
     from vision.voice.comandos import e_interrupcao
 
     assert e_interrupcao(ouvido) == motivo
+
+
+
+def test_stand_you_by_tambem_interrompe():
+    from vision.voice.comandos import e_interrupcao
+
+    assert e_interrupcao("Stand you by.") == "standby"
+    assert e_interrupcao("Toca Stand by Me") is None

@@ -33,9 +33,18 @@ MAX_PALAVRAS_STANDBY = 20
 # Nas 3 palavras antes de "standby", na mesma oração, fazem dele assunto, não despedida: "não entra em standby",
 # "o modo standby da TV", "a TV ficou em standby", "coloca o PC em standby". Lista curta de propósito: na dúvida,
 # fechar a conversa é melhor do que ela não fechar ("deixa em standby", "por favor, standby" fecham).
-NAO_E_STANDBY = {"nao", "modo", "ficou", "estava", "entrou", "pc", "computador", "notebook", "tv", "televisao",
-                 "monitor", "celular"}
-JUNTAR_STANDBY = re.compile(r"\bstand\W+by\b", re.IGNORECASE)  # "Stand. By." é o mesmo standby
+# 02/10: "modo" saiu da lista ("pode entrar em modo standby" é despedida e virava "suspender o PC"); "o modo
+# standby da TV" continua barrado pelo aparelho, que agora também vale nas 3 palavras DEPOIS do standby.
+APARELHOS = {"pc", "computador", "notebook", "tv", "televisao", "monitor", "celular"}
+# Pergunta ou configuração antes do "standby" faz dele assunto ("explica o modo standby", "quanto gasta o modo
+# standby", "como ativo o modo standby"), não despedida (revisão do PR 42).
+ASSUNTO = {"explica", "como", "quanto", "porque", "qual", "quais", "que", "ativa", "ativar", "ativo", "desativa",
+           "desativar", "configura", "configurar", "gasta", "consome", "sobre"}
+NAO_E_STANDBY = {"nao", "ficou", "estava", "entrou"} | APARELHOS | ASSUNTO
+# "Stand. By." e "Stand you by." (o Parakeet com sotaque, 02/10) são o mesmo standby. Só as palavras curtas que ele
+# põe no meio: "stand up by 5pm" e "stand 3 by 4" não (revisão do PR 42).
+JUNTAR_STANDBY = re.compile(r"\bstand\W+(?:(?:you|u|yu|ya|yo)\W+)?by\b", re.IGNORECASE)
+STAND_BY_ME = re.compile(r"\bstand\W+by\W+me\b", re.IGNORECASE)  # a música ("toca Stand by Me"), não despedida
 # O que pode vir depois de "desligar" numa despedida. Qualquer outra palavra ("desligar o alarme") é um pedido.
 ENCHIMENTO = {"agora", "ja", "por", "favor", "obrigado", "obrigada", "valeu", "entao", "tchau", "ta", "beleza"}
 MAX_PALAVRAS_DESPEDIDA = 8
@@ -106,6 +115,9 @@ def e_despedida(texto: str) -> bool:
     em pergunta ("não entrou em standby, né?") e quando a oração dele é pedido ou assunto ("não entra em
     standby", "coloca o PC em standby", "o modo standby da TV").
     """
+    if STAND_BY_ME.search(texto):
+        return False
+    texto = JUNTAR_STANDBY.sub("standby", texto)
     palavras = _normalizar(texto)
     if not palavras:
         return False
@@ -117,7 +129,7 @@ def e_despedida(texto: str) -> bool:
             p = _normalizar(oracao)
             i = _posicao_standby(p)
             if i is not None:
-                return not (NAO_E_STANDBY & set(p[max(0, i - 3):i]))
+                return not (NAO_E_STANDBY & set(p[max(0, i - 3):i]) or APARELHOS & set(p[i + 1:i + 4]))
         return True  # "stand" e "by" separados de outro jeito: na dúvida, fecha
     if len(palavras) > MAX_PALAVRAS_DESPEDIDA or "nao" in palavras:  # "não, não vai dormir"
         return False
@@ -145,6 +157,7 @@ MAX_PALAVRAS_PARAR = 6
 
 def e_interrupcao(texto: str) -> str | None:
     """"standby" (fecha a conversa), "parar" (só para de falar, nada vai ao modelo) ou None (é um pedido)."""
+    texto = texto if STAND_BY_ME.search(texto) else JUNTAR_STANDBY.sub("standby", texto)  # "Stand you by"
     palavras = _normalizar(texto)
     if not palavras:
         return None
