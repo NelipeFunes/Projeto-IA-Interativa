@@ -500,8 +500,15 @@ class LoopVoz:
         def cortado() -> bool:
             return parar.is_set() or self.interrompido_por is not None
 
+        entregues = [0]
+
+        def entregar_contando(item: tuple[int, np.ndarray]) -> None:
+            entregues[0] += 1
+            entregar(item)
+
         adiante: list[str | None] = []
         primeira = True
+        xtts_falhou = False  # depois de uma falha, o resto da resposta vai direto pela reserva
         try:
             while (frase := adiante.pop(0) if adiante else await fila.get()) is not None:
                 if cortado() or not frase.strip():
@@ -515,14 +522,19 @@ class LoopVoz:
                     if adiante == [None]:  # é a resposta inteira: rapidez vale mais que a voz bonita aqui
                         fonte = reserva
                 primeira = False
+                if xtts_falhou and reserva is not None:
+                    fonte = reserva
+                entregues[0] = 0
                 try:
-                    await asyncio.to_thread(self._gerar, fonte, frase, entregar, cortado)
+                    await asyncio.to_thread(self._gerar, fonte, frase, entregar_contando, cortado)
                 except Exception:
                     if reserva is None or fonte is reserva:
                         raise
-                    # A voz boa falhou nesta frase: fala com a robótica em vez de ficar mudo (ou cair).
-                    log.exception("XTTS falhou numa frase; falando com o Piper")
-                    await asyncio.to_thread(self._gerar, reserva, frase, entregar, cortado)
+                    # A voz boa falhou: o resto da resposta sai pela robótica, em vez de ficar mudo (ou cair).
+                    xtts_falhou = True
+                    log.exception("XTTS falhou; o resto desta resposta sai pelo Piper")
+                    if entregues[0] == 0:  # se o começo da frase já tocou, refazer repetiria o começo
+                        await asyncio.to_thread(self._gerar, reserva, frase, entregar, cortado)
         except Exception as e:  # noqa: BLE001 - repassado ao falador
             prontas.put_nowait(e)
             return

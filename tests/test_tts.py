@@ -453,3 +453,18 @@ async def test_xtts_que_falha_numa_frase_fala_com_o_piper():
     voz, saida = XTTSQueQuebra(), SaidaLenta(duracao_s=0)
     await _falar(_laco(voz, saida, piper_ate_caracteres=0), ["Uma frase qualquer.", "Outra."])
     assert [t[0] for t in saida.tocadas] == [-1, -2]  # a reserva falou as duas, e nada caiu
+
+
+class XTTSQueQuebraNoMeio(XTTSFalso):
+    def pedacos(self, texto: str, normalizar: bool = True):
+        self.sintetizadas.append((texto, time.monotonic()))
+        yield np.full(20, 10.0, dtype=np.float32)
+        raise RuntimeError("CUDA error simulado")
+
+
+async def test_xtts_que_falha_no_meio_nao_repete_o_comeco_e_o_resto_vai_pelo_piper():
+    """Revisão do PR 24: a reserva refazia a frase inteira, e o começo tocava duas vezes."""
+    voz, saida = XTTSQueQuebraNoMeio(), SaidaLenta(duracao_s=0)
+    await _falar(_laco(voz, saida, piper_ate_caracteres=0), ["Primeira frase.", "Segunda.", "Terceira."])
+    assert [t[0] for t in saida.tocadas] == [10, -1, -2]  # o pedaço que já saiu, e as próximas pelo Piper
+    assert len(voz.sintetizadas) == 1  # depois da falha, não tenta o XTTS de novo nesta resposta
