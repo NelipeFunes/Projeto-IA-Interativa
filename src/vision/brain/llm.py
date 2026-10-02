@@ -66,8 +66,10 @@ class OllamaLLM:
             keep_alive=self.manter,
         )
         if ao_texto is None:
-            r = await self.cliente.chat(**comum)
-            await self._jogo_comecou_no_meio(comum["keep_alive"])
+            try:
+                r = await self.cliente.chat(**comum)
+            finally:
+                await self._jogo_comecou_no_meio(comum["keep_alive"])
             return RespostaLLM(
                 texto=r.message.content or "",
                 chamadas=_chamadas(r.message.tool_calls),
@@ -88,13 +90,22 @@ class OllamaLLM:
             fechar = getattr(fluxo, "aclose", None)
             if fechar is not None:
                 await fechar()  # sem esperar o coletor de lixo: o Ollama para de gerar quando a conexão cai
-        await self._jogo_comecou_no_meio(comum["keep_alive"])
+            # Também quando a resposta é cortada (Interrompido) ou falha: o jogo pode ter aberto no meio (2ª revisão)
+            await self._jogo_comecou_no_meio(comum["keep_alive"])
         return RespostaLLM("".join(texto), chamadas, tokens, segundos)
 
     async def _jogo_comecou_no_meio(self, usado) -> None:
         """O jogo abriu enquanto esta resposta saía: ela terminou com o keep_alive de antes e desfez o descarregar."""
         if self.manter == MANTER_NO_JOGO and usado != MANTER_NO_JOGO:
-            await self.cliente.generate(model=self.modelo, prompt="", keep_alive=0)
+            try:
+                await self.cliente.generate(model=self.modelo, prompt="", keep_alive=0)
+            except Exception:  # noqa: BLE001 - não esconde o erro da própria resposta (está num finally)
+                pass
+
+    async def soltar(self) -> None:
+        """O Vision está fechando: com "-1m" o Ollama seguraria o modelo na placa para sempre, e um jogo aberto
+        depois (sem o Vision para descarregar) ficaria sem os 3,2 GB (2ª revisão do PR 44)."""
+        await self.cliente.generate(model=self.modelo, prompt="", keep_alive=0)
 
     async def carregar(self) -> None:
         """Põe o modelo na VRAM já com o contexto certo. Sem o num_ctx, o Ollama carrega com o máximo do

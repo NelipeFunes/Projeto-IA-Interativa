@@ -351,3 +351,83 @@ async def test_no_modo_jogo_a_resposta_nao_prende_o_modelo():
     c.ao_chat = llm.descarregar  # o jogo abre NO MEIO de uma resposta
     await llm.conversar([], None)
     assert c.chamadas == [("chat", "-1m"), ("generate", 0), ("generate", 0)]  # o fim dela não desfaz o descarregar
+
+
+async def test_resposta_cortada_no_meio_do_jogo_tambem_descarrega():
+    """2ª revisão do PR 44: o Interrompido (você falou por cima) saía antes da correção da corrida."""
+    from types import SimpleNamespace
+
+    from vision.brain.llm import Interrompido, OllamaLLM
+
+    llm = OllamaLLM("m", "http://x", False, 8192, 0.3, "-1m")
+    chamadas = []
+
+    class Fluxo:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await llm.descarregar()  # o CS2 abre enquanto a resposta sai
+            return SimpleNamespace(message=SimpleNamespace(content="oi", tool_calls=None), done=False)
+
+        async def aclose(self):
+            pass
+
+    class Cliente:
+        async def chat(self, **kw):
+            chamadas.append(("chat", kw["keep_alive"]))
+            return Fluxo()
+
+        async def generate(self, **kw):
+            chamadas.append(("generate", kw["keep_alive"]))
+
+    llm.cliente = Cliente()
+
+    def corta(_t):
+        raise Interrompido()
+
+    with pytest.raises(Interrompido):
+        await llm.conversar([], None, ao_texto=corta)
+    assert chamadas == [("chat", "-1m"), ("generate", 0), ("generate", 0)]
+
+
+async def test_vigia_do_jogo_nao_morre_se_o_ollama_falhar(caplog):
+    import asyncio
+    import os
+
+    import psutil
+
+    from vision.voice.loop import LoopVoz
+
+    class AgenteQuebrado:
+        async def descarregar(self):
+            raise ConnectionError("Ollama subindo")
+
+        async def carregar(self):
+            pass
+
+        async def liberar_modelo(self):
+            pass
+
+    laco = LoopVoz.__new__(LoopVoz)
+    laco.agente, laco.jogando, laco.estado, laco.voz = AgenteQuebrado(), False, "falando", None
+    laco.escrever = lambda _t: None
+    este = psutil.Process(os.getpid()).name()  # "o jogo" é o próprio processo do teste: está aberto
+    with pytest.raises(TimeoutError):  # ainda rodando depois da falha: não morreu
+        await asyncio.wait_for(laco.vigiar_jogos([este], 0.02), 0.3)
+    assert laco.jogando and "vigia do modo jogo falhou" in caplog.text
+
+
+async def test_ao_fechar_o_vision_o_modelo_sai_da_placa():
+    from vision.brain.llm import OllamaLLM
+
+    chamadas = []
+
+    class Cliente:
+        async def generate(self, **kw):
+            chamadas.append(kw["keep_alive"])
+
+    llm = OllamaLLM("m", "http://x", False, 8192, 0.3, "-1m")
+    llm.cliente = Cliente()
+    await llm.soltar()
+    assert chamadas == [0] and llm.manter == "-1m"  # só solta agora; não muda o configurado
