@@ -158,3 +158,16 @@ describe("eventos do núcleo", () => {
     expect(s.ajustes).toEqual({ valores: { "voz.velocidade_fala": 1.1 }, campos: [], opcoes: {}, salvo: true });
   });
 });
+
+describe("conexões", () => {
+  it("o estado das conexões vindo do núcleo fica guardado para a aba de Conexões", () => {
+    const dados = {
+      servicos: [{ id: "web", nome: "Busca na web", descricao: "", ligado: true, situacao: "falta" as const,
+        detalhe: "Sem chave.", campos: [], acao: "Salvar chave", desconectar: false }],
+      andamento: { web: { texto: "Chave da Tavily guardada.", rodando: false, ok: true } },
+      reiniciar: ["Busca na web"],
+    };
+    const s = aplicar([{ tipo: "conexoes", ...dados }]);
+    expect(s.conexoes).toEqual(dados);
+  });
+});

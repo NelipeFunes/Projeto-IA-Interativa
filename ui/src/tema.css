@@ -928,3 +928,276 @@ label.ajuste-linha {
 .ajustes-botoes .botao {
   flex: 0 0 110px;
 }
+
+/* ajustes: abas e conexões */
+
+.ajustes-largo {
+  width: min(600px, 100%);
+}
+
+.abas {
+  display: flex;
+  gap: 2px;
+  margin-left: 12px;
+  padding: 2px;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.04);
+}
+
+.aba {
+  border: 0;
+  background: transparent;
+  color: var(--texto-suave);
+  border-radius: 7px;
+  padding: 4px 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.aba:hover {
+  color: var(--texto);
+}
+
+.aba.ativa {
+  background: rgba(124, 77, 255, 0.28);
+  color: var(--texto);
+}
+
+.ajuste input[type="email"],
+.ajuste input[type="password"] {
+  flex: 1;
+  min-width: 0;
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--borda);
+  background: rgba(8, 6, 22, 0.7);
+  color: var(--texto);
+  font: inherit;
+  outline: 0;
+  user-select: text;
+}
+
+.ajuste input[type="file"] {
+  flex: 1;
+  min-width: 0;
+  color: var(--texto-suave);
+  font: inherit;
+  font-size: 12px;
+}
+
+.conexoes {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.conexoes-reiniciar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 12px;
+  border-radius: 12px;
+  border: 1px solid rgba(64, 196, 255, 0.35);
+  background: rgba(64, 196, 255, 0.08);
+  font-size: 12.5px;
+  color: var(--texto);
+}
+
+.conexoes-reiniciar span {
+  flex: 1;
+}
+
+.conexoes-reiniciar .botao {
+  flex: 0 0 auto;
+}
+
+.conexao {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--borda);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.conexao-desligado {
+  opacity: 0.6;
+}
+
+.conexao-cabeca {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.conexao-nome {
+  font-family: var(--titulo);
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--texto);
+}
+
+.conexao-situacao {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--borda);
+  color: var(--texto-suave);
+}
+
+.situacao-ok {
+  color: #69f0ae;
+  border-color: rgba(105, 240, 174, 0.4);
+  background: rgba(105, 240, 174, 0.08);
+}
+
+.situacao-atencao {
+  color: #ffd54f;
+  border-color: rgba(255, 213, 79, 0.4);
+  background: rgba(255, 213, 79, 0.08);
+}
+
+.situacao-falta {
+  color: var(--texto-suave);
+}
+
+.conexao-descricao,
+.conexao-detalhe,
+.conexao-dica {
+  margin: 0;
+  font-size: 12px;
+  color: var(--texto-fraco);
+}
+
+.conexao-detalhe {
+  color: var(--texto-suave);
+}
+
+.conexao-andamento {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
+  font-size: 12px;
+  color: var(--ciano);
+  overflow-wrap: anywhere;
+}
+
+.conexao-andamento.ok {
+  color: #69f0ae;
+}
+
+.conexao-andamento.erro {
+  color: var(--alerta);
+}
+
+.girando {
+  flex: 0 0 auto;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid rgba(64, 196, 255, 0.25);
+  border-top-color: var(--ciano);
+  animation: girar 0.8s linear infinite;
+}
+
+@keyframes girar {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+.conexao-form {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-top: 4px;
+}
+
+.conexao-botoes {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 2px;
+}
+
+.conexao-botoes .botao {
+  flex: 0 0 auto;
+  padding: 7px 14px;
+  font-size: 12.5px;
+}
+
+.conexao-ajuda {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--ciano);
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 2px;
+}
+
+.conexao-andamento .conexao-ajuda {
+  margin-left: 0;
+}
+
+.conexao-ajuda:hover {
+  text-decoration: underline;
+}
+
+/* interruptor (liga/desliga a conexão) */
+
+.interruptor {
+  position: relative;
+  margin-left: auto;
+  width: 34px;
+  height: 19px;
+  flex: 0 0 auto;
+  cursor: pointer;
+}
+
+.interruptor input {
+  position: absolute;
+  inset: 0;
+  opacity: 0;
+  margin: 0;
+  cursor: pointer;
+}
+
+.interruptor span {
+  position: absolute;
+  inset: 0;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.12);
+  transition: background 0.15s;
+  pointer-events: none;
+}
+
+.interruptor span::after {
+  content: "";
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 15px;
+  height: 15px;
+  border-radius: 50%;
+  background: var(--texto);
+  transition: transform 0.15s;
+}
+
+.interruptor input:checked + span {
+  background: linear-gradient(135deg, var(--roxo), var(--azul));
+}
+
+.interruptor input:checked + span::after {
+  transform: translateX(15px);
+}
+
+.interruptor input:focus-visible + span {
+  outline: 2px solid var(--borda-forte);
+  outline-offset: 2px;
+}

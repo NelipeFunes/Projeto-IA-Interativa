@@ -16,6 +16,10 @@ AJUSTES_LOCAIS = "config-local.yaml"
 # Só estas chaves saem do arquivo local (as mesmas de vision/ajustes.py): o resto é ignorado.
 CHAVES_AJUSTAVEIS = {"assistente.nome", "voz.voz_piper", "voz.velocidade_fala", "voz.conversa_silencio_max_s",
                      "voz.microfone", "clima.cidade"}  # a cidade é dado pessoal: só no arquivo local
+# O interruptor de cada conexão na tela de Conexões (vision/conexoes.py): só aceita true/false.
+CHAVES_LIGA_DESLIGA = {"mcp.google-calendar.ativo", "spotify.ativo", "alexa.ativo", "mcp.wispr.ativo",
+                       "web.ativo", "mcp.orbit.ativo"}
+CHAVES_AJUSTAVEIS |= CHAVES_LIGA_DESLIGA
 
 
 @dataclass
@@ -40,12 +44,15 @@ class Config:
 
 
 def carregar(arquivo: Path | None = None, sobrescrever: dict[str, Any] | None = None) -> Config:
-    load_dotenv(RAIZ / ".env")
+    # Sem interpolação: uma senha com "${" (gravada pela tela de Conexões) chega como foi digitada.
+    load_dotenv(RAIZ / ".env", interpolate=False)
     arquivo = arquivo or RAIZ / "config.yaml"
     bruto = yaml.safe_load(arquivo.read_text(encoding="utf-8")) or {}
     if os.environ.get("VISION_SEM_AJUSTES") != "1":  # os testes não herdam o que você mudou na janela
         for chave, valor in ler_ajustes(RAIZ / "data" / AJUSTES_LOCAIS).items():
             if chave == "clima.cidade" and not (isinstance(valor, str) and len(valor) <= 60):
+                continue
+            if chave in CHAVES_LIGA_DESLIGA and not isinstance(valor, bool):
                 continue
             if chave in CHAVES_AJUSTAVEIS and not (chave == "voz.voz_piper" and not _nome_de_arquivo(valor)):
                 _definir(bruto, chave, valor)
