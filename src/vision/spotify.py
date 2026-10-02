@@ -350,7 +350,9 @@ APELIDOS = {
 def achar_aparelho(dispositivos: list[dict[str, Any]], onde: str) -> dict[str, Any] | None:
     """"alexa" → o primeiro Speaker; "echo da sala" → pelo nome; "pc" → o computador."""
     alvo = _sem_acento(onde).removeprefix("na ").removeprefix("no ").strip()
-    por_nome = next((d for d in dispositivos if alvo and alvo in _sem_acento(d.get("name", ""))), None)
+    if len(alvo) < 3:
+        return None  # "a", "na": casaria com qualquer nome (revisão do PR 25)
+    por_nome = next((d for d in dispositivos if alvo in _sem_acento(d.get("name", ""))), None)
     if por_nome is not None:
         return por_nome
     tipo = next((t for apelido, t in APELIDOS.items() if apelido in alvo.split() or apelido == alvo), None)

@@ -305,3 +305,20 @@ async def test_ferramenta_no_pc_e_o_padrao(com_login):
     api = ApiComEcho()
     async with _sp(com_login, api) as sp:
         assert await Musica(sp).tocar({"busca": "queen", "onde": "no PC"}) == "Tocando Bohemian Rhapsody, de Queen."
+
+
+
+async def test_confirmacao_diz_o_aparelho_e_nome_curto_nao_casa(com_login):
+    api = ApiComEcho()
+    async with _sp(com_login, api) as sp:
+        m = Musica(sp)
+        assert await m.descrever_tocar({"busca": "Queen", "onde": "alexa"}) == "Vou tocar no Spotify: Queen, em alexa."
+        assert await m.descrever_tocar({"busca": "Queen"}) == "Vou tocar no Spotify do PC: Queen."
+    assert spotify.achar_aparelho([{"name": "Echo Dot", "type": "Speaker"}], "na") is None
+
+
+def test_hostname_vence_outro_computador(monkeypatch):
+    monkeypatch.setattr(spotify.socket, "gethostname", lambda: "MEU-PC")
+    aparelhos = [{"id": "nb", "name": "Notebook", "type": "Computer", "is_active": True},
+                 {"id": "pc", "name": "MEU-PC", "type": "Computer", "is_active": False}]
+    assert spotify.Spotify._escolher(aparelhos)["id"] == "pc"

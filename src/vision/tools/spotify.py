@@ -40,7 +40,12 @@ class Musica:
         return f"Tocando {tocando}."
 
     async def descrever_tocar(self, args: dict[str, Any]) -> str:
-        return f"Vou tocar no Spotify: {' '.join(str(args.get('busca') or '').split())[:120]}."
+        """O "Confirma?" diz onde vai tocar: um "sim" não pode mandar música para o Echo de outro cômodo às cegas."""
+        busca = " ".join(str(args.get("busca") or "").split())[:120]
+        onde = " ".join(str(args.get("onde") or "").split())[:40]
+        if onde and not _sem_acento_pc(onde):
+            return f"Vou tocar no Spotify: {busca}, em {onde}."
+        return f"Vou tocar no Spotify do PC: {busca}."
 
     async def controlar(self, args: dict[str, Any]) -> str:
         acao = str(args.get("acao") or "").lower()
