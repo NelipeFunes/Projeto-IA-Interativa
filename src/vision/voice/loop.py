@@ -870,27 +870,39 @@ class LoopVoz:
 
         primeira = True
         while True:
-            agora = await asyncio.to_thread(rodando)
-            if primeira and not agora:
-                await self.agente.carregar()  # o núcleo acabou de subir sem jogo aberto: modelo pronto
+            try:
+                await self._checar_jogo(rodando, primeira)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - Ollama fora do ar: o vigia não morre calado (2ª revisão do PR 44)
+                log.exception("o vigia do modo jogo falhou nesta checagem; tenta de novo na próxima")
             primeira = False
-            if agora and not self.jogando:
-                self.jogando = True
-                if self.estado == "ocioso":
-                    self._mostrar("ocioso")  # vira "jogo"
+            await asyncio.sleep(a_cada_s)
+
+    async def _checar_jogo(self, rodando, primeira: bool) -> None:
+        agora = await asyncio.to_thread(rodando)
+        if primeira and not agora:
+            await self.agente.carregar()  # o núcleo acabou de subir sem jogo aberto: modelo pronto
+        if agora and not self.jogando:
+            self.jogando = True
+            if self.estado == "ocioso":
+                self._mostrar("ocioso")  # vira "jogo"
+            try:
                 await self.agente.descarregar()
                 await self._voz_na_placa(False)
-                self.escrever("[modo jogo] modelo fora da VRAM; 'Hey Vision' pausado, o atalho continua valendo.")
-            elif not agora and self.jogando:
-                self.jogando = False
-                if self.estado == "ocioso":
-                    self._mostrar("ocioso")
-                self.escrever("[modo jogo] fim do jogo; 'Hey Vision' de volta.")
-                await self._voz_na_placa(True)  # antes do Qwen: com ele de volta, a VRAM pode não caber
-                await self.agente.liberar_modelo()
-            elif not agora and getattr(self.voz, "descansando", False):
-                await self._voz_na_placa(True)  # a volta falhou (VRAM cheia): tenta de novo a cada checagem
-            await asyncio.sleep(a_cada_s)
+            except Exception:
+                self.jogando = False  # não deu: a próxima checagem tenta de novo (3ª revisão do PR 44)
+                raise
+            self.escrever("[modo jogo] modelo fora da VRAM; 'Hey Vision' pausado, o atalho continua valendo.")
+        elif not agora and self.jogando:
+            self.jogando = False
+            if self.estado == "ocioso":
+                self._mostrar("ocioso")
+            self.escrever("[modo jogo] fim do jogo; 'Hey Vision' de volta.")
+            await self._voz_na_placa(True)  # antes do Qwen: com ele de volta, a VRAM pode não caber
+            await self.agente.liberar_modelo()
+        elif not agora and getattr(self.voz, "descansando", False):
+            await self._voz_na_placa(True)  # a volta falhou (VRAM cheia): tenta de novo a cada checagem
 
     async def _voz_na_placa(self, sim: bool) -> None:
         """XTTS: sai da VRAM durante o jogo (fala com o Piper) e volta depois. O Piper não usa a placa."""

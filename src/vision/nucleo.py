@@ -765,6 +765,12 @@ class Nucleo:
                     log.info("encerrando")
                     for t in tarefas:
                         t.cancel()
+                    soltar = getattr(j.agente.llm, "soltar", None)
+                    if soltar is not None and not self.reiniciar_ao_sair:
+                        # Fechando de vez: o modelo sai da placa (com "-1m" ficaria lá até reiniciar o Ollama, e um
+                        # jogo aberto depois, sem o Vision, ficaria sem os 3,2 GB). Morte súbita ainda o deixa lá.
+                        with contextlib.suppress(Exception):
+                            await asyncio.wait_for(soltar(), 3)
                     for t, cancelar in list(self.logins.values()):
                         cancelar.set()
                         t.cancel()

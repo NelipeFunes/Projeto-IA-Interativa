@@ -8,7 +8,7 @@ from dataclasses import dataclass
 
 from vision.brain.agent import Agente
 from vision.brain.llm import LLM, OllamaLLM
-from vision.config import Config
+from vision.config import Config, manter_carregado
 from vision.memory.store import EmbedderOllama, Memorias
 from vision.tools.agenda import Agenda
 from vision.tools.base import Registro
@@ -45,7 +45,7 @@ def criar_llm(cfg: Config, modelo: str | None = None) -> LLM:
         pensar=bool(cfg.get("modelo.pensar", False)),
         contexto=int(cfg.get("modelo.contexto", 8192)),
         temperatura=float(cfg.get("modelo.temperatura", 0.3)),
-        manter=str(cfg.get("modelo.manter_carregado", "30m")),
+        manter=manter_carregado(cfg),
     )
 
 

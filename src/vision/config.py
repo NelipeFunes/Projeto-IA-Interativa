@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -41,6 +42,19 @@ class Config:
     def caminho(self, relativo: str) -> Path:
         p = Path(os.path.expandvars(relativo))
         return p if p.is_absolute() else self.raiz / p
+
+
+def manter_carregado(cfg: Config) -> str | int:
+    """`modelo.manter_carregado` como o Ollama aceita: "30m", "-1m" ou um número de segundos (negativo = sempre).
+    "-1" como texto (sem unidade) o Ollama recusa ("missing unit"): número puro vira int (02/10)."""
+    valor = cfg.get("modelo.manter_carregado", "30m")
+    if isinstance(valor, bool):
+        return "30m"
+    try:
+        numero = float(valor) if isinstance(valor, int | float) else float(str(valor).strip())
+    except ValueError:
+        return str(valor).strip() or "30m"
+    return int(numero) if math.isfinite(numero) else -1  # "inf" = sempre (int(inf) levantaria OverflowError)
 
 
 def carregar(arquivo: Path | None = None, sobrescrever: dict[str, Any] | None = None) -> Config:
