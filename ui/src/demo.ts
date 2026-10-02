@@ -1,6 +1,6 @@
 // Roteiro de demonstração da Fase A: simula uma conversa inteira para aprovar o visual sem o núcleo.
 // Dados de EXEMPLO genéricos (o repositório é público: nada da agenda real aqui).
-import type { DadosAjustes, Evento, EventoAgenda, Memoria } from "./tipos";
+import type { DadosAjustes, DadosConexoes, Evento, EventoAgenda, Memoria } from "./tipos";
 
 /** A tela de ajustes na demonstração (no app de verdade, quem manda isto é o núcleo). */
 export const AJUSTES_DEMO: DadosAjustes = {
@@ -23,6 +23,40 @@ export const AJUSTES_DEMO: DadosAjustes = {
     "voz.voz_piper": ["pt_BR-cadu-medium", "pt_BR-faber-medium", "pt_BR-jeff-medium"],
     "voz.microfone": ["Microfone (headset)", "Microfone (webcam)"],
   },
+};
+
+export const CONEXOES_DEMO: DadosConexoes = {
+  servicos: [
+    { id: "google", nome: "Google Agenda", descricao: "Compromissos: ler, criar, mudar e avisar antes.", ligado: true,
+      situacao: "ok", detalhe: "Conectado · o login vence em 5 dias.", acao: "Reconectar", desconectar: false,
+      campos: [{ nome: "credencial", rotulo: "Credencial do Google Cloud (arquivo .json)", tipo: "arquivo", valor: "",
+        dica: "Só na primeira vez (ou para trocar). Como criar: veja o guia.", obrigatorio: false }],
+      ajuda: { rotulo: "Guia do Google Cloud", url: "https://github.com/NelipeFunes/Projeto-IA-Interativa/blob/main/docs/guia-google-cloud.md" } },
+    { id: "spotify", nome: "Spotify", descricao: "Tocar música no PC (conta Premium).", ligado: true, situacao: "ok",
+      detalhe: "Conectado.", acao: "Reconectar", desconectar: true,
+      campos: [{ nome: "client_id", rotulo: "Client ID do seu app do Spotify", tipo: "texto",
+        valor: "0123456789abcdef0123456789abcdef", obrigatorio: true,
+        dica: "Em developer.spotify.com → Dashboard → Create app (Web API), com o endereço de retorno http://127.0.0.1:8769/callback" }],
+      ajuda: { rotulo: "Painel do Spotify", url: "https://developer.spotify.com/dashboard" } },
+    { id: "alexa", nome: "Alexa", descricao: "Luzes da casa pela sua conta da Amazon.", ligado: true, situacao: "falta",
+      detalhe: "Ainda não conectado.", acao: "Conectar", desconectar: false,
+      campos: [{ nome: "email", rotulo: "E-mail da conta Amazon", tipo: "email", valor: "", obrigatorio: true,
+        dica: "A senha você digita na página da Amazon, não aqui." }] },
+    { id: "wispr", nome: "Wispr Flow", descricao: "Reuniões, transcrições e notas (só leitura).", ligado: true,
+      situacao: "falta", detalhe: "Ainda não conectado (entre com Google, Apple ou Microsoft).", acao: "Conectar",
+      desconectar: false, campos: [] },
+    { id: "web", nome: "Busca na web", descricao: "Tavily (1.000 buscas grátis por mês); sem chave, usa o DuckDuckGo.",
+      ligado: true, situacao: "falta", detalhe: "Sem chave: buscando pelo DuckDuckGo.", acao: "Salvar chave",
+      desconectar: false, ajuda: { rotulo: "tavily.com", url: "https://app.tavily.com" },
+      campos: [{ nome: "chave", rotulo: "Chave da Tavily", tipo: "senha", valor: "", obrigatorio: true,
+        dica: "Começa com tvly-. Fica no .env, fora do git; a tela nunca mostra ela de volta." }] },
+    { id: "orbit", nome: "Orbit", descricao: "Finanças e tarefas do seu app.", ligado: false, situacao: "desligado",
+      detalhe: "Sem login.", acao: "Salvar login", desconectar: false,
+      campos: [{ nome: "email", rotulo: "E-mail do Orbit", tipo: "email", valor: "", dica: "", obrigatorio: true },
+        { nome: "senha", rotulo: "Senha do Orbit", tipo: "senha", valor: "", dica: "Fica no .env, fora do git.", obrigatorio: true }] },
+  ],
+  andamento: {},
+  reiniciar: [],
 };
 
 export const AGENDA_EXEMPLO: EventoAgenda[] = [

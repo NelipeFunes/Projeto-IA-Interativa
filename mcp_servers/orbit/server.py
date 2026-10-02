@@ -165,5 +165,5 @@ def criar_servidor(api: OrbitAPI | None = None) -> MCPServer:
 
 
 if __name__ == "__main__":
-    load_dotenv(Path(__file__).resolve().parents[2] / ".env")
+    load_dotenv(Path(__file__).resolve().parents[2] / ".env", interpolate=False)  # senha com "${" chega inteira
     criar_servidor().run("stdio")

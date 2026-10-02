@@ -10,7 +10,13 @@ export type Comando =
   | { tipo: "parar_fala" }
   | { tipo: "ajustes" }
   | { tipo: "salvar_ajustes"; valores: Record<string, ValorAjuste> }
-  | { tipo: "amostra_voz"; voz: string };
+  | { tipo: "amostra_voz"; voz: string }
+  | { tipo: "conexoes" }
+  | { tipo: "conectar"; servico: string; dados: Record<string, string> }
+  | { tipo: "desconectar"; servico: string }
+  | { tipo: "ligar_conexao"; servico: string; ligado: boolean }
+  | { tipo: "cancelar_conexao"; servico: string }
+  | { tipo: "reiniciar" };
 
 export interface Conexao {
   enviar: (c: Comando) => void;

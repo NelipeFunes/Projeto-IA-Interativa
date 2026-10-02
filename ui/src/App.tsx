@@ -1,16 +1,17 @@
 import { AnimatePresence, LayoutGroup, motion } from "motion/react";
 import { useCallback, useEffect, useReducer, useRef, useState } from "react";
-import { Ajustes } from "./componentes/Ajustes";
+import { type Aba, Ajustes } from "./componentes/Ajustes";
 import { Centro } from "./componentes/Centro";
+import { type AcoesConexoes, Conexoes } from "./componentes/Conexoes";
 import { BarraEntrada, ControlesDemo, ControlesJanela } from "./componentes/Moldura";
 import { Nebulosa } from "./componentes/Nebulosa";
 import { PainelAgenda, PainelConversa, PainelMemoria, PainelStatus } from "./componentes/Paineis";
 import { type Conexao, conectar } from "./conexao";
-import { AJUSTES_DEMO, Demo, eventosAte } from "./demo";
+import { AJUSTES_DEMO, CONEXOES_DEMO, Demo, eventosAte } from "./demo";
 import { type Acao, inicial, reduzir } from "./estado";
 import { pausaGl } from "./gl";
 import { niveis } from "./niveis";
-import { noApp, parametros } from "./ponte";
+import { chamar, noApp, parametros } from "./ponte";
 
 // Duas fontes de eventos: o núcleo (?nucleo=1, a janela de verdade) ou o roteiro de demonstração.
 export const NUCLEO = parametros.get("nucleo") === "1";
@@ -56,19 +57,40 @@ export function App() {
   const memoriaRef = useRef<HTMLElement>(null);
   const [voo, setVoo] = useState<{ id: number; de: [number, number]; para: [number, number] } | null>(null);
   const [avisoFechado, setAvisoFechado] = useState<string | null>(null);
-  const [ajustesAbertos, setAjustesAbertos] = useState(parametros.get("ajustes") === "1");
+  // ?ajustes=1 abre os ajustes; ?ajustes=conexoes, já na aba de Conexões (capturas da demo).
+  const [ajustesAbertos, setAjustesAbertos] = useState(parametros.has("ajustes"));
+  const [aba, setAba] = useState<Aba>(parametros.get("ajustes") === "conexoes" ? "conexoes" : "geral");
 
-  const abrirAjustes = () => {
-    setAjustesAbertos(true);
-    if (NUCLEO) conexao.current?.enviar({ tipo: "ajustes" });
+  const trocarAba = useCallback((nova: Aba) => {
+    setAba(nova);
+    if (nova === "conexoes") {
+      if (NUCLEO) conexao.current?.enviar({ tipo: "conexoes" });
+      else emitir({ tipo: "conexoes", ...CONEXOES_DEMO });
+    } else if (NUCLEO) conexao.current?.enviar({ tipo: "ajustes" });
     else emitir({ tipo: "ajustes", ...AJUSTES_DEMO });
+  }, [conexao, emitir]);
+  const abrirAjustes = (abaInicial: Aba = "geral") => {
+    setAjustesAbertos(true);
+    trocarAba(abaInicial);
+  };
+  const acoesConexoes: AcoesConexoes = {
+    conectar: (servico, dados) => (NUCLEO ? conexao.current?.enviar({ tipo: "conectar", servico, dados }) : undefined),
+    desconectar: (servico) => (NUCLEO ? conexao.current?.enviar({ tipo: "desconectar", servico }) : undefined),
+    ligar: (servico, ligado) => (NUCLEO ? conexao.current?.enviar({ tipo: "ligar_conexao", servico, ligado }) : undefined),
+    cancelar: (servico) => (NUCLEO ? conexao.current?.enviar({ tipo: "cancelar_conexao", servico }) : undefined),
+    reiniciar: () => (NUCLEO ? conexao.current?.enviar({ tipo: "reiniciar" }) : undefined),
+    // Na janela, o navegador padrão (a ponte só aceita http/https); na demo, uma aba nova.
+    abrirLink: (url) => (app ? chamar("abrir_link", url) : window.open(url, "_blank", "noopener")),
   };
   const fecharAjustes = useCallback(() => setAjustesAbertos(false), []);
   useEffect(() => {
     pausaGl.jogo = s.estado === "jogo"; // a nebulosa e o orbe param: a GPU é do jogo
   }, [s.estado]);
   useEffect(() => {
-    if (DEMO && parametros.get("ajustes") === "1") emitir({ tipo: "ajustes", ...AJUSTES_DEMO });
+    if (DEMO && parametros.has("ajustes")) {
+      emitir({ tipo: "ajustes", ...AJUSTES_DEMO });
+      emitir({ tipo: "conexoes", ...CONEXOES_DEMO });
+    }
   }, [emitir]);
 
   const reiniciar = useCallback(() => {
@@ -110,7 +132,7 @@ export function App() {
       <Nebulosa estado={s.estado} />
       <div className="app">
         <ControlesJanela app={app} />
-        <button className="botao-ajustes" aria-label="Ajustes" title="Ajustes" onClick={abrirAjustes}>
+        <button className="botao-ajustes" aria-label="Ajustes" title="Ajustes" onClick={() => abrirAjustes()}>
           ⚙
         </button>
         <AnimatePresence>
@@ -174,6 +196,9 @@ export function App() {
                       reiniciar: "assistente.nome" in valores || "voz.microfone" in valores })
               }
               aoOuvir={(voz) => NUCLEO && conexao.current?.enviar({ tipo: "amostra_voz", voz })}
+              aba={aba}
+              aoTrocarAba={trocarAba}
+              conexoes={<Conexoes dados={s.conexoes} acoes={acoesConexoes} />}
             />
           )}
         </AnimatePresence>
