@@ -171,3 +171,15 @@ describe("conexões", () => {
     expect(s.conexoes).toEqual(dados);
   });
 });
+
+
+describe("calibração", () => {
+  it("o evento da calibração não reinicia o formulário dos ajustes", () => {
+    const antes = aplicar([{ tipo: "ajustes", valores: { "voz.velocidade_fala": 1.1 }, campos: [], opcoes: {} }]);
+    const depois = reduzir(antes, { tipo: "calibracao", rodando: false, apelidos: [], dica: "Esqueci." });
+    expect(depois.ajustes).toBe(antes.ajustes);
+    expect(depois.calibracao?.apelidos).toEqual([]);
+    const outra = reduzir(depois, { tipo: "calibracao", rodando: true, etapa: 1, de: 5 });
+    expect(outra.calibracao?.apelidos).toEqual([]); // as grafias atuais não somem no meio da calibração
+  });
+});

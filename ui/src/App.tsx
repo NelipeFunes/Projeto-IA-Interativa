@@ -199,6 +199,20 @@ export function App() {
               aba={aba}
               aoTrocarAba={trocarAba}
               conexoes={<Conexoes dados={s.conexoes} acoes={acoesConexoes} />}
+              calibracao={s.calibracao}
+              aoCalibrar={() => NUCLEO
+                ? conexao.current?.enviar({ tipo: "calibrar_ativacao" })
+                : emitir({ tipo: "calibracao", rodando: false, ouvidos: [{ texto: "Hey Vision", acordou: true },
+                    { texto: "Deliving", acordou: false }, { texto: "Deliving.", acordou: false },
+                    { texto: "Hey deliving", acordou: false }, { texto: "", acordou: false }],
+                  sugeridos: ["deliving"], apelidos: [], acertos: 1,
+                  dica: "Ele escreve o seu \"Vision\" como: deliving. Se foi mesmo você chamando, aceite." })}
+              aoEsquecerApelidos={(apelido) => NUCLEO
+                ? conexao.current?.enviar({ tipo: "esquecer_apelidos", ...(apelido ? { apelido } : {}) })
+                : emitir({ tipo: "calibracao", rodando: false, apelidos: [], dica: "Esqueci." })}
+              aoAceitarApelidos={(apelidos) => NUCLEO
+                ? conexao.current?.enviar({ tipo: "aceitar_apelidos", apelidos })
+                : emitir({ tipo: "calibracao", rodando: false, apelidos, dica: "Pronto: teste o \"Hey Vision\" agora." })}
             />
           )}
         </AnimatePresence>

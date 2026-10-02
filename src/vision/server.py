@@ -13,7 +13,8 @@ GET    /memorias     lista; DELETE /memorias/{id} apaga (clique na tela = você 
 POST   /janela       {"acao": "mostrar"}: abre a janela (usado quando você roda `vision` com o núcleo já ligado)
 WS     /ws           eventos do núcleo → tela; comandos da tela → núcleo (texto, confirmar, ouvir, parar_fala,
                      ajustes, salvar_ajustes, amostra_voz, conexoes, conectar, desconectar,
-                     ligar_conexao, cancelar_conexao, reiniciar)
+                     ligar_conexao, cancelar_conexao, reiniciar,
+                     calibrar_ativacao, esquecer_apelidos, aceitar_apelidos)
 GET    /app/...      a interface (arquivos estáticos de ui/dist, sem segredo)
 """
 
@@ -69,6 +70,10 @@ class Controle:
     ligar_conexao: Callable[[str, bool], Awaitable[None]] | None = None
     cancelar_conexao: Callable[[str], Awaitable[None]] | None = None
     reiniciar: Callable[[], None] | None = None
+    # Calibração do "Hey Vision" (Ajustes): a resposta volta como eventos "calibracao".
+    calibrar_ativacao: Callable[[], Awaitable[None]] | None = None
+    esquecer_apelidos: Callable[[str | None], Awaitable[None]] | None = None
+    aceitar_apelidos: Callable[[list[str]], Awaitable[None]] | None = None
 
 
 def origens_permitidas(porta: int) -> set[str]:
@@ -286,6 +291,16 @@ def _comando(msg: Any, controle: Controle, tarefas: set[asyncio.Task]) -> None:
             tarefa = asyncio.create_task(controle.cancelar_conexao(servico))
     elif tipo == "reiniciar" and controle.reiniciar is not None:
         controle.reiniciar()
+    elif tipo == "calibrar_ativacao" and controle.calibrar_ativacao is not None:
+        tarefa = asyncio.create_task(controle.calibrar_ativacao())
+    elif tipo == "esquecer_apelidos" and controle.esquecer_apelidos is not None:
+        um = msg.get("apelido")
+        if um is None or (isinstance(um, str) and len(um) <= 20):
+            tarefa = asyncio.create_task(controle.esquecer_apelidos(um))
+    elif tipo == "aceitar_apelidos" and controle.aceitar_apelidos is not None:
+        lista = msg.get("apelidos")
+        if isinstance(lista, list) and len(lista) <= 5 and all(isinstance(a, str) and len(a) <= 20 for a in lista):
+            tarefa = asyncio.create_task(controle.aceitar_apelidos(lista))  # só valem as sugeridas (no núcleo)
     if tarefa is not None:
         tarefas.add(tarefa)
         tarefa.add_done_callback(tarefas.discard)

@@ -1,6 +1,6 @@
 import { motion } from "motion/react";
 import { type ReactNode, useEffect, useState } from "react";
-import type { CampoAjuste, DadosAjustes, ValorAjuste } from "../tipos";
+import type { CampoAjuste, DadosAjustes, DadosCalibracao, ValorAjuste } from "../tipos";
 
 const INICIO = "inicia_com_windows";
 
@@ -8,7 +8,8 @@ export type Aba = "geral" | "conexoes";
 
 /** Tela de ajustes: o núcleo manda os valores e as opções; aqui só se escolhe e manda o que mudou.
  *  A aba "Conexões" (Google, Spotify, Alexa…) vem pronta de fora, em `conexoes`. */
-export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir, conexoes, aba, aoTrocarAba }: {
+export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir, conexoes, aba, aoTrocarAba, calibracao, aoCalibrar,
+  aoEsquecerApelidos, aoAceitarApelidos }: {
   dados: DadosAjustes | null;
   aoFechar: () => void;
   aoSalvar: (valores: Record<string, ValorAjuste>) => void;
@@ -16,6 +17,10 @@ export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir, conexoes, aba, aoT
   conexoes: ReactNode;
   aba: Aba;
   aoTrocarAba: (aba: Aba) => void;
+  calibracao: DadosCalibracao | null;
+  aoCalibrar: () => void;
+  aoEsquecerApelidos: (apelido?: string) => void;
+  aoAceitarApelidos: (apelidos: string[]) => void;
 }) {
   const [form, setForm] = useState<Record<string, ValorAjuste>>(dados?.valores ?? {});
   useEffect(() => {
@@ -72,6 +77,8 @@ export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir, conexoes, aba, aoT
               <input type="checkbox" checked={form[INICIO] === true} onChange={(e) => mudar(INICIO, e.target.checked)} />
               <span>Iniciar com o Windows</span>
             </label>
+            <Calibracao dados={calibracao} apelidos={calibracao?.apelidos ?? dados.apelidos ?? []} aoCalibrar={aoCalibrar}
+              aoEsquecer={aoEsquecerApelidos} aoAceitar={aoAceitarApelidos} />
             <Mensagem dados={dados} />
             <div className="ajustes-botoes">
               <button type="button" className="botao botao-nao" onClick={aoFechar}>Fechar</button>
@@ -119,6 +126,72 @@ function Campo({ campo, valor, opcoes, aoMudar, aoOuvir }: {
           <button type="button" className="ajuste-ouvir" onClick={() => aoOuvir(valor)} title="Ouvir esta voz">
             ▶ Ouvir
           </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "Calibrar o Hey Vision": 5 vezes, com bipe; o núcleo aprende como o STT escreve o seu "Vision". */
+function Calibracao({ dados, apelidos, aoCalibrar, aoEsquecer, aoAceitar }: {
+  dados: DadosCalibracao | null;
+  apelidos: string[];
+  aoCalibrar: () => void;
+  aoEsquecer: (apelido?: string) => void;
+  aoAceitar: (apelidos: string[]) => void;
+}) {
+  const rodando = dados?.rodando === true;
+  const sugeridos = !rodando ? (dados?.sugeridos ?? []) : [];
+  return (
+    <div className="ajuste calibracao">
+      <span>"Hey Vision"</span>
+      <span className="conexao-dica">
+        Se ele não entende quando você chama, calibre: a cada bipe, diga "Hey Vision" (5 vezes). Ele aprende como
+        escreve o seu "Vision".
+      </span>
+      {rodando && (
+        <p className="conexao-andamento rodando" role="status">
+          <span className="girando" aria-hidden="true" />
+          <span>{dados?.etapa ? `Depois do bipe, diga "Hey Vision" (${dados.etapa} de ${dados.de})…` : "Preparando…"}</span>
+        </p>
+      )}
+      {dados?.ouvidos && dados.ouvidos.length > 0 && (
+        <ol className="calibracao-ouvidos">
+          {dados.ouvidos.map((o, i) => (
+            <li key={i} className={o.acordou ? "ok" : "erro"}>
+              {o.texto ? `"${o.texto}"` : "(não ouvi nada)"} {o.acordou ? "✓" : "✗"}
+            </li>
+          ))}
+        </ol>
+      )}
+      {!rodando && dados?.dica && <p className="ajustes-msg">{dados.dica}</p>}
+      {!rodando && dados?.erro && <p className="ajustes-msg erro">{dados.erro}</p>}
+      {sugeridos.length > 0 && (
+        <div className="conexao-botoes">
+          <span>
+            Usar {sugeridos.map((a) => `"${a}"`).join(", ")} como "Vision"? Só aceite se não for uma palavra que se
+            fala no dia a dia (senão a TV ou uma conversa também acordam o Vision).
+          </span>
+          <button type="button" className="botao botao-sim" onClick={() => aoAceitar(sugeridos)}>Aceitar</button>
+        </div>
+      )}
+      {apelidos.length > 0 && (
+        <div className="calibracao-apelidos">
+          <span className="conexao-dica">Grafias aprendidas:</span>
+          {apelidos.map((a) => (
+            <button type="button" key={a} className="calibracao-apelido" disabled={rodando} title="Esquecer esta"
+              onClick={() => aoEsquecer(a)}>
+              {a} ×
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="conexao-botoes">
+        <button type="button" className="botao botao-sim" disabled={rodando} onClick={aoCalibrar}>
+          {rodando ? "Calibrando…" : "Calibrar"}
+        </button>
+        {apelidos.length > 1 && !rodando && (
+          <button type="button" className="botao botao-nao" onClick={() => aoEsquecer()}>Esquecer todas</button>
         )}
       </div>
     </div>

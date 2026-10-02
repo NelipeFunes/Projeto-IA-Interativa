@@ -1201,3 +1201,55 @@ label.ajuste-linha {
   outline: 2px solid var(--borda-forte);
   outline-offset: 2px;
 }
+
+/* calibração do "Hey Vision" */
+
+.calibracao {
+  padding: 12px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--borda);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.calibracao > span:first-child {
+  font-family: var(--titulo);
+  font-weight: 600;
+  color: var(--texto);
+}
+
+.calibracao-ouvidos {
+  margin: 0;
+  padding-left: 20px;
+  font-size: 12px;
+  color: var(--texto-suave);
+}
+
+.calibracao-ouvidos .ok {
+  color: #69f0ae;
+}
+
+.calibracao-ouvidos .erro {
+  color: var(--alerta);
+}
+
+.calibracao-apelidos {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+}
+
+.calibracao-apelido {
+  border: 1px solid var(--borda);
+  background: rgba(124, 77, 255, 0.15);
+  color: var(--texto);
+  border-radius: 999px;
+  padding: 2px 10px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+}
+
+.calibracao-apelido:hover {
+  background: rgba(255, 107, 139, 0.18);
+}
