@@ -64,6 +64,11 @@ def test_falas_que_nao_acordam(ouvido):
     "Pode dormir.",
     "Tchau, Vision.",
     "pode encerrar por favor",
+    # 02/10: "modo" não barra mais, e o Parakeet com sotaque
+    "Não, não, não, pode reparar, pode entrar em modo standby.",
+    "Pode entrar em modo standby",
+    "Stand you by.",
+    "Entra em standby",
 ])
 def test_despedidas(ouvido):
     assert e_despedida(ouvido)
@@ -83,6 +88,7 @@ def test_despedidas(ouvido):
     "Deixa a TV em standby",
     "A TV ficou em standby a noite toda",
     "Me explica o que é o modo standby da TV",
+    "Deixa em standby o PC",  # aparelho depois do standby
     "Me explica o que é o modo standby da TV e quanto ele gasta de energia por mês aqui em casa, por favor, rapidinho",
     "Marca o dentista amanhã às nove",
     "Beleza, Vision, pode marcar o dentista",

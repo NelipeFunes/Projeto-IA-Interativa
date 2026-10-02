@@ -21,6 +21,7 @@ from vision.brain import confirmacao as classificador, intencao, prompt
 from vision.brain.llm import LLM, Interrompido, RespostaLLM
 from vision.memory.store import Memorias
 from vision.tools.base import ErroFerramenta, Ferramenta, Registro
+from vision.voice.comandos import e_despedida  # só texto: frases que fecham a conversa
 
 log = logging.getLogger(__name__)
 
@@ -339,6 +340,14 @@ class Agente:
     async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None,
                       parar: Callable[[], bool] | None = None, rastro: dict[str, Any] | None = None) -> Resposta:
         # No modo "todas", depois de ler texto de fora quem decide é o caminho normal. Luz nunca é sensível.
+        if canal != "voz" and e_despedida(texto):
+            # "Entra em standby" digitado na janela: na voz o laço já fecha a conversa; aqui o modelo achava que era
+            # para suspender o PC (02/10). Uma despedida nunca vira ação.
+            resposta = "Certo, fico em standby. É só me chamar."
+            s.turnos.append([{"role": "user", "content": texto}, {"role": "assistant", "content": resposta}])
+            if ao_texto:
+                ao_texto(resposta)
+            return Resposta(resposta, [])
         if self.confirmacao != "todas" or (not self._ainda_tem_externo(s) and not s.nota):
             for atalho in self.atalhos:
                 feito = await atalho(texto)

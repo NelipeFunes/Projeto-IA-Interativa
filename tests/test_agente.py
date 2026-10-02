@@ -309,3 +309,12 @@ async def test_sem_descrever_a_pergunta_e_falavel():
     a = Agente(LLMFalso([chama("timer_cancelar", qual="café"), fala("?")]), r, None, confirmacao="sensiveis")
     resp = await a.responder("estou cansado", canal="voz", sessao="v")
     assert resp.texto == "Vou fazer isto: cancela um timer ligado (café). Confirma?"
+
+
+async def test_standby_digitado_nao_vira_suspender_o_pc():
+    """02/10: "entra em standby" na janela fazia o modelo chamar pc_energia (suspender). Despedida nunca é ação."""
+    llm = LLMFalso([])  # se o modelo for chamado, o LLMFalso sem respostas quebra o teste
+    a = Agente(llm, Registro(), None)
+    for frase in ("entra em standby", "Não, não, pode entrar em modo standby."):
+        r = await a.responder(frase, "texto", "tela")
+        assert r.texto == "Certo, fico em standby. É só me chamar." and r.ferramentas == []
