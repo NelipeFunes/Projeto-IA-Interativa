@@ -86,7 +86,7 @@ def tem_login(cfg: Config) -> bool:
     return bool(ArmazemTokens(arquivo_tokens(cfg))._ler().get("tokens"))
 
 
-def _provedor(cfg: Config, interativo: bool):
+def _provedor(cfg: Config, interativo: bool, avisar=print):
     from mcp.client.auth import OAuthClientProvider
     from mcp.shared.auth import AuthorizationCodeResult, OAuthClientMetadata
 
@@ -102,9 +102,9 @@ def _provedor(cfg: Config, interativo: bool):
         recebido = asyncio.get_running_loop().create_future()
         esperado = parse_qs(urlparse(endereco).query).get("state", [None])[0]
         servidor = await asyncio.start_server(_atender(recebido, esperado), "127.0.0.1", PORTA_RETORNO)
-        print("Abrindo o navegador para entrar no Wispr Flow (use Google, Apple ou Microsoft;")
-        print("e-mail e senha não funcionam aqui). Se não abrir, copie este endereço:\n")
-        print(endereco + "\n")
+        avisar("Abrindo o navegador para entrar no Wispr Flow (use Google, Apple ou Microsoft; "
+               "e-mail e senha não funcionam aqui).")
+        avisar(f"Se não abrir, copie este endereço: {endereco}")
         webbrowser.open(endereco)
 
     async def ao_voltar() -> AuthorizationCodeResult:
@@ -161,7 +161,7 @@ def _atender(recebido: asyncio.Future, esperado: str | None = None):
     return atender
 
 
-def transporte(cfg: Config, interativo: bool = False):
+def transporte(cfg: Config, interativo: bool = False, avisar=print):
     """Alvo do ConexaoMCP: um transporte novo a cada conexão."""
     from vision.tools.mcp_host import Remoto
 
@@ -171,31 +171,30 @@ def transporte(cfg: Config, interativo: bool = False):
         from mcp.client.streamable_http import streamable_http_client
 
         # O SDK não fecha um cliente HTTP que ele não criou: este fecha junto com a conexão.
-        async with httpx2.AsyncClient(auth=_provedor(cfg, interativo), timeout=httpx2.Timeout(30, read=60)) as cliente:
+        async with httpx2.AsyncClient(auth=_provedor(cfg, interativo, avisar), timeout=httpx2.Timeout(30, read=60)) as cliente:
             async with streamable_http_client(str(cfg.get("mcp.wispr.url", URL_PADRAO)), http_client=cliente) as fluxos:
                 yield fluxos
 
     return Remoto(criar)
 
 
-async def login(cfg: Config) -> int:
-    """`vision wispr-login`: faz o login no navegador e mostra o que ficou disponível."""
+async def login(cfg: Config, avisar=print) -> int:
+    """`vision wispr-login` e a tela de Conexões: faz o login no navegador e mostra o que ficou disponível."""
     from vision.tools.mcp_host import ConexaoMCP
 
-    c = ConexaoMCP("wispr", transporte(cfg, interativo=True), timeout_s=PRAZO_LOGIN_S + 30)
+    c = ConexaoMCP("wispr", transporte(cfg, interativo=True, avisar=avisar), timeout_s=PRAZO_LOGIN_S + 30)
     await c.iniciar()
     try:
         if c.cliente is None:
             if "Timeout" in str(c.erro):
-                print("O login não foi concluído a tempo (5 min). Rode `vision wispr-login` de novo.")
+                avisar("O login não foi concluído a tempo (5 min). Tente de novo.")
             else:
-                print(f"Não consegui conectar: {c.erro}")
+                avisar(f"Não consegui conectar: {c.erro}")
             return 1
         ferramentas = await c.listar()
         r = await c.chamar("list_upcoming_meetings", {"window_hours": 24, "limit": 5})
-        print(f"Conectado ao Wispr Flow ({len(ferramentas)} ferramentas). Login guardado em {arquivo_tokens(cfg)}.")
-        print("Próximas reuniões (24 h):", "ok" if r.ok else f"erro: {r.texto[:200]}")
-        print("Reinicie o Vision (bandeja → Sair, e abrir de novo) para ele usar.")
+        avisar(f"Conectado ao Wispr Flow ({len(ferramentas)} ferramentas). Próximas reuniões: "
+               + ("ok" if r.ok else f"erro: {r.texto[:200]}"))
         return 0
     finally:
         await c.fechar()

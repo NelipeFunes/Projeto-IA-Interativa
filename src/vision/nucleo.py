@@ -33,13 +33,14 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from vision import ajustes, config, inicializacao
+from vision import ajustes, config, conexoes, inicializacao
 from vision.eventos import Barramento
 from vision.voice.loop import FALA_DE_ERRO
 
 log = logging.getLogger("vision.nucleo")
 
 NOME_MUTEX = "Local\\VisionNucleo"
+ESPERA_REINICIO_S = 20  # o núcleo novo espera o velho soltar o mutex (e a porta) ao reiniciar pela tela
 # A agenda muda por fora (celular): a cada 5 min o cache dela é refeito e a tela recebe uma foto nova.
 ATUALIZAR_PAINEL_S = 300
 VIGIAR_SISTEMA_S = 120  # placa quente, memória ou disco no fim: avisa (uma vez por hora cada um)
@@ -83,7 +84,17 @@ class InstanciaUnica:
         k32.CreateMutexW.argtypes = (ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p)
         self.handle = k32.CreateMutexW(None, False, self.nome)
         ERROR_ALREADY_EXISTS = 183
-        return bool(self.handle) and ctypes.get_last_error() != ERROR_ALREADY_EXISTS
+        if bool(self.handle) and ctypes.get_last_error() != ERROR_ALREADY_EXISTS:
+            return True
+        self.soltar()  # o handle de um mutex que já era de outro núcleo não segura nada
+        return False
+
+    def soltar(self) -> None:
+        if sys.platform == "win32" and self.handle:
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.CloseHandle.argtypes = (ctypes.c_void_p,)
+            k32.CloseHandle(self.handle)
+        self.handle = None
 
 
 def nucleo_rodando(nome: str = NOME_MUTEX) -> bool:
@@ -237,6 +248,12 @@ class Nucleo:
         self.bandeja: Any = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self.parar: asyncio.Event | None = None
+        self.reiniciar_ao_sair = False
+        # Conexões: o que o Vision montou ao iniciar (mudou depois, a tela pede para reiniciar), os logins em
+        # andamento (um por serviço) e a última frase de cada um para a tela.
+        self.conexoes_inicio = conexoes.assinatura(cfg)
+        self.logins: dict[str, tuple[asyncio.Task, threading.Event]] = {}
+        self.andamento: dict[str, dict[str, Any]] = {}
 
     # ---------- o que a tela pode pedir ----------
 
@@ -270,7 +287,104 @@ class Nucleo:
 
         return Controle(texto=texto, confirmar=confirmar, ouvir=ouvir, parar_fala=parar_fala,
                         abrir_janela=self.abrir_janela, painel=self.painel, ler_ajustes=self.ler_ajustes,
-                        salvar_ajustes=self.salvar_ajustes, amostra_voz=self.amostra_voz)
+                        salvar_ajustes=self.salvar_ajustes, amostra_voz=self.amostra_voz,
+                        ler_conexoes=self.ler_conexoes, conectar=self.conectar, desconectar=self.desconectar,
+                        ligar_conexao=self.ligar_conexao, cancelar_conexao=self.cancelar_conexao,
+                        reiniciar=self.reiniciar)
+
+    # ---------- tela de conexões ----------
+
+    async def ler_conexoes(self) -> None:
+        status = self.j.host.status() if self.j is not None else {}
+        servicos = await asyncio.to_thread(conexoes.estado, self.cfg, status)
+        reiniciar = await asyncio.to_thread(conexoes.mudou_desde, self.cfg, self.conexoes_inicio)
+        self.barramento.publicar({"tipo": "conexoes", "servicos": servicos, "andamento": dict(self.andamento),
+                                  "reiniciar": reiniciar})
+
+    def _andamento(self, servico: str, texto: str, *, rodando: bool, ok: bool | None = None) -> None:
+        self.andamento[servico] = {"texto": str(texto)[:500], "rodando": rodando, "ok": ok}
+
+    async def conectar(self, servico: str, dados: dict[str, Any]) -> None:
+        if servico in self.logins:
+            return  # já tem um login deste serviço em andamento: a tela mostra o dele
+        try:
+            limpos = conexoes.validar(servico, dados)
+        except ValueError as e:
+            self._andamento(str(servico)[:20], str(e), rodando=False, ok=False)
+            await self.ler_conexoes()
+            return
+        cancelar = threading.Event()
+        assert self.loop is not None
+        loop = self.loop
+        frases: list[str] = []  # a última vira o resultado ("Spotify ligado...", "E-mail inválido.")
+
+        def aplicar(texto: str) -> None:
+            if servico in self.logins:
+                frases.append(texto)
+                self._andamento(servico, texto, rodando=True)
+                asyncio.ensure_future(self.ler_conexoes())
+
+        def avisar(texto: str) -> None:
+            try:
+                no_loop = asyncio.get_running_loop() is loop
+            except RuntimeError:
+                no_loop = False
+            if no_loop:  # Spotify, Alexa e Wispr: na hora (adiada, a última frase chegaria depois do fim)
+                aplicar(texto)
+            else:  # o login do Google roda numa thread
+                loop.call_soon_threadsafe(aplicar, texto)
+
+        async def rodar() -> None:
+            try:
+                ok = await conexoes.conectar(self.cfg, servico, limpos, avisar, cancelar)
+                self._andamento(servico, frases[-1] if frases else ("Pronto." if ok else "Não deu certo."),
+                                rodando=False, ok=ok)
+                log.info("conexão %s: %s", servico, "feita" if ok else "não concluída")
+            except asyncio.CancelledError:
+                self._andamento(servico, "Cancelado.", rodando=False, ok=False)
+                raise
+            except Exception as e:  # noqa: BLE001 - credencial recusada, rede: a tela recebe a frase
+                log.exception("falha ao conectar %s", servico)
+                self._andamento(servico, f"Não deu certo: {e}", rodando=False, ok=False)
+            finally:
+                self.logins.pop(servico, None)
+                with contextlib.suppress(Exception):
+                    await self.ler_conexoes()
+
+        self._andamento(servico, "Conectando…", rodando=True)
+        self.logins[servico] = (asyncio.create_task(rodar()), cancelar)
+        await self.ler_conexoes()
+
+    async def cancelar_conexao(self, servico: str) -> None:
+        if (login := self.logins.get(servico)) is not None:
+            login[1].set()  # o do Google roda numa thread: ela vê o aviso e mata o Node
+            login[0].cancel()
+
+    async def desconectar(self, servico: str) -> None:
+        if servico in self.logins or servico not in conexoes.POR_ID:
+            return
+        try:
+            texto = await asyncio.to_thread(conexoes.desconectar, self.cfg, servico)
+            self._andamento(servico, texto, rodando=False, ok=True)
+            log.info("conexão %s: desconectada", servico)
+        except (ValueError, OSError) as e:
+            self._andamento(servico, f"Não consegui desconectar: {e}", rodando=False, ok=False)
+        await self.ler_conexoes()
+
+    async def ligar_conexao(self, servico: str, ligado: bool) -> None:
+        s = conexoes.POR_ID.get(servico)
+        if s is None:
+            return
+        config.salvar_ajustes(self.cfg, {s.chave_ligado: ligado})
+        self._andamento(servico, "Ligado." if ligado else "Desligado.", rodando=False, ok=True)
+        await self.ler_conexoes()
+
+    def reiniciar(self) -> None:
+        """Pela tela: encerra e sobe um núcleo novo (as conexões só são montadas ao iniciar)."""
+        log.info("reiniciando a pedido da tela")
+        self.reiniciar_ao_sair = True
+        if self.parar is not None:
+            self.parar.set()
 
     # ---------- tela de ajustes ----------
 
@@ -558,6 +672,9 @@ class Nucleo:
                     log.info("encerrando")
                     for t in tarefas:
                         t.cancel()
+                    for t, cancelar in list(self.logins.values()):
+                        cancelar.set()
+                        t.cancel()
                     self.janela.encerrar()
                     servidor.should_exit = True
                     with contextlib.suppress(Exception):
@@ -618,7 +735,14 @@ def main(argv: list[str] | None = None, *, console: bool = False) -> int:
     arquivo_log = configurar_log(cfg, console=console)
     abrir = "--abrir" in argv
     unica = InstanciaUnica()
-    if not unica.pegar():
+    pegou = unica.pegar()
+    if not pegou and "--reiniciando" in argv:
+        # O núcleo velho ainda está fechando (a porta, a janela): espera ele sair em vez de só pedir a janela.
+        fim = time.monotonic() + ESPERA_REINICIO_S
+        while not pegou and time.monotonic() < fim:
+            time.sleep(0.5)
+            pegou = unica.pegar()
+    if not pegou:
         ok = pedir_janela(cfg)
         log.info("já existe um núcleo rodando; %s", "janela aberta" if ok else "não consegui falar com ele")
         return 0 if ok else 1
@@ -628,14 +752,28 @@ def main(argv: list[str] | None = None, *, console: bool = False) -> int:
     except Exception:  # noqa: BLE001 - sem o atalho, o resto funciona
         log.exception("não consegui criar o atalho de inicialização")
     log.info("núcleo iniciando (log em %s)", arquivo_log)
+    nucleo = Nucleo(cfg, abrir_janela=abrir, com_voz="--sem-voz" not in argv)
     try:
-        asyncio.run(Nucleo(cfg, abrir_janela=abrir, com_voz="--sem-voz" not in argv).rodar())
+        asyncio.run(nucleo.rodar())
     except KeyboardInterrupt:
         pass
     except Exception:  # noqa: BLE001
         log.exception("o núcleo caiu")
         return 1
+    if nucleo.reiniciar_ao_sair:
+        unica.soltar()
+        subir_de_novo(cfg)
     return 0
+
+
+def subir_de_novo(cfg: config.Config) -> None:
+    """Sobe o núcleo novo, já com a janela. As variáveis que a tela grava no .env ficam de fora do ambiente
+    herdado: o novo lê o .env de novo (load_dotenv não troca o que já veio do processo pai)."""
+    exe, extra = inicializacao.alvo()
+    env = {k: v for k, v in os.environ.items() if k not in conexoes.CHAVES_ENV}
+    subprocess.Popen([str(exe), *extra.split(), "--abrir", "--reiniciando"], cwd=cfg.raiz, env=env, close_fds=True,
+                     creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    log.info("núcleo novo pedido (%s)", exe.name)
 
 
 if __name__ == "__main__":

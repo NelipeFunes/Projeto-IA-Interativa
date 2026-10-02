@@ -37,6 +37,11 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   é transcrito só para achar o nome e descartado (não vai para a tela, o log nem o disco).
 - **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.
 - **Janela fechada:** falando com ele, aparece uma bolha no canto, sem tirar o foco (não aparece no modo jogo).
+- **Conexões (⚙ → Conexões):** Google Agenda, Spotify, Alexa, Wispr Flow, a chave da Tavily e o Orbit, sem
+  terminal. Cada um tem um interruptor; os logins abrem a página do próprio serviço no navegador (o Vision não
+  vê a senha dessas contas). Chave e senha digitadas ali vão para o `.env` e nunca voltam para a tela. Como as
+  conexões são montadas ao iniciar, a tela oferece "Reiniciar agora" quando algo muda. Os comandos
+  `vision google-login`, `spotify-login` etc. continuam valendo.
 - **Log:** `data/logs/nucleo.log` e `data/logs/janela.log`.
 
 ### Vision.exe (duplo clique)

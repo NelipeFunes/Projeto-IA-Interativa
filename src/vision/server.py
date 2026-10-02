@@ -12,7 +12,8 @@ GET    /estado       foto da tela (evento "painel")
 GET    /memorias     lista; DELETE /memorias/{id} apaga (clique na tela = você decidiu, sem perguntar de novo)
 POST   /janela       {"acao": "mostrar"}: abre a janela (usado quando você roda `vision` com o núcleo já ligado)
 WS     /ws           eventos do núcleo → tela; comandos da tela → núcleo (texto, confirmar, ouvir, parar_fala,
-                     ajustes, salvar_ajustes, amostra_voz)
+                     ajustes, salvar_ajustes, amostra_voz, conexoes, conectar, desconectar,
+                     ligar_conexao, cancelar_conexao, reiniciar)
 GET    /app/...      a interface (arquivos estáticos de ui/dist, sem segredo)
 """
 
@@ -61,6 +62,13 @@ class Controle:
     ler_ajustes: Callable[[], Awaitable[None]] | None = None
     salvar_ajustes: Callable[[dict[str, Any]], Awaitable[None]] | None = None
     amostra_voz: Callable[[str], Awaitable[None]] | None = None
+    # Tela de Conexões (vision/conexoes.py): a resposta volta como evento "conexoes".
+    ler_conexoes: Callable[[], Awaitable[None]] | None = None
+    conectar: Callable[[str, dict[str, Any]], Awaitable[None]] | None = None
+    desconectar: Callable[[str], Awaitable[None]] | None = None
+    ligar_conexao: Callable[[str, bool], Awaitable[None]] | None = None
+    cancelar_conexao: Callable[[str], Awaitable[None]] | None = None
+    reiniciar: Callable[[], None] | None = None
 
 
 def origens_permitidas(porta: int) -> set[str]:
@@ -264,9 +272,38 @@ def _comando(msg: Any, controle: Controle, tarefas: set[asyncio.Task]) -> None:
         tarefa = asyncio.create_task(controle.salvar_ajustes(msg["valores"]))  # validado em vision/ajustes.py
     elif tipo == "amostra_voz" and controle.amostra_voz is not None and isinstance(msg.get("voz"), str):
         tarefa = asyncio.create_task(controle.amostra_voz(msg["voz"][:80]))
+    elif tipo == "conexoes" and controle.ler_conexoes is not None:
+        tarefa = asyncio.create_task(controle.ler_conexoes())
+    elif tipo in ("conectar", "desconectar", "ligar_conexao", "cancelar_conexao") and _servico_valido(msg.get("servico")):
+        servico = msg["servico"]
+        if tipo == "conectar" and controle.conectar is not None and _dados_validos(msg.get("dados")):
+            tarefa = asyncio.create_task(controle.conectar(servico, msg["dados"]))  # validado em vision/conexoes.py
+        elif tipo == "desconectar" and controle.desconectar is not None:
+            tarefa = asyncio.create_task(controle.desconectar(servico))
+        elif tipo == "ligar_conexao" and controle.ligar_conexao is not None and isinstance(msg.get("ligado"), bool):
+            tarefa = asyncio.create_task(controle.ligar_conexao(servico, msg["ligado"]))
+        elif tipo == "cancelar_conexao" and controle.cancelar_conexao is not None:
+            tarefa = asyncio.create_task(controle.cancelar_conexao(servico))
+    elif tipo == "reiniciar" and controle.reiniciar is not None:
+        controle.reiniciar()
     if tarefa is not None:
         tarefas.add(tarefa)
         tarefa.add_done_callback(tarefas.discard)
+
+
+def _servico_valido(servico: Any) -> bool:
+    from vision.conexoes import POR_ID
+
+    return isinstance(servico, str) and servico in POR_ID
+
+
+def _dados_validos(dados: Any) -> bool:
+    """Formulário de conexão: poucos campos de texto (o maior é o JSON da credencial do Google)."""
+    from vision.conexoes import LIMITE_CAMPO
+
+    return (isinstance(dados, dict) and len(dados) <= 5
+            and all(isinstance(k, str) and len(k) <= 30 and isinstance(v, str) and len(v) <= LIMITE_CAMPO
+                    for k, v in dados.items()))
 
 
 def gravar_acesso(cfg: Config, porta: int, token: str) -> Path:

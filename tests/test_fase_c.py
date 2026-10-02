@@ -219,7 +219,8 @@ def test_arquivo_local_so_muda_as_chaves_da_tela(cfg, monkeypatch, tmp_path):
     """Revisão do PR 8: data/config-local.yaml não vira porta para servidor, modelo ou caminho de arquivo."""
     from vision import ajustes as aj
 
-    assert config.CHAVES_AJUSTAVEIS == set(aj.POR_CHAVE)  # as duas listas andam juntas
+    # as duas listas andam juntas (mais os interruptores da tela de Conexões, que só aceitam true/false)
+    assert config.CHAVES_AJUSTAVEIS == set(aj.POR_CHAVE) | config.CHAVES_LIGA_DESLIGA
     (tmp_path / "raiz" / "data").mkdir(parents=True)
     (tmp_path / "raiz" / "data" / config.AJUSTES_LOCAIS).write_text(
         'servidor.porta: 80\nmodelo.host: "http://outro"\nvoz.voz_piper: "../../x"\nvoz.velocidade_fala: 1.3\n',

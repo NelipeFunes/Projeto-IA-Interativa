@@ -121,12 +121,13 @@ def _atender(recebido: asyncio.Future, estado: str):
     return atender
 
 
-async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open) -> int:
-    """`vision spotify-login [--client-id ID]`: login no navegador; guarda o Client ID e os tokens."""
+async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open, avisar=print) -> int:
+    """`vision spotify-login [--client-id ID]` e a tela de Conexões: login no navegador; guarda o Client ID e os
+    tokens. `avisar` recebe cada linha de andamento (o terminal imprime; a tela mostra)."""
     client_id = (client_id or ler(cfg).get("client_id") or "").strip()
     if not client_id:
-        print("Falta o Client ID do seu app do Spotify. Crie um em https://developer.spotify.com/dashboard")
-        print(f"(Web API, endereço de retorno {RETORNO}) e rode: vision spotify-login --client-id SEU_CLIENT_ID")
+        avisar("Falta o Client ID do seu app do Spotify. Crie um em https://developer.spotify.com/dashboard")
+        avisar(f"(Web API, endereço de retorno {RETORNO}) e rode: vision spotify-login --client-id SEU_CLIENT_ID")
         return 1
     verificador, desafio = _pkce()
     estado = secrets.token_urlsafe(24)
@@ -134,22 +135,22 @@ async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open
     try:
         servidor = await asyncio.start_server(_atender(recebido, estado), "127.0.0.1", PORTA_RETORNO)
     except OSError:
-        print(f"A porta {PORTA_RETORNO} está ocupada. Feche o que estiver usando e tente de novo.")
+        avisar(f"A porta {PORTA_RETORNO} está ocupada. Feche o que estiver usando e tente de novo.")
         return 1
     url = f"{URL_CONTAS}/authorize?" + urlencode({
         "client_id": client_id, "response_type": "code", "redirect_uri": RETORNO, "scope": ESCOPOS,
         "code_challenge_method": "S256", "code_challenge": desafio, "state": estado})
     try:
-        print("Abrindo o navegador para o login do Spotify (se não abrir, cole este endereço):")
-        print(url)
+        avisar("Abrindo o navegador para o login do Spotify...")
+        avisar(f"Se não abrir, cole este endereço no navegador: {url}")
         abrir(url)
         try:
             codigo = await asyncio.wait_for(recebido, PRAZO_LOGIN_S)
         except TimeoutError:
-            print("O login não foi concluído a tempo (5 min). Rode `vision spotify-login` de novo.")
+            avisar("O login não foi concluído a tempo (5 min). Tente de novo.")
             return 1
         except SemLogin as e:
-            print(e)
+            avisar(str(e))
             return 1
     finally:
         servidor.close()
@@ -159,11 +160,11 @@ async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open
                 "grant_type": "authorization_code", "code": codigo, "redirect_uri": RETORNO,
                 "client_id": client_id, "code_verifier": verificador})
     except httpx.HTTPError as e:
-        print(f"Não consegui falar com o Spotify ({type(e).__name__}). Confira a internet e tente de novo.")
+        avisar(f"Não consegui falar com o Spotify ({type(e).__name__}). Confira a internet e tente de novo.")
         return 1
     t = r.json() if r.status_code == 200 else {}
     if not t.get("access_token") or not t.get("refresh_token"):
-        print(f"O Spotify não aceitou o código ({r.status_code}): {r.text[:200]}")
+        avisar(f"O Spotify não aceitou o código ({r.status_code}): {r.text[:200]}")
         return 1
     gravar(cfg, {"client_id": client_id, "access_token": t["access_token"], "refresh_token": t["refresh_token"],
                  "expira": time.time() + int(t.get("expires_in", 3600)) - 60})
@@ -172,10 +173,9 @@ async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open
             dispositivos = await sp.dispositivos()
     except (ErroSpotify, SemLogin) as e:
         dispositivos = []
-        print(f"(login guardado, mas não consegui listar os dispositivos agora: {e})")
-    print(f"Spotify ligado. Login guardado em {arquivo(cfg)}.")
-    print("Dispositivos agora:", ", ".join(d.get("name", "?") for d in dispositivos) or "nenhum (abra o Spotify)")
-    print("Reinicie o Vision (bandeja → Sair, e abrir de novo) para ele usar.")
+        avisar(f"(login guardado, mas não consegui listar os dispositivos agora: {e})")
+    nomes = ", ".join(d.get("name", "?") for d in dispositivos) or "nenhum (abra o Spotify)"
+    avisar(f"Spotify ligado. Dispositivos agora: {nomes}.")
     return 0
 
 
@@ -205,7 +205,7 @@ class Spotify:
         async with self._trava:
             d = ler(self.cfg)
             if not d.get("refresh_token") or not d.get("client_id"):
-                raise SemLogin("O Spotify não está ligado. Diga ao Felipe para rodar `vision spotify-login`.")
+                raise SemLogin("O Spotify não está ligado. Diga ao Felipe para conectar nos Ajustes, em Conexões.")
             if not forcar and d.get("access_token") and time.time() < float(d.get("expira", 0)):
                 return d["access_token"]
             try:
@@ -214,8 +214,8 @@ class Spotify:
             except httpx.HTTPError as e:  # sem internet: mensagem, não exceção crua (revisão do PR 21)
                 raise ErroSpotify(f"O Spotify não respondeu ({type(e).__name__}).") from e
             if r.status_code in (400, 401):
-                raise SemLogin("O login do Spotify expirou ou foi revogado. Diga ao Felipe para rodar "
-                               "`vision spotify-login`.")
+                raise SemLogin("O login do Spotify expirou ou foi revogado. Diga ao Felipe para reconectar "
+                               "nos Ajustes, em Conexões.")
             if r.status_code != 200:
                 raise ErroSpotify(f"O Spotify não renovou o acesso agora ({r.status_code}). Tente de novo.")
             t = r.json()
