@@ -598,3 +598,14 @@ def test_tela_diz_para_onde_a_senha_vai(cfg_conexoes, monkeypatch):
     cfg_conexoes.bruto["mcp"].setdefault("orbit", {})["ativo"] = True
     senha = [c for c in _por_id(cfg_conexoes)["orbit"]["campos"] if c["nome"] == "senha"][0]
     assert "meu-orbit.exemplo" in senha["dica"]
+
+
+def test_exp_inteiro_gigante_e_url_com_senha(monkeypatch):
+    import base64
+
+    corpo = base64.urlsafe_b64encode(('{"exp": ' + "9" * 400 + "}").encode()).decode().rstrip("=")
+    assert conexoes._dias_do_token(f"a.{corpo}.b") is None
+    monkeypatch.setenv("ORBIT_URL", "https://eu:segredo@orbit.exemplo")
+    assert conexoes._host_orbit() == "orbit.exemplo"
+    monkeypatch.setenv("ORBIT_URL", "http://orbit.exemplo")
+    assert "sem https" in conexoes._host_orbit()

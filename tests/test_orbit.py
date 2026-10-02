@@ -278,3 +278,13 @@ async def test_token_novo_gravado_pela_tela_vale_sem_reiniciar(tmp_path):
                        env_arquivo=env)
         assert [t["title"] for t in await api.tarefas()] == ["X"]
         assert not login.called
+
+
+def test_rotulo_de_uma_letra_no_fim_conta():
+    from orbit_api import ErroOrbit, achar_tarefa
+
+    ts = [_t("a", "Treino A"), _t("b", "Treino B"), _t("e", "Treino E")]
+    assert achar_tarefa(ts, "treino a")["id"] == "a" and achar_tarefa(ts, "treino e")["id"] == "e"
+    with pytest.raises(ErroOrbit, match="Mais de uma"):
+        achar_tarefa(ts, "treino")  # cabe em todas: pergunta qual
+    assert achar_tarefa([_t("x", "Pagar IPVA")], "pagar o ipva")["id"] == "x"  # no meio, "o" ainda é artigo

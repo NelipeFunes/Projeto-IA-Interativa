@@ -74,11 +74,15 @@ def _simples(texto: str) -> str:
 
 
 # Palavras que não distinguem uma tarefa de outra ("pagar o IPVA" = "Pagar IPVA").
-_VAZIAS = {"o", "a", "os", "as", "de", "do", "da", "dos", "das", "um", "uma", "e", "no", "na", "pra", "para", "tarefa"}
+_VAZIAS = {"os", "as", "de", "do", "da", "dos", "das", "um", "uma", "no", "na", "pra", "para", "tarefa"}
+# "a", "e" e "o" só são artigo no meio: no fim são rótulo ("Treino A" e "Treino E" não são a mesma tarefa).
+_VAZIAS_NO_MEIO = {"a", "e", "o"}
 
 
 def _palavras(texto: str) -> set[str]:
-    return {p for p in _simples(texto).split() if p not in _VAZIAS}
+    todas = _simples(texto).split()
+    return {p for i, p in enumerate(todas)
+            if p not in _VAZIAS and not (p in _VAZIAS_NO_MEIO and i < len(todas) - 1)}
 
 
 def feita(t: dict[str, Any]) -> bool:

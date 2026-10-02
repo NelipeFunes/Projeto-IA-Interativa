@@ -126,7 +126,8 @@ class FerramentasOrbit:
             Ferramenta(
                 "tarefas_concluir",
                 "Marca uma tarefa do Orbit como feita ('já paguei o IPVA', 'risca X da lista'); desfazer=true reabre.",
-                esquema(["tarefa"], tarefa=texto("O título da tarefa, como o Felipe disse"),
+                esquema(["tarefa"], tarefa=texto("O título da tarefa, sem o verbo do pedido ('IPVA', não 'já paguei "
+                                                 "o IPVA')"),
                         desfazer={"type": "boolean", "description": "true para reabrir uma tarefa já feita"}),
                 self._chamar("tarefas_concluir"),
                 escrita=True,

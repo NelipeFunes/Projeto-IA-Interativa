@@ -245,7 +245,7 @@ def _dias_do_token(token: str) -> float | None:
         meio = token.split(".")[1]
         dados = json.loads(base64.urlsafe_b64decode(meio + "=" * (-len(meio) % 4)))
         dias = (float(dados["exp"]) - time.time()) / 86400
-    except (IndexError, KeyError, TypeError, ValueError):
+    except (IndexError, KeyError, TypeError, ValueError, OverflowError):  # exp com 400 dígitos: OverflowError
         return None
     return dias if math.isfinite(dias) else None  # exp infinito ou NaN derrubaria a tela inteira (revisão do PR 40)
 
@@ -280,7 +280,9 @@ def _host_orbit() -> str:
     from urllib.parse import urlparse
 
     url = _env("ORBIT_URL") or "https://orbit-fdzy.onrender.com"
-    return urlparse(url).netloc or url
+    p = urlparse(url)
+    host = p.hostname or "o endereço em ORBIT_URL"  # hostname: nunca o usuário/senha de uma URL user:pw@host
+    return host if p.scheme == "https" else f"{host} (sem https!)"
 
 
 def _orbit_api(cfg: Config):
