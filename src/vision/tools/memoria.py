@@ -21,7 +21,7 @@ class FerramentasMemoria:
         categoria = args.get("categoria") or "geral"
         if categoria not in CATEGORIAS:
             categoria = "geral"
-        tipo, mem = await self.m.lembrar(fato, categoria)
+        tipo, mem = await self.m.lembrar(fato, categoria, str(args.get("vale_para") or "")[:300])
         return ComDados(f"Memória {'atualizada' if tipo == 'atualizada' else 'guardada'} [{mem.id}]: {mem.texto}",
                         {"id": mem.id, "texto": mem.texto})
 
@@ -57,11 +57,15 @@ class FerramentasMemoria:
                 "guardar_memoria",
                 "Guarda um FATO duradouro sobre o Felipe (rotina, preferência, pessoa, meta, saúde, estudo). "
                 "Use quando ele disser 'lembra que eu...', 'anota que eu...' ou contar algo que vale para o futuro. "
-                "NÃO use para lembretes ou coisas a fazer ('me lembra de pagar X'): isso é tarefas_criar.",
+                "NÃO use para lembretes ou coisas a fazer ('me lembra de pagar X'): isso é tarefas_criar. "
+                "Se ele disser o que o fato implica ('tenho carro, então casa tem que ter garagem'), escreva a "
+                "consequência no fato: é ela que muda as buscas.",
                 esquema(
                     ["fato"],
                     fato=texto("O fato em uma frase completa, em terceira pessoa: 'O Felipe ...'"),
                     categoria={"type": "string", "enum": CATEGORIAS},
+                    vale_para=texto("Assuntos em que esse fato muda uma resposta ou busca, separados por vírgula. "
+                                    "Ex.: para 'tem um carro': moradia, vaga de garagem, oficina, combustível"),
                 ),
                 self.lembrar,
                 grupo="memoria",

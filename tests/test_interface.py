@@ -121,7 +121,8 @@ def test_ponte_so_tem_funcoes_soltas_por_nome_exato():
     try:
         for janela in wv.janelas:
             assert janela.kwargs.get("js_api") is None  # nenhum objeto atravessável
-            assert {f.__name__ for f in janela.expostas} == {"minimizar", "fechar", "mostrar_bolha", "esconder_bolha"}
+            assert {f.__name__ for f in janela.expostas} == {"minimizar", "fechar", "mostrar_bolha", "esconder_bolha",
+                                                                 "abrir_link"}
         # Os caminhos do ataque que a revisão encontrou não resolvem mais nada.
         for ataque in ("_principal.gui.os.system", "__init__.__globals__", "minimizar.__globals__", "servir"):
             assert _resolver_como_o_pywebview(wv.janelas[0].kwargs.get("js_api"), ataque) is None, ataque
@@ -237,3 +238,13 @@ def test_se_o_nucleo_morrer_a_janela_fecha(no_nucleo):
     wv, _ = no_nucleo
     interface._ouvir_nucleo(iter(["mostrar\n"]))  # a entrada acaba sem "sair"
     assert all(j.destruida for j in wv.janelas)
+
+
+def test_abrir_link_so_aceita_http(monkeypatch):
+    abertos = []
+    monkeypatch.setattr("webbrowser.open", lambda url: abertos.append(url) or True)
+    assert interface.abrir_link("https://imoveis.exemplo.com/casa")
+    for ruim in ("file:///C:/Windows/System32/calc.exe", "javascript:alert(1)", "ms-settings:", "", None, 42,
+                 "https://" + "a" * 3000):
+        assert not interface.abrir_link(ruim)
+    assert abertos == ["https://imoveis.exemplo.com/casa"]

@@ -35,6 +35,7 @@ class Vision:
     host: HostMCP
     memorias: Memorias | None
     timers: Timers | None = None
+    agenda: Agenda | None = None  # o núcleo atualiza o cache dela de tempos em tempos
 
 
 def criar_llm(cfg: Config, modelo: str | None = None) -> LLM:
@@ -80,8 +81,10 @@ async def montar(
     if memorias is None and com_memoria:
         memorias = criar_memorias(cfg)
     registro = Registro()
+    agenda = None
     if cfg.get("agenda.servidor") in host.conexoes:
-        registro.adicionar(*Agenda(cfg, host).ferramentas())
+        agenda = Agenda(cfg, host)
+        registro.adicionar(*agenda.ferramentas())
     if memorias is not None:
         registro.adicionar(*FerramentasMemoria(memorias).ferramentas())
     if "orbit" in host.conexoes:
@@ -129,6 +132,15 @@ async def montar(
             casa = Casa(alexa, confirmar=bool(cfg.get("alexa.confirmar_luzes", False)))
             registro.adicionar(*casa.ferramentas())
             atalhos.append(casa.atalho)
+    if cfg.get("web.ativo", True):
+        from vision.tools.web import FerramentasWeb
+        from vision.web import Web
+
+        # Sem TAVILY_API_KEY no .env, busca pelo DuckDuckGo.
+        registro.adicionar(*FerramentasWeb(Web(
+            cfg.dados / "cache", validade_h=float(cfg.get("web.cache_horas", 6)),
+            max_resultados=int(cfg.get("web.resultados", 5)), limite_cota=int(cfg.get("web.cota_mensal", 1000)),
+        )).ferramentas())
     agente = Agente(
         llm or criar_llm(cfg),
         registro,
@@ -146,7 +158,7 @@ async def montar(
     agente.atalhos = atalhos
     async with host:
         try:
-            yield Vision(cfg, agente, registro, host, memorias, timers)
+            yield Vision(cfg, agente, registro, host, memorias, timers, agenda)
         finally:
             if timers is not None:
                 timers.fechar()

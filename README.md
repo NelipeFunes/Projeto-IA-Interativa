@@ -73,6 +73,7 @@ microfone → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? abre a co
                   │
                   ├── agenda_*   → MCP @cocal/google-calendar-mcp (node/)
                   ├── financas_*, tarefas_* → MCP do Orbit (mcp_servers/orbit)
+                  ├── web_buscar / web_ler → Tavily (ou DuckDuckGo, sem chave)
                   └── guardar_memoria / buscar_memoria / esquecer → data/memoria.db
 ```
 
@@ -84,12 +85,19 @@ microfone → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? abre a co
 - **Rede de segurança:** se a frase tem cara de agenda/finanças e o modelo responde sem consultar nada,
   o agente insiste uma vez.
 - **Memória:** `data/perfil.md` entra em toda conversa (edite à mão); `data/memoria.db` guarda fatos, e os
-  3 mais parecidos com cada fala entram no prompt.
+  3 mais parecidos com cada fala entram no prompt. Cada fato pode ter um `vale_para` (os assuntos em que ele
+  importa): "tem um carro", com `vale_para: moradia, vaga de garagem`, aparece quando você pede casas para alugar.
+- **Internet:** `web_buscar` e `web_ler`. A busca usa a memória para pôr seus critérios na consulta. Os links
+  aparecem embaixo da resposta, na tela. Texto de página conta como conteúdo de fora: a próxima ação sensível
+  pede "sim", e `web_ler` não abre endereço da rede local.
+- **Cache:** a agenda (ontem até +7 dias) fica em memória e é refeita a cada 5 min; buscas na web ficam 6 h em
+  `data/cache/` (pode apagar a pasta quando quiser).
 - **Modo jogo:** com o `cs2.exe` aberto, o modelo sai da VRAM e o "Hey Vision" pausa (o atalho continua).
 
 ## Arquivos que você edita
 
 - `config.yaml`: modelo, voz, microfones, atalho, limiares.
-- `.env` (copie de `.env.example`): credenciais do Orbit.
+- `.env` (copie de `.env.example`): credenciais do Orbit e `TAVILY_API_KEY` (crie a conta em tavily.com e
+  copie a chave; sem ela, a busca usa o DuckDuckGo).
 - `data/perfil.md`: quem você é, em poucas linhas.
 - `data/google-oauth.json`: credencial do Google (veja `docs/guia-google-cloud.md`).

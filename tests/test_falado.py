@@ -21,6 +21,9 @@ from vision.voice.falado import frases, para_fala
         ("R$ 1,00", "um real"),
         ("**Dentista** amanhã 🦷", "Dentista amanhã"),
         ("- Aula (id: ev_123)\n- Treino", "Aula. Treino"),
+        ("1. **Imovelweb**, 21 casas: https://www.imovelweb.com.br/casas.html\n2. Veja a [OLX](https://olx.com.br/x)",
+         "1. Imovelweb, 21 casas. 2. Veja a OLX"),
+        ("No site (www.olx.com.br) tem mais.", "No site tem mais."),
     ],
 )
 def test_para_fala(entrada, saida):

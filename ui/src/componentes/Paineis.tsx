@@ -5,8 +5,16 @@ import type { Mensagem } from "../estado";
 import { realcar } from "../realce";
 import { agoraHHMM, hoje, rotuloFerramenta } from "../rotulos";
 import type { EventoAgenda, Memoria, Pendente, Status } from "../tipos";
+import { chamar, noApp } from "../ponte";
 
 const mola = { type: "spring", stiffness: 170, damping: 22, mass: 0.9 } as const;
+
+/** No app, o link abre no navegador do Windows (a janela do Vision não navega); no navegador, abre uma aba. */
+function abrirLink(e: React.MouseEvent, url: string) {
+  if (!noApp()) return;
+  e.preventDefault();
+  chamar("abrir_link", url);
+}
 
 export function Painel({ titulo, icone, extra, className, children }: {
   titulo: string;
@@ -137,6 +145,18 @@ export function PainelConversa({ conversa }: { conversa: Mensagem[] }) {
                 {m.autor === "assistente" ? realcar(m.texto) : m.texto}
                 {m.parcial && <span className="cursor" />}
               </p>
+              {m.links && (
+                <ul className="links">
+                  {m.links.map((l) => (
+                    <li key={l.url}>
+                      <a href={l.url} target="_blank" rel="noopener noreferrer" onClick={(e) => abrirLink(e, l.url)}>
+                        {l.titulo}
+                      </a>
+                      <span className="link-site">{l.site}</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
               {m.ferramentas && (
                 <div className="chips">
                   {m.ferramentas.map((f) => (

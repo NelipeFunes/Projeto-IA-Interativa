@@ -19,6 +19,22 @@ describe("redutor", () => {
     expect(s.conversa[1].parcial).toBeUndefined();
   });
 
+  it("links da busca na web vão para a resposta do turno, só http(s), e não vazam para o próximo", () => {
+    const links = [
+      { titulo: "Casas para alugar", url: "https://imoveis.exemplo.com/casas", site: "imoveis.exemplo.com" },
+      { titulo: "Ruim", url: "javascript:alert(1)", site: "x" },
+    ];
+    const s = aplicar([
+      { tipo: "fala_usuario", texto: "busca casas", canal: "voz" },
+      { tipo: "ferramenta_fim", nome: "web_buscar", ok: true, dados: { consulta: "casas", links } },
+      { tipo: "resposta", texto: "Achei três." },
+      { tipo: "fala_usuario", texto: "obrigado", canal: "voz" },
+      { tipo: "resposta", texto: "De nada." },
+    ]);
+    expect(s.conversa[1].links).toEqual([links[0]]);
+    expect(s.conversa[3].links).toBeUndefined();
+  });
+
   it("consultar a agenda dispara a varredura", () => {
     const s = aplicar([{ tipo: "ferramenta_inicio", nome: "agenda_listar" }]);
     expect(s.varredura).toBeGreaterThan(0);
