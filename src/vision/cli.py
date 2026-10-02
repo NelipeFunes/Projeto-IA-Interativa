@@ -118,6 +118,7 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("dormir", help="tira o modelo da VRAM e pausa a palavra de ativação")
     sub.add_parser("acordar", help="carrega o modelo e reativa a palavra de ativação")
     sub.add_parser("memorias", help="lista o que o assistente lembra")
+    sub.add_parser("wyoming", help="serviço Wyoming (fala → texto e voz) para o Home Assistant e os satélites")
     f = sub.add_parser("falar", help="fala um texto com a voz configurada (teste de voz)")
     f.add_argument("texto", nargs="+")
     args = ap.parse_args(argv)
@@ -162,6 +163,16 @@ def main(argv: list[str] | None = None) -> int:
         from vision.google_login import fazer_login
 
         return fazer_login(cfg)
+    elif args.comando == "wyoming":
+        from vision.voice.wyoming import servir
+
+        try:
+            asyncio.run(servir(cfg))
+        except ValueError as e:
+            print(e)
+            return 1
+        except KeyboardInterrupt:
+            pass
     elif args.comando == "alexa-login":
         from vision.alexa import login_interativo
 

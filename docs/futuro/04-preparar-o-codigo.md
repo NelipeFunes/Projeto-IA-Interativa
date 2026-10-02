@@ -22,7 +22,7 @@ Mudanças pequenas que podem ser feitas **aos poucos, já agora**, para que o se
 | 9 | **Fila única para o modelo** (um pedido por vez na GPU) e aviso "só um instante" para quem está esperando | `brain/agent.py` ou `nucleo.py` | Dois cômodos falando juntos |
 | 10 | Eventos da tela com a origem (`"fonte": "sala"`) | `eventos.py`, `ui/src/tipos.ts` | Mostrar de onde veio a fala |
 | 11 | Confirmação amarrada à fonte: o "sim" vale só da mesma fonte, dentro do prazo | `brain/agent.py` (a sessão já é por fonte, se o item 8 for feito) | Um "sim" da TV em outro cômodo não confirma |
-| 12 | Serviço **Wyoming** (fala → texto com Parakeet, texto → fala com Piper), **desligado por padrão**. O protocolo não tem autenticação nem TLS: escuta só no `127.0.0.1` ou na rede interna do Docker, e só o HA o alcança | módulo novo `voice/wyoming.py` | Caminho A dos satélites, pelo Home Assistant |
+| 12 | ✅ **Feito (02/10):** `vision wyoming` (fala → texto com Parakeet, texto → fala com Piper), só sob demanda. Escuta só no `127.0.0.1`; fora disso, só com `wyoming.permitir_rede: true`. Áudio limitado a 30 s e texto a 1000 caracteres | `voice/wyoming.py` | Caminho A dos satélites, pelo Home Assistant |
 
 ## Para a casa (plano 03)
 

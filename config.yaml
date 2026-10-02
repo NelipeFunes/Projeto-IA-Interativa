@@ -149,6 +149,12 @@ voz:
   silencio_fim_ms: 800        # quanto silêncio encerra a sua fala
   maximo_fala_s: 20
 
+wyoming:
+  # `vision wyoming`: a transcrição e a voz do Vision para o Home Assistant e os satélites dos cômodos (docs/futuro).
+  # O protocolo não tem senha nem criptografia: só 127.0.0.1, a não ser com permitir_rede (rede confiável apenas).
+  endereco: tcp://127.0.0.1:10300
+  permitir_rede: false
+
 modo_jogo:
   ativo: true
   processos: [cs2.exe]

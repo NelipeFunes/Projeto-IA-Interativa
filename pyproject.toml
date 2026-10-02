@@ -29,6 +29,7 @@ dependencies = [
     "alexapy>=1.31,<2",
     "pycaw>=20240316",
     "ddgs>=9,<10",
+    "wyoming>=1.5,<2",
 ]
 
 [project.scripts]
