@@ -43,6 +43,21 @@ class Config:
         return p if p.is_absolute() else self.raiz / p
 
 
+def manter_carregado(cfg: Config) -> str | int:
+    """`modelo.manter_carregado` como o Ollama aceita: "30m", "-1m" ou um número de segundos (negativo = sempre).
+    "-1" como texto (sem unidade) o Ollama recusa ("missing unit"): número puro vira int (02/10)."""
+    valor = cfg.get("modelo.manter_carregado", "30m")
+    if isinstance(valor, bool):
+        return "30m"
+    if isinstance(valor, int | float):
+        return int(valor)
+    texto = str(valor).strip()
+    try:
+        return int(float(texto))
+    except ValueError:
+        return texto or "30m"
+
+
 def carregar(arquivo: Path | None = None, sobrescrever: dict[str, Any] | None = None) -> Config:
     # Sem interpolação: uma senha com "${" (gravada pela tela de Conexões) chega como foi digitada.
     load_dotenv(RAIZ / ".env", interpolate=False)

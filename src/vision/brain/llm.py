@@ -41,7 +41,7 @@ class LLM(Protocol):
 
 
 class OllamaLLM:
-    def __init__(self, modelo: str, host: str, pensar: bool, contexto: int, temperatura: float, manter: str):
+    def __init__(self, modelo: str, host: str, pensar: bool, contexto: int, temperatura: float, manter: str | int):
         import ollama
 
         self.modelo = modelo

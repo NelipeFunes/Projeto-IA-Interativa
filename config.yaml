@@ -21,7 +21,9 @@ modelo:
   # 12k = 3,25 GB, 16k = 3,38 GB (qwen3.5:4b, medido no Ollama).
   contexto: 12288
   temperatura: 0.3
-  manter_carregado: 30m     # quanto tempo o modelo fica na VRAM depois da última fala
+  # Quanto tempo o modelo fica na VRAM depois da última fala. 02/10: sempre ("-1m"): com o modelo no HD (D:), carregar
+  # de novo levava de 4 a 29 s na 1ª pergunta. O modo jogo tira da placa quando o CS2 abre (3,2 GB de 8 GB fora dele).
+  manter_carregado: "-1m"
   host: http://127.0.0.1:11434
 
 memoria:

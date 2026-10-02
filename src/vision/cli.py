@@ -58,7 +58,7 @@ async def _dormir(cfg: config.Config, dormir: bool) -> None:
         print(f"{modelo} descarregado da VRAM. Palavra de ativação pausada (o atalho continua valendo).")
     else:
         flag.unlink(missing_ok=True)
-        await cliente.generate(model=modelo, prompt="", keep_alive=cfg.get("modelo.manter_carregado", "30m"),
+        await cliente.generate(model=modelo, prompt="", keep_alive=config.manter_carregado(cfg),
                                options={"num_ctx": int(cfg.get("modelo.contexto", 8192))})
         print(f"{modelo} carregado e pronto.")
 

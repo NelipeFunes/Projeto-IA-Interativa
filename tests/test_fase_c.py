@@ -297,3 +297,20 @@ async def test_calibracao_so_grava_o_que_foi_sugerido_e_aceito(cfg):
     await n.esquecer_apelidos("deliving")
     assert comandos.ler_apelidos(cfg.dados) == [] and comandos.APELIDOS == set()
     comandos.definir_apelidos([])
+
+
+
+@pytest.mark.parametrize("valor,esperado", [
+    ("-1m", "-1m"), ("30m", "30m"), (-1, -1), ("-1", -1), ("600", 600), (1.5, 1), (None, "30m"), (True, "30m"),
+])
+def test_manter_carregado_no_formato_do_ollama(cfg, valor, esperado):
+    """O Ollama recusa "-1" como texto ("missing unit"): número puro vira int (02/10)."""
+    cfg.bruto.setdefault("modelo", {})["manter_carregado"] = valor
+    if valor is None:
+        del cfg.bruto["modelo"]["manter_carregado"]
+    assert config.manter_carregado(cfg) == esperado
+
+
+def test_config_deixa_o_modelo_sempre_carregado():
+    c = config.carregar(config.Path(__file__).resolve().parents[1] / "config.yaml")
+    assert config.manter_carregado(c) == "-1m"
