@@ -528,3 +528,25 @@ async def test_falar_por_cima_de_um_lembrete_so_para_e_nao_abre_conversa(pecas, 
     await laco.rodar()
     assert len(laco.saida.trechos) == 1 and laco.interrompido_por == "fala"
     assert not laco.em_conversa and laco.historico == []
+
+
+async def test_erro_na_voz_numa_resposta_nao_derruba_a_escuta(pecas, registro, tmp_path):
+    """01/10: um erro do XTTS numa resposta longa derrubou o laço de voz até reiniciar o Vision."""
+
+    class VozQueQuebra:
+        def __init__(self, voz):
+            self.voz, self.taxa = voz, voz.taxa
+
+        def sintetizar(self, texto, normalizar=True):
+            if "Quebra" in texto:
+                raise ImportError("falha simulada da voz")
+            return self.voz.sintetizar(texto, normalizar)
+
+    laco = _loop(pecas, Agente(LLMFalso([fala("Quebra aqui."), fala("Agora sim.")]), registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5),
+        _fala(pecas["pt"], "Tudo bem?"), _silencio(1.5),
+        _fala(pecas["pt"], "E agora?"), _silencio(1.5),
+    ], tmp_path)
+    laco.voz = VozQueQuebra(pecas["pt"])
+    await laco.rodar()
+    assert laco.historico[-1]["vision"] == "Agora sim."  # a 2ª pergunta ainda foi ouvida e respondida

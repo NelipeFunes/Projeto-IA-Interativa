@@ -274,7 +274,11 @@ class LoopVoz:
             else:
                 self._mostrar("pensando")
                 self._emitir({"tipo": "nivel", "fonte": "mic", "valor": 0.0})
-                await self._fala_na_conversa(pcm)
+                try:
+                    await self._fala_na_conversa(pcm)
+                except Exception:  # noqa: BLE001 - um pedido que dá erro não pode desligar a voz (caiu em 01/10)
+                    log.exception("erro ao responder; a escuta continua")
+                    self.escrever("(deu erro nessa resposta; veja o log)")
                 if self._retomar is None:  # cortado por você, o áudio que chegou é a sua fala: fica
                     self.entrada.descartar()  # o que tocou enquanto ele falava (a própria voz) não é você
             if self.ativacao is not None:
@@ -511,7 +515,14 @@ class LoopVoz:
                     if adiante == [None]:  # é a resposta inteira: rapidez vale mais que a voz bonita aqui
                         fonte = reserva
                 primeira = False
-                await asyncio.to_thread(self._gerar, fonte, frase, entregar, cortado)
+                try:
+                    await asyncio.to_thread(self._gerar, fonte, frase, entregar, cortado)
+                except Exception:
+                    if reserva is None or fonte is reserva:
+                        raise
+                    # A voz boa falhou nesta frase: fala com a robótica em vez de ficar mudo (ou cair).
+                    log.exception("XTTS falhou numa frase; falando com o Piper")
+                    await asyncio.to_thread(self._gerar, reserva, frase, entregar, cortado)
         except Exception as e:  # noqa: BLE001 - repassado ao falador
             prontas.put_nowait(e)
             return
