@@ -49,6 +49,8 @@ PADROES = {
     # Só pedido de verdade: "minha rotina hoje" ou "modo de usar" não ligam protocolo (revisão do PR 32).
     "protocolo": re.compile(r"\bprotocolo\b|\b(ativ|lig|inici|rod|execut)\w* (o |a )?(modo|rotina)\b",
                             re.IGNORECASE),
+    "clima": re.compile(r"\b(clima|temperatura|previs[aã]o do tempo|vai (chover|fazer (frio|calor|sol))|"
+                        r"t[aá] (frio|calor)|est[aá] (frio|calor)|quantos graus|guarda-chuva)\b", re.IGNORECASE),
     "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
     "memoria": re.compile(
         r"(\b(lembr[ae]|anot[ae]|guard[ae]) (que|isso|a[ií])\b|\bn[aã]o esque[cç]a\b|\bvoc[eê] (sabe|lembra)\b|"

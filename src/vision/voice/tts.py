@@ -43,8 +43,43 @@ def dividir(texto: str, limite: int = LIMITE_XTTS) -> list[str]:
     return [texto[i : i + limite] for i in range(0, len(texto), limite)]  # uma "palavra" gigante (um link)
 
 
+PAUSA_ENTRE_FRASES_S = 0.14  # o Piper emendava uma frase na outra: soava apressado
+VOLUME_ALVO_RMS = 0.08  # ~-22 dBFS: o mesmo volume em toda frase (o pico sozinho deixava umas mais baixas)
+LIMITE_PICO = 0.95
+SILENCIO = 0.008  # abaixo disso, nas pontas, é silêncio
+
+
+def acabamento(audio: np.ndarray, taxa: int) -> np.ndarray:
+    """Tira o silêncio das pontas (a 1ª palavra sai antes), suaviza começo e fim (sem estalo entre pedaços) e
+    deixa todas as frases no mesmo volume, sem estourar."""
+    audio = np.asarray(audio, dtype=np.float32)
+    if audio.size == 0:
+        return audio
+    alto = np.flatnonzero(np.abs(audio) > SILENCIO)
+    if alto.size == 0:
+        return np.zeros(0, dtype=np.float32)
+    margem = int(taxa * 0.03)
+    audio = audio[max(0, alto[0] - margem) : min(audio.size, alto[-1] + margem)].copy()
+    rms = float(np.sqrt(np.mean(audio**2)))
+    if rms > 1e-6:
+        ganho = VOLUME_ALVO_RMS / rms
+        pico = float(np.max(np.abs(audio))) * ganho
+        if pico > LIMITE_PICO:
+            ganho *= LIMITE_PICO / pico
+        audio *= min(ganho, 8.0)  # frase quase muda não vira chiado amplificado
+    borda = min(int(taxa * 0.008), audio.size // 2)
+    if borda > 0:
+        rampa = np.linspace(0.0, 1.0, borda, dtype=np.float32)
+        audio[:borda] *= rampa
+        audio[-borda:] *= rampa[::-1]
+    return audio
+
+
 class Voz:
-    def __init__(self, arquivo_modelo: Path, velocidade: float = 1.0, deterministico: bool = False):
+    def __init__(self, arquivo_modelo: Path, velocidade: float = 1.0, deterministico: bool = False,
+                 variacao: float | None = None, variacao_ritmo: float | None = None, pausa_s: float | None = None):
+        """`variacao` (noise_scale) e `variacao_ritmo` (noise_w): quanto a entonação e o ritmo mudam de uma síntese
+        para outra. None = o padrão do modelo (0,667 / 0,8). Menor = mais estável, maior = mais solto."""
         from piper import PiperVoice, SynthesisConfig
 
         if not arquivo_modelo.exists():
@@ -52,16 +87,26 @@ class Voz:
         self.voz = PiperVoice.load(arquivo_modelo)
         self.taxa = self.voz.config.sample_rate
         # O Piper sorteia variações a cada síntese (mais natural); nos testes, o mesmo texto dá o mesmo áudio.
-        ruido = {"noise_scale": 0.0, "noise_w_scale": 0.0} if deterministico else {}
+        if deterministico:
+            ruido = {"noise_scale": 0.0, "noise_w_scale": 0.0}
+        else:
+            ruido = {k: v for k, v in (("noise_scale", variacao), ("noise_w_scale", variacao_ritmo)) if v is not None}
         self.cfg = SynthesisConfig(length_scale=velocidade, **ruido)
+        pausa_s = PAUSA_ENTRE_FRASES_S if pausa_s is None else min(max(pausa_s, 0.0), 1.0)
+        self.pausa = np.zeros(int(self.taxa * pausa_s), np.float32)
 
     def sintetizar(self, texto: str, normalizar: bool = True) -> np.ndarray:
         """Devolve float32 mono em self.taxa Hz."""
         texto = para_fala(texto) if normalizar else texto
         if not texto:
             return np.zeros(0, dtype=np.float32)
-        partes = [c.audio_float_array for c in self.voz.synthesize(texto, syn_config=self.cfg)]
-        return np.concatenate(partes).astype(np.float32) if partes else np.zeros(0, dtype=np.float32)
+        partes = [acabamento(c.audio_float_array, self.taxa) for c in self.voz.synthesize(texto, syn_config=self.cfg)]
+        partes = [p for p in partes if p.size]
+        if not partes:
+            return np.zeros(0, dtype=np.float32)
+        # A pausa vai depois de cada frase, inclusive a última: o laço de voz sintetiza uma frase por vez e emenda
+        # os áudios, então é ela que separa uma frase da outra (revisão do PR 26).
+        return np.concatenate([x for p in partes for x in (p, self.pausa)]).astype(np.float32)
 
 
 class VozXTTS:
@@ -171,7 +216,21 @@ class VozXTTS:
 
 def carregar_piper(cfg: Config, nome: str | None = None) -> Voz:
     nome = nome or cfg.get("voz.voz_piper", "pt_BR-faber-medium")
-    return Voz(cfg.modelos / "piper" / f"{nome}.onnx", float(cfg.get("voz.velocidade_fala", 1.0)))
+
+    def numero(chave: str, minimo: float, maximo: float) -> float | None:
+        """Valor do config dentro dos limites; inválido vira o padrão (a voz não pode deixar de carregar)."""
+        valor = cfg.get(chave)
+        if valor is None or valor == "":
+            return None
+        try:
+            return min(max(float(str(valor).replace(",", ".")), minimo), maximo)
+        except ValueError:
+            log.warning("%s inválido no config (%r): usando o padrão", chave, valor)
+            return None
+
+    return Voz(cfg.modelos / "piper" / f"{nome}.onnx", float(cfg.get("voz.velocidade_fala", 1.0)),
+               variacao=numero("voz.piper_variacao", 0.0, 1.5), variacao_ritmo=numero("voz.piper_variacao_ritmo", 0.0, 1.5),
+               pausa_s=numero("voz.pausa_entre_frases_s", 0.0, 1.0))
 
 
 def carregar_voz(cfg: Config, nome: str | None = None) -> Voz | VozXTTS:

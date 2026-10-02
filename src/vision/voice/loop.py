@@ -451,11 +451,17 @@ class LoopVoz:
 
         enviadas = [0]
 
+        # Zera já (o falador também zera, mas só quando começa a rodar): o corte da resposta anterior não pode
+        # parar o modelo desta.
+        self.interrompido_por = None
         falador = asyncio.create_task(self._falador(fila, primeira_fala))
         t1 = time.perf_counter()
         r = None
         try:
-            r = await self.agente.responder(texto, canal="voz", sessao="voz", ao_texto=ao_texto)
+            # Cortado por voz: o modelo para de escrever na hora, em vez de terminar uma resposta que ninguém
+            # vai ouvir enquanto o próximo pedido espera (pendência antiga, 01/10).
+            r = await self.agente.responder(texto, canal="voz", sessao="voz", ao_texto=ao_texto,
+                                            parar=lambda: self.interrompido_por is not None)
         except Exception:  # noqa: BLE001 - Ollama fora do ar (ex.: logo depois de ligar o PC) não pode matar a voz
             log.exception("o agente falhou numa pergunta por voz")
             pendente[0] = ""
