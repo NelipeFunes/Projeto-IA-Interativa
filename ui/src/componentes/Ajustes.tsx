@@ -99,7 +99,7 @@ function Campo({ campo, valor, opcoes, aoMudar, aoOuvir }: {
             step={campo.maximo !== null && campo.maximo !== undefined && campo.maximo <= 5 ? 0.05 : 10}
             onChange={(e) => aoMudar(e.target.value === "" ? null : Number(e.target.value))} />
         ) : (
-          <input id={id} type="text" maxLength={20} value={typeof valor === "string" ? valor : ""}
+          <input id={id} type="text" maxLength={campo.maximo ?? 20} value={typeof valor === "string" ? valor : ""}
             onChange={(e) => aoMudar(e.target.value)} />
         )}
         {aoOuvir && typeof valor === "string" && valor && (
