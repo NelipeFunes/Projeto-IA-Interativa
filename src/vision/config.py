@@ -15,7 +15,7 @@ RAIZ = Path(__file__).resolve().parents[2]
 AJUSTES_LOCAIS = "config-local.yaml"
 # Só estas chaves saem do arquivo local (as mesmas de vision/ajustes.py): o resto é ignorado.
 CHAVES_AJUSTAVEIS = {"assistente.nome", "voz.voz_piper", "voz.velocidade_fala", "voz.conversa_silencio_max_s",
-                     "voz.microfone"}
+                     "voz.microfone", "clima.cidade"}  # a cidade é dado pessoal: só no arquivo local
 
 
 @dataclass
@@ -45,6 +45,8 @@ def carregar(arquivo: Path | None = None, sobrescrever: dict[str, Any] | None = 
     bruto = yaml.safe_load(arquivo.read_text(encoding="utf-8")) or {}
     if os.environ.get("VISION_SEM_AJUSTES") != "1":  # os testes não herdam o que você mudou na janela
         for chave, valor in ler_ajustes(RAIZ / "data" / AJUSTES_LOCAIS).items():
+            if chave == "clima.cidade" and not (isinstance(valor, str) and len(valor) <= 60):
+                continue
             if chave in CHAVES_AJUSTAVEIS and not (chave == "voz.voz_piper" and not _nome_de_arquivo(valor)):
                 _definir(bruto, chave, valor)
     for chave, valor in (sobrescrever or {}).items():

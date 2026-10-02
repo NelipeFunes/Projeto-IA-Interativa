@@ -73,6 +73,12 @@ pc:
   # timers e alarmes, e comando do PowerShell quando nada serve (SEMPRE pede "sim", mostrando o comando).
   ativo: true
 
+clima:
+  # Clima pela Open-Meteo (grátis, sem chave) e o "bom dia" (resumo: hora, clima, agenda de hoje, timers).
+  # A cidade fica em data/config-local.yaml (clima.cidade: "Sua Cidade"), fora do git.
+  ativo: true
+  cidade: ""
+
 web:
   # Busca na internet (pedido de 01/10). Com TAVILY_API_KEY no .env usa a Tavily (1.000 buscas grátis por mês,
   # já devolve um resumo); sem chave, ou com a cota no fim, usa o DuckDuckGo. Cache e contador em data/cache/.

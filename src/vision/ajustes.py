@@ -23,16 +23,19 @@ class Ajuste:
 
 
 LISTA = [
-    Ajuste("assistente.nome", "texto", "Nome do assistente (a ativação continua \"Hey Vision\")", ao_vivo=False),
+    Ajuste("assistente.nome", "texto", "Nome do assistente (a ativação continua \"Hey Vision\")", ao_vivo=False,
+           maximo=20),
     # Com voz.motor: xtts, esta é só a voz rápida (respostas curtas e modo jogo); a principal é a do XTTS.
     Ajuste("voz.voz_piper", "escolha", "Voz rápida (Piper: respostas curtas e modo jogo)", ao_vivo=True),
     Ajuste("voz.velocidade_fala", "numero", "Ritmo da fala (maior = mais devagar)", ao_vivo=True, minimo=0.7, maximo=1.5),
     Ajuste("voz.conversa_silencio_max_s", "numero", "Fecha a conversa depois de quantos segundos sem falar",
            ao_vivo=True, minimo=30, maximo=600),
     Ajuste("voz.microfone", "escolha", "Microfone", ao_vivo=False),
+    Ajuste("clima.cidade", "texto", "Cidade do clima e do \"bom dia\"", ao_vivo=False, maximo=60),
 ]
 POR_CHAVE = {a.chave: a for a in LISTA}
 NOME_VALIDO = re.compile(r"^[^\W\d_](?:[^\W_]| ){0,19}$")  # letras (com acento), dígitos e espaço; até 20
+CIDADE_VALIDA = re.compile(r"^[^\W\d_](?:[^\W\d_]|[ '\-]){0,59}$")  # "São José dos Campos", "Pau-d'Arco"
 
 
 def vozes(cfg: Config) -> list[str]:
@@ -77,7 +80,12 @@ def validar(cfg: Config, dados: Any) -> dict[str, Any]:
         a = POR_CHAVE.get(chave)
         if a is None:
             raise ValueError(f"ajuste desconhecido: {str(chave)[:40]}")
-        if a.tipo == "texto":
+        if chave == "clima.cidade":
+            texto = " ".join(valor.split()) if isinstance(valor, str) else ""
+            if not CIDADE_VALIDA.match(texto):
+                raise ValueError("a cidade precisa ter de 1 a 60 letras")
+            mudancas[chave] = texto
+        elif a.tipo == "texto":
             texto = str(valor or "").strip() if isinstance(valor, str) else ""
             if not NOME_VALIDO.match(texto):
                 raise ValueError("o nome precisa ter de 1 a 20 letras")
