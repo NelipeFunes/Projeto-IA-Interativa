@@ -406,6 +406,42 @@ input {
   padding: 1px 8px;
 }
 
+.links {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: grid;
+  gap: 4px;
+  max-width: 100%;
+}
+
+.links li {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  min-width: 0;
+  font-size: 12.5px;
+}
+
+.links a {
+  color: var(--ciano);
+  text-decoration: none;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.links a:hover {
+  text-decoration: underline;
+}
+
+.link-site {
+  flex-shrink: 0;
+  font-size: 11px;
+  opacity: 0.55;
+}
+
 /* status */
 
 .status-lista {

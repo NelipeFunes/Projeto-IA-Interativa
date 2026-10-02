@@ -40,6 +40,10 @@ PADROES = {
                          r"\b(que|qual) m[uú]sica (est[aá] |t[aá] )?tocando\b", re.IGNORECASE),
     "timer": re.compile(r"\b(timer|alarme|cron[oô]metro|temporizador|me avis[ae] (daqui|em|às|as|quando der))\b",
                         re.IGNORECASE),
+    # Só pedido explícito de pesquisa: "busca minha agenda" é da agenda, não da web.
+    "web": re.compile(r"\bpesquis(a|e|ar|ando)\b|\b(na|pela) (internet|web|net)\b|\bno google\b|"
+                      r"\b(busc|procur)(a|e|ar) (algumas|alguns|umas|uns|op[cç][oõ]es|pre[cç]os?)\b|"
+                      r"\bquanto (custa|est[aá] custando)\b", re.IGNORECASE),
     "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
     "memoria": re.compile(
         r"(\b(lembr[ae]|anot[ae]|guard[ae]) (que|isso|a[ií])\b|\bn[aã]o esque[cç]a\b|\bvoc[eê] (sabe|lembra)\b|"
@@ -64,13 +68,14 @@ def detectar(texto: str) -> list[str]:
 ANUNCIO = re.compile(
     r"\b(vou|j[aá] vou|deixa eu|irei)\s+(te\s+)?(precisar\s+(de\s+)?)?(verificar|checar|olhar|consultar|criar|"
     r"marcar|colocar|agendar|cancelar|apagar|alterar|mudar|lan[cç]ar|registrar|anotar|guardar|buscar|procurar|"
+    r"pesquisar|ler os detalhes|ler a p[aá]gina|abrir o (site|link|an[uú]ncio)|"
     r"acender|ligar|desligar|abrir|fechar|tocar|pausar|colocar um timer|programar|rodar|executar|listar|travar|"
     r"reiniciar|suspender)\b"
     r"|\bpreciso\s+(de\s+)?(rodar|executar|abrir)\b"
     r"|\bj[aá]\s+(crio|marco|coloco|agendo|cancelo|apago|altero|mudo|lan[cç]o|registro|anoto|guardo|acendo|ligo|"
     r"desligo)\b"
     r"|\bestou\s+(verificando|checando|olhando|consultando|criando|marcando|agendando|cancelando|apagando|"
-    r"alterando|lan[cç]ando|buscando|procurando)\b"
+    r"alterando|lan[cç]ando|buscando|procurando|pesquisando)\b"
     r"|\bconfirm(a|ou|e)\?\s*$",
     re.IGNORECASE,
 )

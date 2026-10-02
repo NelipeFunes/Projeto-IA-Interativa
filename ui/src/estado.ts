@@ -1,5 +1,5 @@
 // Estado da tela e o redutor que aplica cada evento. Sem efeitos colaterais: fácil de testar.
-import type { DadosAjustes, Estado, Evento, EventoAgenda, Memoria, Pendente, Status } from "./tipos";
+import type { DadosAjustes, Estado, Evento, EventoAgenda, Link, Memoria, Pendente, Status } from "./tipos";
 
 export interface Mensagem {
   id: number;
@@ -7,7 +7,12 @@ export interface Mensagem {
   texto: string;
   parcial?: boolean;
   ferramentas?: string[];
+  links?: Link[];
 }
+
+/** Só http(s): o link vem de um site de terceiros e vai virar um clique. */
+const linkSeguro = (l: unknown): l is Link =>
+  typeof l === "object" && l !== null && typeof (l as Link).url === "string" && /^https?:\/\//i.test((l as Link).url);
 
 /** Quantas mensagens a tela guarda (o app fica ligado dias: a conversa não pode crescer sem limite). */
 export const LIMITE_CONVERSA = 50;
@@ -24,6 +29,7 @@ export interface EstadoUI {
   status: Status;
   pendente: Pendente | null;
   ferramentasTurno: string[];
+  linksTurno: Link[];
   varredura: number; // muda quando a agenda é consultada → dispara a linha de varredura
   estrela: number; // muda quando uma memória é guardada → dispara a estrela voando
   aviso: string | null;
@@ -40,6 +46,7 @@ export const inicial: EstadoUI = {
   status: { modelo: "—", vram: "—", microfone: "—", googleDias: null, modoJogo: false },
   pendente: null,
   ferramentasTurno: [],
+  linksTurno: [],
   varredura: 0,
   estrela: 0,
   aviso: null,
@@ -68,7 +75,7 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
       return { ...inicial, nome: s.nome, seq };
 
     case "limpar_conversa": // a bolha, quando reaparece: só a conversa nova, sem mexer no estado do orbe
-      return { ...s, seq, conversa: [], ferramentasTurno: [] };
+      return { ...s, seq, conversa: [], ferramentasTurno: [], linksTurno: [] };
 
     case "estado":
       return { ...s, seq, estado: ev.valor };
@@ -81,6 +88,7 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
         ...s,
         seq,
         ferramentasTurno: [],
+        linksTurno: [],
         conversa: aparar([...s.conversa, { id: seq, autor: "voce", texto: ev.texto }]),
       };
 
@@ -105,6 +113,7 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
         autor: "assistente",
         texto: ev.texto,
         ferramentas: s.ferramentasTurno.length ? s.ferramentasTurno : undefined,
+        links: s.linksTurno.length ? s.linksTurno : undefined,
       };
       const aberta = ultimaDoAssistente(s.conversa);
       const conversa = aberta
@@ -125,6 +134,10 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
 
     case "ferramenta_fim": {
       if (!ev.ok) return { ...s, seq };
+      if (ev.nome === "web_buscar" && ev.dados) {
+        const links = (ev.dados as { links?: unknown[] }).links ?? [];
+        return { ...s, seq, linksTurno: [...s.linksTurno, ...links.filter(linkSeguro)].slice(0, 8) };
+      }
       if (ev.nome === "agenda_listar" && Array.isArray(ev.dados)) {
         return { ...s, seq, agenda: ordenar(ev.dados as EventoAgenda[]) };
       }

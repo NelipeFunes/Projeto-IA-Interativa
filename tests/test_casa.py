@@ -435,7 +435,7 @@ async def test_memoria_depois_de_ler_texto_de_fora_pede_confirmacao(cfg):
     guardadas = []
 
     class MemoriaFalsa:
-        async def lembrar(self, fato, categoria=None):
+        async def lembrar(self, fato, categoria=None, vale_para=""):
             guardadas.append(fato)
             from types import SimpleNamespace
             return SimpleNamespace(id=1, texto=fato, categoria=categoria)

@@ -15,6 +15,13 @@ export interface EventoAgenda {
   anima?: string;
 }
 
+/** Um resultado de busca na web (web_buscar): vira link clicável embaixo da resposta. */
+export interface Link {
+  titulo: string;
+  url: string;
+  site: string;
+}
+
 export interface Memoria {
   id: number;
   texto: string;

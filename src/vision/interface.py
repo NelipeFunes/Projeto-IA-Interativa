@@ -176,7 +176,21 @@ def esconder_principal() -> None:
     _MODO["principal_visivel"] = False
 
 
-FUNCOES_EXPOSTAS = (minimizar, fechar, mostrar_bolha, esconder_bolha)
+def abrir_link(url: Any) -> bool:
+    """Link de resultado da web, no navegador padrão. Só http(s): a página nunca abre arquivo ou programa."""
+    from urllib.parse import urlparse
+
+    if not isinstance(url, str) or len(url) > 2000:
+        return False
+    p = urlparse(url.strip())
+    if p.scheme not in ("http", "https") or not p.netloc:
+        return False
+    import webbrowser
+
+    return bool(webbrowser.open(url.strip()))
+
+
+FUNCOES_EXPOSTAS = (minimizar, fechar, mostrar_bolha, esconder_bolha, abrir_link)
 
 
 def executar_comando(linha: str) -> bool:

@@ -40,7 +40,8 @@ from vision.voice.loop import FALA_DE_ERRO
 log = logging.getLogger("vision.nucleo")
 
 NOME_MUTEX = "Local\\VisionNucleo"
-ATUALIZAR_PAINEL_S = 300  # a agenda muda por fora (celular): a tela recebe uma foto nova a cada 5 min
+# A agenda muda por fora (celular): a cada 5 min o cache dela é refeito e a tela recebe uma foto nova.
+ATUALIZAR_PAINEL_S = 300
 
 
 def configurar_log(cfg: config.Config, console: bool = False) -> Path:
@@ -374,13 +375,24 @@ class Nucleo:
 
     async def _atualizar_painel(self) -> None:
         while True:
+            await self._atualizar_agenda()
             await asyncio.sleep(ATUALIZAR_PAINEL_S)
+            await self._atualizar_agenda()
             if not self.barramento.assinantes:
                 continue
             try:
                 self.barramento.publicar(await self.painel())
             except Exception:  # noqa: BLE001 - uma foto que falha não pode parar as próximas
                 log.exception("não consegui atualizar o painel")
+
+    async def _atualizar_agenda(self) -> None:
+        """Refaz o cache da agenda (o "o que tenho amanhã?" responde sem esperar o Google)."""
+        if self.agenda is None:
+            return
+        try:
+            await asyncio.wait_for(self.agenda.atualizar_cache(), 20)
+        except Exception as e:  # noqa: BLE001 - sem rede ou sem login: as consultas vão direto ao Google
+            log.warning("não deu para atualizar o cache da agenda: %s", e)
 
     # ---------- bandeja (thread própria: tudo volta ao loop por call_soon_threadsafe) ----------
 
@@ -433,7 +445,6 @@ class Nucleo:
         from vision.google_login import aviso_login
         from vision.montagem import montar
         from vision.server import criar_app, gravar_acesso
-        from vision.tools.agenda import Agenda
         from vision.voice.wake import Atalho
 
         self.loop = asyncio.get_running_loop()
@@ -448,8 +459,7 @@ class Nucleo:
             async with montar(self.cfg, ao_disparar_timer=self._timer_acabou) as j:
                 self.j = j
                 j.agente.ao_evento = self.barramento.publicar
-                if self.cfg.get("agenda.servidor") in j.host.conexoes:
-                    self.agenda = Agenda(self.cfg, j.host)
+                self.agenda = j.agenda  # a mesma do agente: um cache só para a tela e para as perguntas
 
                 app = criar_app(self.cfg, j, token=self.token, barramento=self.barramento,
                                 controle=self._controle(), pasta_app=self.cfg.raiz / "ui" / "dist")

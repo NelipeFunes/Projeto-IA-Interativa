@@ -52,6 +52,8 @@ def _reais(m: re.Match[str]) -> str:
 def para_fala(texto: str) -> str:
     t = texto
     t = re.sub(r"\(\s*id:[^)]*\)|\bid:\s*\S+", "", t)            # ids de evento
+    t = re.sub(r"\[([^\]]+)\]\([^)]*\)", r"\1", t)                # [texto](link) → texto
+    t = re.sub(r"\(?[ \t]*(?:https?://|www\.)[^\s)]+[ \t]*\)?", "", t)  # links: ficam na tela, não na fala
     t = re.sub(r"[*_`#>]+", "", t)                               # markdown
     t = EMOJIS.sub("", t)
     t = re.sub(r"^\s*[-•]\s*", "", t, flags=re.MULTILINE)         # marcadores de lista
@@ -66,6 +68,7 @@ def para_fala(texto: str) -> str:
     t = t.replace("\n", ". ")
     t = re.sub(r"\s+([.,!?])", r"\1", t)
     t = re.sub(r"([.!?])\s*\.", r"\1", t)
+    t = re.sub(r"[:;,]\s*([.!?])", r"\1", t)  # "casas: <link>." → "casas."
     return re.sub(r"\s{2,}", " ", t).strip()
 
 

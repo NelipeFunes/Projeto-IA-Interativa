@@ -6,7 +6,10 @@ Aqui o modelo vê 5 ferramentas simples e este módulo traduz para o MCP.
 
 from __future__ import annotations
 
+import asyncio
 import json
+import logging
+import time
 from datetime import date, datetime, timedelta
 from typing import Any
 
@@ -14,6 +17,9 @@ from vision import tempo
 from vision.config import Config
 from vision.tools.base import ComDados, ErroFerramenta, Ferramenta, esquema, numero, texto
 from vision.tools.mcp_host import HostMCP
+
+log = logging.getLogger(__name__)
+LIMITE_GOOGLE = 250  # eventos por calendário numa página do Google (o MCP não pede a próxima)
 
 SEM_LOGIN = ("No valid Google account tokens", "invalid_grant", "No authenticated accounts", "Token has been expired")
 
@@ -27,6 +33,16 @@ class Agenda:
         self.escrita: str = cfg.get("agenda.calendario_escrita", "primary")
         self.duracao_padrao = int(cfg.get("agenda.duracao_padrao_min", 60))
         self.fuso = cfg.get("usuario.fuso", "America/Sao_Paulo")
+        # Cache: os eventos de ontem até daqui a `cache_dias`, numa consulta só. "O que tenho amanhã?" filtra aqui
+        # em vez de esperar o Google. O núcleo atualiza a cada poucos minutos; mudar a agenda pelo Vision atualiza
+        # na hora. Mais velho que `cache_min`, ou fora da janela, consulta o Google como antes.
+        self.cache_dias = int(cfg.get("agenda.cache_dias", 7))
+        self.cache_s = float(cfg.get("agenda.cache_min", 10)) * 60
+        self._janela: tuple[date, date, list[dict[str, Any]], float] | None = None
+        self._tarefas: set[asyncio.Task] = set()  # referências vivas: a tarefa não some no meio
+        self._atualizando: asyncio.Task | None = None  # a mais recente (os testes esperam por ela)
+        self._geracao = 0
+        self.relogio = time.monotonic
 
     # ---------- chamada ao MCP ----------
 
@@ -46,6 +62,59 @@ class Agenda:
             return r.json()
         except json.JSONDecodeError:
             return {"texto": r.texto}
+
+    # ---------- cache ----------
+
+    async def atualizar_cache(self) -> None:
+        hoje = tempo.agora().date()
+        inicio, fim = hoje - timedelta(days=1), hoje + timedelta(days=self.cache_dias)
+        geracao = self._geracao
+        dados = await self._mcp("list-events", self._periodo(inicio, fim))
+        eventos = dados.get("events") if isinstance(dados, dict) else None
+        if not isinstance(eventos, list):  # resposta estranha: melhor perguntar ao Google do que dizer "nada"
+            raise ErroFerramenta("a agenda respondeu num formato inesperado")
+        por_calendario: dict[str, int] = {}
+        for e in eventos:
+            cal = str(e.get("calendarId") or "")
+            por_calendario[cal] = por_calendario.get(cal, 0) + 1
+        if any(n >= LIMITE_GOOGLE for n in por_calendario.values()):
+            # O MCP não pagina: com 250 num calendário, o resto da janela pode ter ficado de fora.
+            log.warning("agenda com %d eventos num calendário: sem cache", max(por_calendario.values()))
+            self._janela = None
+            return
+        if geracao == self._geracao:  # a agenda mudou no meio da consulta: esta foto já nasceu velha
+            self._janela = (inicio, fim, eventos, self.relogio())
+
+    def _periodo(self, inicio: date, fim: date) -> dict[str, Any]:
+        return {"calendarId": self.leitura, "timeMin": f"{inicio.isoformat()}T00:00:00",
+                "timeMax": f"{fim.isoformat()}T23:59:59", "timeZone": self.fuso}
+
+    def _invalidar(self) -> None:
+        """Depois de criar, mudar ou apagar: o cache velho sai na hora e um novo vem em segundo plano."""
+        self._janela = None
+        self._geracao += 1
+        self._atualizando = asyncio.create_task(self._atualizar_quieto())
+        self._tarefas.add(self._atualizando)
+        self._atualizando.add_done_callback(self._tarefas.discard)
+
+    async def _atualizar_quieto(self) -> None:
+        try:
+            await self.atualizar_cache()
+        except Exception as e:  # noqa: BLE001 - sem cache, a próxima consulta vai ao Google
+            log.warning("não deu para atualizar o cache da agenda: %s", e)
+
+    def _do_cache(self, inicio: date, fim: date) -> list[dict[str, Any]] | None:
+        j = self._janela
+        if j is None or self.relogio() - j[3] > self.cache_s or inicio < j[0] or fim > j[1]:
+            return None
+        return sorted((e for e in j[2] if _no_periodo(e, inicio, fim)), key=_inicio_ordenavel)
+
+    async def _eventos(self, inicio: date, fim: date) -> list[dict[str, Any]]:
+        guardados = self._do_cache(inicio, fim)
+        if guardados is not None:
+            return guardados
+        dados = await self._mcp("list-events", self._periodo(inicio, fim))
+        return list(dados.get("events", []))
 
     # ---------- formatação ----------
 
@@ -103,11 +172,7 @@ class Agenda:
     async def hoje(self) -> list[dict[str, Any]]:
         """Eventos de hoje para o painel (foto inicial da tela)."""
         dia = tempo.agora().date()
-        dados = await self._mcp("list-events", {
-            "calendarId": self.leitura, "timeMin": f"{dia.isoformat()}T00:00:00",
-            "timeMax": f"{dia.isoformat()}T23:59:59", "timeZone": self.fuso,
-        })
-        return [t for e in dados.get("events", []) if (t := self.para_tela(e, dia))]
+        return [t for e in await self._eventos(dia, dia) if (t := self.para_tela(e, dia))]
 
     def previa_criar(self, args: dict[str, Any]) -> dict[str, Any] | None:
         """Cartão do evento pendente, só se for hoje e com horário (é o que o painel mostra)."""
@@ -126,21 +191,13 @@ class Agenda:
         fim = _data(args.get("data_fim"), "data_fim") or inicio
         if fim < inicio:
             inicio, fim = fim, inicio
-        dados = await self._mcp(
-            "list-events",
-            {
-                "calendarId": self.leitura,
-                "timeMin": f"{inicio.isoformat()}T00:00:00",
-                "timeMax": f"{fim.isoformat()}T23:59:59",
-                "timeZone": self.fuso,
-            },
-        )
+        eventos = await self._eventos(inicio, fim)
         periodo = inicio.strftime("%d/%m") + ("" if fim == inicio else f" a {fim:%d/%m}")
-        texto_ = f"Eventos de {periodo}:\n" + self._formatar(dados.get("events", []), "Nenhum evento nesse período.")
+        texto_ = f"Eventos de {periodo}:\n" + self._formatar(eventos, "Nenhum evento nesse período.")
         hoje = tempo.agora().date()
         if not (inicio == fim == hoje):
             return texto_  # o painel é de hoje: outra data não substitui a lista
-        return ComDados(texto_, [t for e in dados.get("events", []) if (t := self.para_tela(e, hoje))])
+        return ComDados(texto_, [t for e in eventos if (t := self.para_tela(e, hoje))])
 
     async def buscar(self, args: dict[str, Any]) -> str:
         consulta = (args.get("texto") or "").strip()
@@ -197,6 +254,7 @@ class Agenda:
             if args.get(origem):
                 payload[destino] = args[origem]
         dados = await self._mcp("create-event", payload)
+        self._invalidar()
         ev = dados.get("event", {})
         aviso = ""
         if dados.get("conflicts"):
@@ -229,6 +287,7 @@ class Agenda:
                 args = {**args, "data": (atual.get("start", {}).get("dateTime") or atual["start"]["date"])[:10]}
             payload["start"], payload["end"], _ = self._montar_horario(args)
         dados = await self._mcp("update-event", payload)
+        self._invalidar()
         ev = dados.get("event", dados) if isinstance(dados, dict) else {}
         # dados None = o evento saiu de hoje (ou não deu para ler): a tela tira ele do painel.
         return ComDados(f"Evento {evento_id} alterado.", self.para_tela(ev) if ev.get("start") else None)
@@ -255,6 +314,7 @@ class Agenda:
         except Exception:  # noqa: BLE001 - não conseguir ler o evento não impede o apagar
             qual = f"o evento {evento_id}"
         await self._mcp("delete-event", {"calendarId": self.escrita, "eventId": evento_id})
+        self._invalidar()
         return ComDados(f"Apaguei {qual}.", {"id": evento_id})
 
     async def descrever_apagar(self, args: dict[str, Any]) -> str:
@@ -334,6 +394,40 @@ class Agenda:
                 previa=lambda a: {"id": str(a.get("evento_id") or "")} if a.get("evento_id") else None,
             ),
         ]
+
+
+def _limites(ev: dict[str, Any]) -> tuple[datetime, datetime] | None:
+    """Começo e fim do evento no fuso local (dia inteiro: da meia-noite do 1º dia à do dia seguinte ao último)."""
+    ini, fim = ev.get("start") or {}, ev.get("end") or {}
+    try:
+        if ini.get("dateTime"):
+            a = datetime.fromisoformat(ini["dateTime"]).astimezone(tempo.FUSO)
+            b = datetime.fromisoformat(fim["dateTime"]).astimezone(tempo.FUSO) if fim.get("dateTime") else a
+            return a, b
+        if ini.get("date"):
+            a = datetime.combine(date.fromisoformat(ini["date"]), datetime.min.time(), tempo.FUSO)
+            b = (datetime.combine(date.fromisoformat(fim["date"]), datetime.min.time(), tempo.FUSO)
+                 if fim.get("date") else a + timedelta(days=1))
+            return a, b
+    except (ValueError, TypeError):
+        return None
+    return None
+
+
+def _no_periodo(ev: dict[str, Any], inicio: date, fim: date) -> bool:
+    """Mesmo critério do Google: o evento cruza o período [início do 1º dia, fim do último dia]."""
+    limites = _limites(ev)
+    if limites is None:
+        return False
+    a, b = limites
+    de = datetime.combine(inicio, datetime.min.time(), tempo.FUSO)
+    ate = datetime.combine(fim + timedelta(days=1), datetime.min.time(), tempo.FUSO)
+    return a < ate and (b > de or (a == b and a >= de))
+
+
+def _inicio_ordenavel(ev: dict[str, Any]) -> datetime:
+    limites = _limites(ev)
+    return limites[0] if limites else datetime.max.replace(tzinfo=tempo.FUSO)
 
 
 def _data(valor: Any, campo: str) -> date | None:

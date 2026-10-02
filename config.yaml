@@ -42,6 +42,10 @@ agenda:
   calendario_escrita: primary
   duracao_padrao_min: 60
   aviso_login_dias: 6       # login do Google em modo teste vence em 7 dias
+  # Cache: de ontem até daqui a 7 dias numa consulta só, refeita a cada 5 min e depois de cada mudança feita
+  # pelo Vision. "O que tenho amanhã?" responde sem esperar o Google. Mais velho que cache_min, consulta direto.
+  cache_dias: 7
+  cache_min: 10
 
 mcp:
   google-calendar:
@@ -68,6 +72,14 @@ pc:
   # Mexer no PC (pedido de 01/10): abrir/fechar programas, sites, volume, mídia, travar, desligar (pede "sim"),
   # timers e alarmes, e comando do PowerShell quando nada serve (SEMPRE pede "sim", mostrando o comando).
   ativo: true
+
+web:
+  # Busca na internet (pedido de 01/10). Com TAVILY_API_KEY no .env usa a Tavily (1.000 buscas grátis por mês,
+  # já devolve um resumo); sem chave, ou com a cota no fim, usa o DuckDuckGo. Cache e contador em data/cache/.
+  ativo: true
+  resultados: 5
+  cache_horas: 6            # a mesma busca dentro desse tempo não gasta crédito
+  cota_mensal: 1000         # avisa com 90% gastos
 
 spotify:
   # Música pelo Spotify (conta Premium). Login uma vez: `vision spotify-login --client-id SEU_ID` (o Client ID é
