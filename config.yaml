@@ -16,7 +16,10 @@ usuario:
 modelo:
   nome: qwen3.5:4b          # troque para qwen3.5:9b depois de ver evals/resultado-4b-vs-9b.md
   pensar: false             # "thinking" do Qwen: deixa mais lento; desligado para voz
-  contexto: 8192
+  # 02/10: só o prompt + os esquemas das ferramentas já dão ~4.800 tokens (5.500 com os PRs da noite), e o resto
+  # (histórico, resultado de busca na web, resposta) não cabia folgado em 8.192. Na placa: 8k = 3,11 GB,
+  # 12k = 3,25 GB, 16k = 3,38 GB (qwen3.5:4b, medido no Ollama).
+  contexto: 12288
   temperatura: 0.3
   manter_carregado: 30m     # quanto tempo o modelo fica na VRAM depois da última fala
   host: http://127.0.0.1:11434
