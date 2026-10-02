@@ -766,8 +766,13 @@ class LoopVoz:
             return
         try:
             await asyncio.to_thread(metodo)
-        except Exception:  # noqa: BLE001 - sem a placa, a voz de reserva continua falando
-            log.exception("não consegui mover a voz %s da placa de vídeo", "para a" if sim else "para fora")
+            self._falhas_placa = 0
+        except Exception as e:  # noqa: BLE001 - sem a placa, a voz de reserva continua falando
+            self._falhas_placa = getattr(self, "_falhas_placa", 0) + 1
+            if self._falhas_placa == 1:
+                log.exception("não consegui mover a voz %s da placa de vídeo", "para a" if sim else "para fora")
+            else:  # a nova tentativa a cada checagem não enche o log de tracebacks (2ª revisão do PR 22)
+                log.warning("voz ainda fora da placa (%d tentativas): %s", self._falhas_placa, e)
 
 
 @contextmanager
