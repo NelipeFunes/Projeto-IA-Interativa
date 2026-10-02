@@ -395,6 +395,8 @@ class Nucleo:
         vigia = sistema.Vigia()
         while True:
             await asyncio.sleep(VIGIAR_SISTEMA_S)
+            if self.laco is not None and self.laco.jogando:
+                continue  # no jogo, nem um processo a mais: o CS2 já disputa o processador
             try:
                 novos = vigia.novos(await sistema.estado())
             except Exception:  # noqa: BLE001 - sem leitura agora, tenta na próxima

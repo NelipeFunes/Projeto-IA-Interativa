@@ -17,7 +17,6 @@ log = logging.getLogger(__name__)
 
 # Passou disso, vira alerta.
 GPU_QUENTE_C = 85
-CPU_QUENTE_C = 90
 MEMORIA_CHEIA_PCT = 95
 DISCO_CHEIO_PCT = 95
 SEM_JANELA = 0x08000000 if sys.platform == "win32" else 0  # CREATE_NO_WINDOW
@@ -44,8 +43,20 @@ class Estado:
     placas: list[Placa] = field(default_factory=list)
 
 
+def _nvidia_smi() -> str | None:
+    """O do driver, pelo caminho fixo (no Windows, o `which` olharia antes a pasta atual)."""
+    import os
+
+    for base in (os.environ.get("ProgramFiles", r"C:\Program Files"), os.environ.get("SystemRoot", r"C:\Windows")):
+        for sub in (r"NVIDIA Corporation\NVSMI\nvidia-smi.exe", r"System32\nvidia-smi.exe"):
+            caminho = Path(base) / sub
+            if caminho.is_file():
+                return str(caminho)
+    return None if sys.platform == "win32" else shutil.which("nvidia-smi")
+
+
 def _placas() -> list[Placa]:
-    exe = shutil.which("nvidia-smi")
+    exe = _nvidia_smi()
     if not exe:
         return []
     try:

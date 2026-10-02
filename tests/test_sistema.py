@@ -48,3 +48,15 @@ def test_leitura_real_nao_quebra():
                                        ("como está o tempo?", False)])
 def test_frases(frase, sim):
     assert pede_status(frase) is sim
+
+
+
+async def test_atalho_com_erro_vira_resposta(monkeypatch):
+    from vision.tools import sistema as ferramenta
+
+    async def quebra():
+        raise OSError("sem acesso")
+
+    monkeypatch.setattr(ferramenta, "status", quebra)
+    assert await ferramenta.atalho("status do sistema") == (
+        "status_do_sistema", {}, "Não consegui ler o estado do PC agora.", False)
