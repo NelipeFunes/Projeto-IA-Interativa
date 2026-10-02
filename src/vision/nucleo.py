@@ -342,9 +342,10 @@ class Nucleo:
         async def rodar() -> None:
             try:
                 ok = await conexoes.conectar(self.cfg, servico, limpos, avisar, cancelar)
-                self._andamento(servico, frases[-1] if frases else ("Pronto." if ok else "Não deu certo."),
-                                rodando=False, ok=ok)
-                log.info("conexão %s: %s", servico, "feita" if ok else "não concluída")
+                padrao = "Pronto." if ok else "Falta um passo seu." if ok is None else "Não deu certo."
+                self._andamento(servico, frases[-1] if frases else padrao, rodando=False, ok=ok)
+                log.info("conexão %s: %s", servico, "feita" if ok else "esperando o código" if ok is None
+                         else "não concluída")
             except asyncio.CancelledError:
                 self._andamento(servico, "Cancelado.", rodando=False, ok=False)
                 raise

@@ -38,6 +38,11 @@ class FerramentasOrbit:
         quando = f" no dia {args['data']}" if args.get("data") else ""
         return f"Vou lançar {_reais(args.get('valor', 0))} de {args['descricao']}{cat}{quando}."
 
+    async def descrever_apagar(self, args: dict[str, Any]) -> str:
+        if not args.get("tarefa"):
+            raise ErroFerramenta("Qual tarefa? Diga o título.")
+        return f"Vou apagar a tarefa '{args['tarefa']}' do Orbit."
+
     async def descrever_tarefa(self, args: dict[str, Any]) -> str:
         if not args.get("titulo"):
             raise ErroFerramenta("Informe o título da tarefa.")
@@ -79,8 +84,9 @@ class FerramentasOrbit:
             ),
             Ferramenta(
                 "tarefas_listar",
-                "Lista as tarefas abertas do Felipe no Orbit.",
-                esquema([]),
+                "Lista a lista de fazeres (tarefas) do Felipe no Orbit: as abertas, ou todas.",
+                esquema([], incluir_concluidas={"type": "boolean",
+                                                "description": "true para mostrar também as já feitas"}),
                 self._chamar("tarefas_listar"),
                 grupo="tarefas",
             ),
@@ -98,4 +104,45 @@ class FerramentasOrbit:
                 descrever=self.descrever_tarefa,
                 grupo="tarefas",
             ),
+            Ferramenta(
+                "tarefas_concluir",
+                "Marca uma tarefa do Orbit como feita ('já paguei o IPVA', 'risca X da lista'); desfazer=true reabre.",
+                esquema(["tarefa"], tarefa=texto("O título da tarefa, como o Felipe disse"),
+                        desfazer={"type": "boolean", "description": "true para reabrir uma tarefa já feita"}),
+                self._chamar("tarefas_concluir"),
+                escrita=True,
+                descrever=_descrever_tarefa("Vou marcar como feita a tarefa '{}'."),
+                grupo="tarefas",
+            ),
+            Ferramenta(
+                "tarefas_editar",
+                "Muda o título, o vencimento ou a prioridade de uma tarefa do Orbit.",
+                esquema(["tarefa"], tarefa=texto("O título atual da tarefa"),
+                        titulo=texto("Título novo, opcional"), vencimento=texto("AAAA-MM-DD, opcional"),
+                        prioridade={"type": "string", "enum": ["baixa", "media", "alta"]},
+                        sem_vencimento={"type": "boolean", "description": "true para tirar a data"}),
+                self._chamar("tarefas_editar"),
+                escrita=True,
+                descrever=_descrever_tarefa("Vou mudar a tarefa '{}'."),
+                grupo="tarefas",
+            ),
+            Ferramenta(
+                "tarefas_apagar",
+                "Apaga uma tarefa do Orbit de vez (para tarefa feita, prefira tarefas_concluir).",
+                esquema(["tarefa"], tarefa=texto("O título da tarefa")),
+                self._chamar("tarefas_apagar"),
+                escrita=True,
+                sensivel=True,  # some de vez: sempre pede "sim"
+                descrever=self.descrever_apagar,
+                grupo="tarefas",
+            ),
         ]
+
+
+def _descrever_tarefa(modelo: str):
+    async def descrever(args: dict[str, Any]) -> str:
+        if not args.get("tarefa"):
+            raise ErroFerramenta("Qual tarefa? Diga o título.")
+        return modelo.format(args["tarefa"])
+
+    return descrever

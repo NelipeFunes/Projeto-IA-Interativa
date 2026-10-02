@@ -179,7 +179,8 @@ const URL = /(https?:\/\/\S+)/;
 /** A frase do login. Um endereço nela ("se não abrir, cole este endereço") vira botão, não texto enorme. */
 function Linha({ andamento, abrirLink }: { andamento: Andamento; abrirLink: (url: string) => void }) {
   const [antes, url] = andamento.texto.split(URL);
-  const classe = andamento.rodando ? "rodando" : andamento.ok ? "ok" : "erro";
+  // ok null sem rodar: falta um passo seu (o código do Orbit), não é erro.
+  const classe = andamento.rodando || andamento.ok === null ? "rodando" : andamento.ok ? "ok" : "erro";
   return (
     <p className={`conexao-andamento ${classe}`} role="status">
       {andamento.rodando && <span className="girando" aria-hidden="true" />}

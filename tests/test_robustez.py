@@ -135,7 +135,8 @@ def test_so_o_que_nao_tem_volta_ou_e_dinheiro_e_sensivel(cfg, host):
     from vision.tools.orbit import FerramentasOrbit
 
     todas = [*Agenda(cfg, host).ferramentas(), *FerramentasMemoria(None).ferramentas(), *FerramentasOrbit(host).ferramentas()]
-    assert {f.nome for f in todas if f.sensivel} == {"agenda_apagar", "esquecer", "financas_lancar"}
+    # tarefas_apagar (02/10): some do Orbit de vez, como apagar evento. Concluir não: dá para reabrir.
+    assert {f.nome for f in todas if f.sensivel} == {"agenda_apagar", "esquecer", "financas_lancar", "tarefas_apagar"}
 
 
 async def test_modo_sensiveis_memoria_so_pergunta_depois_de_texto_de_fora():

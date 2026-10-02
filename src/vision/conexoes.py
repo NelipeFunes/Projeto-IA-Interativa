@@ -9,13 +9,16 @@ página do próprio serviço; o Vision nunca vê a senha dessas contas.
 
 from __future__ import annotations
 
+import base64
 import hashlib
+import importlib.util
 import json
 import math
 import os
 import re
 import shutil
 import threading
+import time
 from collections.abc import Callable
 from dataclasses import dataclass
 from pathlib import Path
@@ -29,6 +32,8 @@ LIMITE_CAMPO = 64_000  # o JSON da credencial do Google tem ~400 bytes; o resto,
 EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
 CHAVE_TAVILY = re.compile(r"^tvly-[A-Za-z0-9_-]{8,120}$")
 CLIENT_ID_SPOTIFY = re.compile(r"^[0-9a-f]{32}$")
+CODIGO_ORBIT = re.compile(r"^[A-Za-z0-9]{4,10}$")
+VALIDADE_DESAFIO_S = 600  # o código do e-mail do Orbit: depois disso, e-mail e senha de novo
 GUIA_GOOGLE = "https://github.com/NelipeFunes/Projeto-IA-Interativa/blob/main/docs/guia-google-cloud.md"
 
 
@@ -222,14 +227,101 @@ def _web(cfg: Config) -> dict[str, Any]:
             "ajuda": {"rotulo": "tavily.com", "url": "https://app.tavily.com"}}
 
 
+# O login do Orbit pode pedir o código que ele manda por e-mail. Entre "Conectar" e o código, o desafio (e o
+# e-mail e a senha digitados) ficam só na memória deste processo, por VALIDADE_DESAFIO_S; nunca vão para a tela.
+_desafio_orbit: dict[str, Any] | None = None
+
+
+def _desafio_valido() -> dict[str, Any] | None:
+    global _desafio_orbit
+    if _desafio_orbit is not None and time.monotonic() - _desafio_orbit["quando"] > VALIDADE_DESAFIO_S:
+        _desafio_orbit = None
+    return _desafio_orbit
+
+
+def _dias_do_token(token: str) -> float | None:
+    """Quantos dias faltam para o accessToken (JWT) vencer, pelo `exp`. Sem conferir assinatura: é só para avisar."""
+    try:
+        meio = token.split(".")[1]
+        dados = json.loads(base64.urlsafe_b64decode(meio + "=" * (-len(meio) % 4)))
+        return (float(dados["exp"]) - time.time()) / 86400
+    except (IndexError, KeyError, TypeError, ValueError):
+        return None
+
+
 def _orbit(cfg: Config) -> dict[str, Any]:
     email = _env("ORBIT_EMAIL")
-    tem = bool(_env("ORBIT_TOKEN") or (email and _env("ORBIT_PASSWORD")))
-    return {"situacao": "ok" if tem else "falta",
-            "detalhe": (f"Login guardado ({email})." if email else "Token guardado.") if tem else "Sem login.",
+    token = _env("ORBIT_TOKEN")
+    desafio = _desafio_valido()
+    if desafio is not None:
+        return {"situacao": "atencao", "detalhe": f"O Orbit mandou um código para {desafio['mascarado']}.",
+                "campos": [_campo("codigo", "Código do e-mail", dica="Chega em instantes; vale por alguns minutos.")],
+                "acao": "Confirmar código", "desconectar": False}
+    tem = bool(token or (email and _env("ORBIT_PASSWORD")))
+    situacao, detalhe = ("ok", f"Conectado ({email})." if email else "Conectado.") if tem else ("falta", "Sem login.")
+    dias = _dias_do_token(token) if token else None
+    if dias is not None and dias <= 0:
+        situacao, detalhe = "atencao", "O acesso venceu: ele entra de novo sozinho (ou peça o código aqui)."
+    elif dias is not None:
+        restam = max(1, math.ceil(dias))
+        detalhe = detalhe.rstrip(".") + f" · o acesso vence em {restam} dia{'s' if restam > 1 else ''}."
+    return {"situacao": situacao, "detalhe": detalhe,
             "campos": [_campo("email", "E-mail do Orbit", "email", valor=email),
                        _campo("senha", "Senha do Orbit", "senha", dica="Fica no .env, fora do git.")],
-            "acao": "Trocar login" if tem else "Salvar login", "desconectar": tem}
+            "acao": "Trocar login" if tem else "Conectar", "desconectar": tem}
+
+
+def _orbit_api(cfg: Config):
+    """O cliente do Orbit fica com o servidor MCP dele (mcp_servers/orbit), fora do pacote vision."""
+    caminho = cfg.raiz / "mcp_servers" / "orbit" / "orbit_api.py"
+    if not caminho.is_file():
+        raise ValueError("não achei o cliente do Orbit (mcp_servers/orbit)")
+    spec = importlib.util.spec_from_file_location("vision_orbit_api", caminho)
+    if spec is None or spec.loader is None:
+        raise ValueError("não achei o cliente do Orbit (mcp_servers/orbit)")
+    modulo = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(modulo)
+    return modulo
+
+
+async def _conectar_orbit(cfg: Config, dados: dict[str, str], avisar: Callable[[str], None]) -> bool | None:
+    """True: conectado. None: o Orbit mandou um código por e-mail (a tela pede). False: não deu."""
+    global _desafio_orbit
+    mod = _orbit_api(cfg)
+    if "codigo" in dados:
+        d = _desafio_valido()
+        if d is None:
+            avisar("O código venceu: entre de novo com e-mail e senha.")
+            return False
+        api = mod.OrbitAPI(token="", email=d["email"], senha=d["senha"])
+        try:
+            token = await api.confirmar_codigo(d["desafio"], dados["codigo"])
+        except mod.ErroOrbit as e:
+            avisar(str(e))
+            return False
+        finally:
+            await api.fechar()
+        email, senha = d["email"], d["senha"]
+        _desafio_orbit = None
+    else:
+        email, senha = dados["email"], dados["senha"]
+        avisar("Conferindo o login no Orbit (se ele estiver dormindo no Render, leva até 1 minuto)...")
+        api = mod.OrbitAPI(token="", email=email, senha=senha)
+        try:
+            token = await api.login()
+        except mod.PrecisaCodigo as e:
+            _desafio_orbit = {"desafio": e.desafio, "mascarado": e.email_mascarado, "email": email, "senha": senha,
+                              "quando": time.monotonic()}
+            avisar(f"O Orbit mandou um código para {e.email_mascarado}: digite ele aqui.")
+            return None
+        except mod.ErroOrbit as e:
+            avisar(str(e))
+            return False
+        finally:
+            await api.fechar()
+    gravar_env(cfg.raiz / ".env", {"ORBIT_EMAIL": email, "ORBIT_PASSWORD": senha, "ORBIT_TOKEN": token})
+    avisar("Orbit conectado.")
+    return True
 
 
 def estado(cfg: Config, status_mcp: dict[str, str] | None = None) -> list[dict[str, Any]]:
@@ -308,6 +400,10 @@ def validar(servico: Any, dados: Any) -> dict[str, str]:
         if not CHAVE_TAVILY.match(d.get("chave", "")):
             raise ValueError("a chave da Tavily começa com tvly- (copie do painel da Tavily)")
         return {"chave": d["chave"]}
+    if servico == "orbit" and "codigo" in d:
+        if not CODIGO_ORBIT.match(d["codigo"]):
+            raise ValueError("o código tem só letras e números (copie do e-mail)")
+        return {"codigo": d["codigo"]}
     if servico == "orbit":
         senha = dados.get("senha", "")  # senha não perde espaço das pontas
         if not EMAIL.match(d.get("email", "")):
@@ -319,8 +415,9 @@ def validar(servico: Any, dados: Any) -> dict[str, str]:
 
 
 async def conectar(cfg: Config, servico: str, dados: dict[str, str], avisar: Callable[[str], None],
-                   cancelar: threading.Event) -> bool:
-    """Já validado por `validar`. Os com navegador esperam você entrar (minutos); os outros só gravam."""
+                   cancelar: threading.Event) -> bool | None:
+    """Já validado por `validar`. Os com navegador esperam você entrar (minutos); os outros só gravam.
+    None: falta um passo seu (o código do Orbit)."""
     import asyncio
 
     if servico == "google":
@@ -346,10 +443,7 @@ async def conectar(cfg: Config, servico: str, dados: dict[str, str], avisar: Cal
         avisar("Chave da Tavily guardada.")
         return True
     if servico == "orbit":
-        gravar_env(cfg.raiz / ".env", {"ORBIT_EMAIL": dados["email"], "ORBIT_PASSWORD": dados["senha"],
-                                       "ORBIT_TOKEN": None})
-        avisar("Login do Orbit guardado.")
-        return True
+        return await _conectar_orbit(cfg, dados, avisar)
     raise ValueError("serviço desconhecido")
 
 
@@ -378,6 +472,8 @@ def desconectar(cfg: Config, servico: str) -> str:
         gravar_env(cfg.raiz / ".env", {"TAVILY_API_KEY": None})
         return "Chave da Tavily apagada: a busca volta para o DuckDuckGo."
     if servico == "orbit":
+        global _desafio_orbit
+        _desafio_orbit = None
         gravar_env(cfg.raiz / ".env", {"ORBIT_EMAIL": None, "ORBIT_PASSWORD": None, "ORBIT_TOKEN": None})
         return "Login do Orbit apagado."
     raise ValueError("esse serviço não tem desconectar pela tela")

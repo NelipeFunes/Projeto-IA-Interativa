@@ -18,7 +18,7 @@ from mcp.server.mcpserver import MCPServer
 from mcp.server.mcpserver.exceptions import ToolError
 
 sys.path.insert(0, str(Path(__file__).parent))
-from orbit_api import ErroOrbit, OrbitAPI, campo, numero  # noqa: E402
+from orbit_api import NOME_PRIORIDADE, PRIORIDADES, ErroOrbit, OrbitAPI, achar_tarefa, campo, numero  # noqa: E402
 
 FUSO = ZoneInfo("America/Sao_Paulo")
 
@@ -39,6 +39,14 @@ def _reais(v: float) -> str:
 def _eh_receita(t: dict[str, Any]) -> bool:
     tipo = str(campo(t, "tipo", "")).lower()
     return tipo in {"income", "receita", "entrada", "credit"}
+
+
+def _prioridade(p: str | None) -> str | None:
+    """"alta"/"média"/"baixa" (ou já em inglês) → high/medium/low, os valores que o Orbit aceita."""
+    if not p:
+        return None
+    p = p.strip().lower()
+    return PRIORIDADES.get(p, p if p in NOME_PRIORIDADE else None)
 
 
 def criar_servidor(api: OrbitAPI | None = None) -> MCPServer:
@@ -143,8 +151,10 @@ def criar_servidor(api: OrbitAPI | None = None) -> MCPServer:
             linhas = []
             for t in ts:
                 venc = campo(t, "vencimento")
-                pri = campo(t, "prioridade")
-                extra = ", ".join(x for x in [f"vence {str(venc)[:10]}" if venc else "", f"prioridade {pri}" if pri else ""] if x)
+                pri = NOME_PRIORIDADE.get(str(campo(t, "prioridade", "")), campo(t, "prioridade"))
+                feita = "feita" if campo(t, "concluida") in (True, "done", "completed") else ""
+                extra = ", ".join(x for x in [f"vence {str(venc)[:10]}" if venc else "",
+                                              f"prioridade {pri}" if pri else "", feita] if x)
                 linhas.append(f"- {campo(t, 'titulo', '(sem título)')}" + (f" ({extra})" if extra else ""))
             return "Tarefas:\n" + "\n".join(linhas)
 
@@ -155,9 +165,54 @@ def criar_servidor(api: OrbitAPI | None = None) -> MCPServer:
         """Cria uma tarefa no Orbit. vencimento AAAA-MM-DD; prioridade: baixa, media ou alta."""
 
         async def fazer() -> str:
-            mapa = {"baixa": "low", "media": "medium", "média": "medium", "alta": "high"}
-            await api.criar_tarefa(titulo, vencimento, mapa.get((prioridade or "").lower(), prioridade))
+            await api.criar_tarefa(titulo, vencimento, _prioridade(prioridade))
             return f"Tarefa criada: {titulo}" + (f" (vence {vencimento})" if vencimento else "")
+
+        return await _seguro(fazer())
+
+    @srv.tool(name="tarefas_concluir")
+    async def tarefas_concluir(tarefa: str, desfazer: bool = False) -> str:
+        """Marca uma tarefa como feita (desfazer=true a reabre). tarefa: o título, como o Felipe disse."""
+
+        async def fazer() -> str:
+            t = achar_tarefa(await api.tarefas(), tarefa)
+            await api.mudar_tarefa(campo(t, "id"), {"done": not desfazer})
+            titulo = campo(t, "titulo", tarefa)
+            return f"Reabri a tarefa: {titulo}" if desfazer else f"Marquei como feita: {titulo}"
+
+        return await _seguro(fazer())
+
+    @srv.tool(name="tarefas_editar")
+    async def tarefas_editar(tarefa: str, titulo: str | None = None, vencimento: str | None = None,
+                             prioridade: str | None = None, sem_vencimento: bool = False) -> str:
+        """Muda o título, o vencimento (AAAA-MM-DD) ou a prioridade de uma tarefa. sem_vencimento=true tira a data."""
+
+        async def fazer() -> str:
+            t = achar_tarefa(await api.tarefas(), tarefa)
+            campos: dict[str, Any] = {}
+            if titulo:
+                campos["title"] = titulo
+            if sem_vencimento:
+                campos["due"] = None
+            elif vencimento:
+                campos["due"] = vencimento
+            if prioridade:
+                campos["priority"] = _prioridade(prioridade)
+            if not campos:
+                raise ErroOrbit("Mudar o quê? Título, vencimento ou prioridade.")
+            await api.mudar_tarefa(campo(t, "id"), campos)
+            return f"Tarefa atualizada: {titulo or campo(t, 'titulo', tarefa)}"
+
+        return await _seguro(fazer())
+
+    @srv.tool(name="tarefas_apagar")
+    async def tarefas_apagar(tarefa: str) -> str:
+        """Apaga uma tarefa do Orbit (para sempre)."""
+
+        async def fazer() -> str:
+            t = achar_tarefa(await api.tarefas(), tarefa)
+            await api.apagar_tarefa(campo(t, "id"))
+            return f"Apaguei a tarefa: {campo(t, 'titulo', tarefa)}"
 
         return await _seguro(fazer())
 
