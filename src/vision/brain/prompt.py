@@ -72,8 +72,12 @@ def regras(ferramentas: set[str] | None = None, confirmacao: str = "todas") -> s
                       "15:00). O Vision toca e avisa sozinho no fim; não diga que vai lembrar sem chamar a ferramenta.")
     if tem("musica_tocar"):
         linhas.append("12. Música: \"toca X\" é `musica_tocar` com busca=X (ele abre o Spotify sozinho; não use "
-                      "programa_abrir antes). tipo=artista/album/playlist quando o Felipe disser. Pausar, continuar, "
+                      "programa_abrir antes). Toca SEMPRE no PC; `onde` só se ele disser o aparelho (\"na Alexa\"). "
+                      "tipo=artista/album/playlist quando o Felipe disser. Pausar, continuar, "
                       "pular: `musica_controlar`. \"Que música é essa?\": `musica_tocando`.")
+    if tem("resumo_do_dia"):
+        linhas.append("14. \"Bom dia\", \"me atualiza\", \"como está meu dia\": `resumo_do_dia`. Clima, temperatura, "
+                      "chuva, se vai fazer frio: `clima` (dia=amanhã etc.). Nunca invente temperatura.")
     if tem("web_buscar"):
         linhas.append("13. Internet: `web_buscar` e, para ver detalhes de um resultado, `web_ler`. Antes de buscar, "
                       "use as MEMÓRIAS e o PERFIL para pôr na consulta os critérios que importam para o Felipe (ex.: "

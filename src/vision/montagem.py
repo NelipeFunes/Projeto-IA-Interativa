@@ -132,6 +132,14 @@ async def montar(
             casa = Casa(alexa, confirmar=bool(cfg.get("alexa.confirmar_luzes", False)))
             registro.adicionar(*casa.ferramentas())
             atalhos.append(casa.atalho)
+    if cfg.get("clima.ativo", True) or agenda is not None:
+        from vision.clima import Clima
+        from vision.tools.briefing import Briefing
+
+        clima = Clima(cfg.dados / "cache", str(cfg.get("clima.cidade") or "")) if cfg.get("clima.ativo", True) else None
+        briefing = Briefing(cfg.get("usuario.nome", "Felipe"), clima, agenda, timers)
+        registro.adicionar(*briefing.ferramentas())
+        atalhos.append(briefing.atalho)
     if cfg.get("web.ativo", True):
         from vision.tools.web import FerramentasWeb
         from vision.web import Web
