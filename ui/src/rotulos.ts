@@ -13,6 +13,7 @@ const FERRAMENTAS: Record<string, string> = {
   agenda_listar: "consultou a agenda",
   web_buscar: "pesquisou na web",
   web_ler: "leu uma página",
+  web_noticias: "viu as notícias",
   agenda_buscar: "buscou na agenda",
   agenda_criar: "criou evento",
   agenda_alterar: "alterou evento",

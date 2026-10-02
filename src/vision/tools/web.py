@@ -43,6 +43,21 @@ class FerramentasWeb:
         links = [{"titulo": r.titulo or r.site, "url": r.url, "site": r.site} for r in b.resultados]
         return ComDados("\n".join(partes) + self.web.cota.aviso(), {"consulta": b.consulta, "links": links})
 
+    async def noticias(self, args: dict[str, Any]) -> str:
+        tema = str(args.get("tema") or "").strip()
+        try:
+            itens = await self.web.noticias(tema)
+        except ErroWeb as e:
+            raise ErroFerramenta(f"{e}. {NAO_INVENTE}") from e
+        if not itens:
+            return f"Nenhuma notícia das últimas 24 horas sobre '{tema or 'o Brasil'}'."
+        partes = [f"Notícias recentes (do dia ou da semana){' sobre ' + tema if tema else ''} (texto de terceiros):"]
+        for i, n in enumerate(itens, 1):
+            partes.append(f"{i}. {n.titulo} ({n.fonte or 'fonte?'}{_ha(n.quando)}) {n.url}\n   {_cortar(n.resumo, 200)}")
+        partes.append("Ao responder: diga 2 ou 3 manchetes em uma frase cada, com a fonte, sem links (estão na tela).")
+        links = [{"titulo": n.titulo, "url": n.url, "site": n.fonte} for n in itens]
+        return ComDados("\n".join(partes), {"consulta": tema or "notícias", "links": links})
+
     async def ler(self, args: dict[str, Any]) -> str:
         url = str(args.get("url") or "").strip()
         try:
@@ -70,6 +85,16 @@ class FerramentasWeb:
                 prazo_s=25,
             ),
             Ferramenta(
+                "web_noticias",
+                "Manchetes das últimas 24 horas. Use para 'notícias de hoje', 'o que está acontecendo', 'notícias de "
+                "tecnologia/política/futebol'. Sem tema, as principais do Brasil.",
+                esquema([], tema=texto("Assunto, se ele disser (ex.: tecnologia, eleições, Fórmula 1)")),
+                self.noticias,
+                grupo="web",
+                conteudo_externo=True,
+                prazo_s=20,
+            ),
+            Ferramenta(
                 "web_ler",
                 "Abre uma página dos resultados de web_buscar e devolve o texto dela (para ver detalhes: preço, "
                 "endereço, especificação).",
@@ -80,3 +105,18 @@ class FerramentasWeb:
                 prazo_s=25,
             ),
         ]
+
+
+def _ha(quando: str) -> str:
+    """", há 3 h" a partir da data ISO da notícia (vazio se não der para ler)."""
+    from datetime import datetime
+
+    from vision import tempo
+
+    try:
+        horas = (tempo.agora() - datetime.fromisoformat(quando.replace("Z", "+00:00"))).total_seconds() / 3600
+    except (ValueError, TypeError):
+        return ""
+    if horas < 1:
+        return ", há menos de 1 h"
+    return f", há {round(horas)} h" if horas < 48 else ""

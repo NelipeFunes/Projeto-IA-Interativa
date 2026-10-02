@@ -134,7 +134,7 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
 
     case "ferramenta_fim": {
       if (!ev.ok) return { ...s, seq };
-      if (ev.nome === "web_buscar" && ev.dados) {
+      if ((ev.nome === "web_buscar" || ev.nome === "web_noticias") && ev.dados) {
         const links = (ev.dados as { links?: unknown[] }).links ?? [];
         return { ...s, seq, linksTurno: [...s.linksTurno, ...links.filter(linkSeguro)].slice(0, 8) };
       }

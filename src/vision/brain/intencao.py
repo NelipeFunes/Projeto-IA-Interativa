@@ -43,7 +43,7 @@ PADROES = {
     # Só pedido explícito de pesquisa: "busca minha agenda" é da agenda, não da web.
     "web": re.compile(r"\bpesquis(a|e|ar|ando)\b|\b(na|pela) (internet|web|net)\b|\bno google\b|"
                       r"\b(busc|procur)(a|e|ar) (algumas|alguns|umas|uns|op[cç][oõ]es|pre[cç]os?)\b|"
-                      r"\bquanto (custa|est[aá] custando)\b", re.IGNORECASE),
+                      r"\bquanto (custa|est[aá] custando)\b|\bnot[ií]cias?\b|\bmanchetes?\b", re.IGNORECASE),
     "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
     "memoria": re.compile(
         r"(\b(lembr[ae]|anot[ae]|guard[ae]) (que|isso|a[ií])\b|\bn[aã]o esque[cç]a\b|\bvoc[eê] (sabe|lembra)\b|"
