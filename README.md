@@ -39,6 +39,17 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
 - **Janela fechada:** falando com ele, aparece uma bolha no canto, sem tirar o foco (não aparece no modo jogo).
 - **Log:** `data/logs/nucleo.log` e `data/logs/janela.log`.
 
+### Vision.exe (duplo clique)
+
+```bash
+python scripts/gerar_exe.py    # gera Vision.exe na pasta do projeto (usa o csc.exe que vem no Windows)
+```
+
+O `Vision.exe` é um lançador de ~170 KB com o ícone do orbe: liga o Vision (ou só abre a janela, se ele já
+estiver rodando). Dá para fixar na barra de tarefas ou criar um atalho na área de trabalho. Ele precisa ficar
+dentro da pasta do projeto (a que tem o `.venv`), ou usar a variável `VISION_HOME`. Se o Vision não iniciar,
+um aviso aponta para `data\logs\nucleo.log`. Não vai para o git.
+
 ## Comandos (de qualquer pasta)
 
 ```bash

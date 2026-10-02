@@ -14,3 +14,4 @@ RELATORIO-MANHA.md
 ui/node_modules/
 ui/dist/
 *.tsbuildinfo
+/Vision.exe
