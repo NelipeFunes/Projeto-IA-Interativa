@@ -150,11 +150,11 @@ async def test_conectar_web_e_orbit_grava_no_env_e_desconectar_apaga(cfg_conexoe
     import threading
 
     assert await conexoes.conectar(c, "web", {"chave": "tvly-abcdefgh123"}, frases.append, threading.Event())
-    assert await conexoes.conectar(c, "orbit", {"email": "eu@x.com", "senha": "s3nha"}, frases.append,
-                                   threading.Event())
+    # O Orbit agora confere o login de verdade (testes com HTTP simulado abaixo); aqui só o desconectar.
+    conexoes.gravar_env(c.raiz / ".env", {"ORBIT_EMAIL": "eu@x.com", "ORBIT_PASSWORD": "s3nha"})
     env = dotenv_values(c.raiz / ".env")
     assert env["TAVILY_API_KEY"] == "tvly-abcdefgh123" and env["ORBIT_PASSWORD"] == "s3nha"
-    assert frases == ["Chave da Tavily guardada.", "Login do Orbit guardado."]
+    assert frases == ["Chave da Tavily guardada."]
     conexoes.desconectar(c, "web")
     conexoes.desconectar(c, "orbit")
     env = dotenv_values(c.raiz / ".env")
@@ -483,3 +483,129 @@ def test_main_sem_conseguir_subir_o_novo_avisa_no_log(cfg_conexoes, monkeypatch,
     monkeypatch.setattr(nucleo.subprocess, "Popen", falha)
     assert nucleo.main([]) == 1
     assert "não consegui subir o núcleo novo" in caplog.text
+
+
+# ------------------------------------------------------------------ Orbit: login com código por e-mail
+
+
+def _jwt(dias: float) -> str:
+    import base64
+    import time
+
+    corpo = base64.urlsafe_b64encode(json.dumps({"exp": time.time() + dias * 86400}).encode()).decode().rstrip("=")
+    return f"cabeca.{corpo}.assinatura"
+
+
+@pytest.fixture
+def orbit_http(cfg_conexoes, monkeypatch):
+    """O cliente do Orbit de verdade (mcp_servers/orbit) contra HTTP simulado."""
+    import respx
+
+    real = conexoes._orbit_api
+    raiz = config.Path(__file__).resolve().parents[1]
+    monkeypatch.setattr(conexoes, "_orbit_api", lambda _cfg: real(type("C", (), {"raiz": raiz})()))
+    monkeypatch.setenv("ORBIT_URL", "https://orbit.teste")
+    monkeypatch.setattr(conexoes, "_desafio_orbit", None)
+    with respx.mock(base_url="https://orbit.teste") as m:
+        yield m
+
+
+async def test_orbit_login_direto_grava_token_e_mostra_validade(cfg_conexoes, orbit_http):
+    orbit_http.post("/auth/login").respond(json={"accessToken": _jwt(6.5)})
+    frases = []
+    ok = await conexoes.conectar(cfg_conexoes, "orbit", {"email": "eu@x.com", "senha": "s3nha"}, frases.append, None)
+    assert ok is True and frases[-1] == "Orbit conectado."
+    env = dotenv_values(cfg_conexoes.raiz / ".env", interpolate=False)
+    assert env["ORBIT_EMAIL"] == "eu@x.com" and env["ORBIT_PASSWORD"] == "s3nha" and env["ORBIT_TOKEN"].count(".") == 2
+    cfg_conexoes.bruto["mcp"].setdefault("orbit", {})["ativo"] = True
+    o = _por_id(cfg_conexoes)["orbit"]
+    assert o["situacao"] == "ok" and "vence em 7 dias" in o["detalhe"]
+    assert env["ORBIT_TOKEN"] not in json.dumps(o)
+
+
+async def test_orbit_pede_codigo_e_a_tela_pede_o_codigo(cfg_conexoes, orbit_http):
+    orbit_http.post("/auth/login").respond(json={"challengeToken": "desafio-secreto", "maskedEmail": "e***@x.com"})
+    verificar = orbit_http.post("/auth/code/verify").respond(json={"accessToken": _jwt(7)})
+    frases = []
+    ok = await conexoes.conectar(cfg_conexoes, "orbit", {"email": "eu@x.com", "senha": "s3nha"}, frases.append, None)
+    assert ok is None and "e***@x.com" in frases[-1]
+    assert not (cfg_conexoes.raiz / ".env").exists()  # nada gravado antes do código
+    o = _por_id(cfg_conexoes)["orbit"]
+    assert [c["nome"] for c in o["campos"]] == ["codigo"] and o["acao"] == "Confirmar código"
+    texto = json.dumps(conexoes.estado(cfg_conexoes))
+    assert "desafio-secreto" not in texto and "s3nha" not in texto
+    assert conexoes.validar("orbit", {"codigo": " 123456 "}) == {"codigo": "123456"}
+    with pytest.raises(ValueError):
+        conexoes.validar("orbit", {"codigo": "12 34"})
+    assert await conexoes.conectar(cfg_conexoes, "orbit", {"codigo": "123456"}, frases.append, None) is True
+    assert json.loads(verificar.calls[0].request.content) == {"challengeToken": "desafio-secreto", "code": "123456"}
+    env = dotenv_values(cfg_conexoes.raiz / ".env", interpolate=False)
+    assert env["ORBIT_PASSWORD"] == "s3nha" and conexoes._desafio_orbit is None
+
+
+async def test_orbit_senha_errada_e_codigo_vencido(cfg_conexoes, orbit_http, monkeypatch):
+    orbit_http.post("/auth/login").respond(401, json={"message": "invalid"})
+    frases = []
+    assert await conexoes.conectar(cfg_conexoes, "orbit", {"email": "eu@x.com", "senha": "x"}, frases.append, None) is False
+    assert "recusou o e-mail ou a senha" in frases[-1]
+    monkeypatch.setattr(conexoes, "_desafio_orbit", {"desafio": "d", "mascarado": "m", "email": "e", "senha": "s",
+                                                     "quando": -10_000.0})
+    assert await conexoes.conectar(cfg_conexoes, "orbit", {"codigo": "123456"}, frases.append, None) is False
+    assert "venceu" in frases[-1] and conexoes._desafio_orbit is None
+
+
+async def test_nucleo_mostra_o_passo_do_codigo_sem_cara_de_erro(cfg_conexoes, monkeypatch):
+    n = _nucleo(cfg_conexoes)
+
+    async def pede_codigo(_cfg, _servico, _dados, avisar, _cancelar):
+        avisar("O Orbit mandou um código para e***@x.com: digite ele aqui.")
+        return None
+
+    monkeypatch.setattr(conexoes, "conectar", pede_codigo)
+    await n.conectar("orbit", {"email": "eu@x.com", "senha": "s3nha"})
+    await _esperar_fim(n, "orbit")
+    assert n.andamento["orbit"] == {"texto": "O Orbit mandou um código para e***@x.com: digite ele aqui.",
+                                    "rodando": False, "ok": None}
+
+
+
+def test_exp_infinito_nao_derruba_a_tela(cfg_conexoes):
+    import base64
+
+    for exp in ("1e999", "NaN"):
+        corpo = base64.urlsafe_b64encode(f'{{"exp": {exp}}}'.encode()).decode().rstrip("=")
+        assert conexoes._dias_do_token(f"a.{corpo}.b") is None
+    conexoes.gravar_env(cfg_conexoes.raiz / ".env", {"ORBIT_TOKEN": "a.eyJleHAiOiAxZTk5OX0.b"})
+    cfg_conexoes.bruto["mcp"].setdefault("orbit", {})["ativo"] = True
+    assert _por_id(cfg_conexoes)["orbit"]["situacao"] == "ok"
+
+
+def test_cancelar_o_codigo_nao_apaga_o_login_que_existia(cfg_conexoes, monkeypatch):
+    import time as _time
+
+    conexoes.gravar_env(cfg_conexoes.raiz / ".env", {"ORBIT_EMAIL": "eu@x.com", "ORBIT_PASSWORD": "velha"})
+    monkeypatch.setattr(conexoes, "_desafio_orbit", {"desafio": "d", "mascarado": "e***", "email": "eu@x.com",
+                                                     "senha": "nova", "quando": _time.monotonic()})
+    cfg_conexoes.bruto["mcp"].setdefault("orbit", {})["ativo"] = True
+    assert _por_id(cfg_conexoes)["orbit"]["desconectar"] is True
+    assert conexoes.desconectar(cfg_conexoes, "orbit") == "Código cancelado: entre de novo com e-mail e senha."
+    assert dotenv_values(cfg_conexoes.raiz / ".env", interpolate=False)["ORBIT_PASSWORD"] == "velha"
+    assert [c["nome"] for c in _por_id(cfg_conexoes)["orbit"]["campos"]] == ["email", "senha"]
+
+
+def test_tela_diz_para_onde_a_senha_vai(cfg_conexoes, monkeypatch):
+    monkeypatch.setenv("ORBIT_URL", "https://meu-orbit.exemplo")
+    cfg_conexoes.bruto["mcp"].setdefault("orbit", {})["ativo"] = True
+    senha = [c for c in _por_id(cfg_conexoes)["orbit"]["campos"] if c["nome"] == "senha"][0]
+    assert "meu-orbit.exemplo" in senha["dica"]
+
+
+def test_exp_inteiro_gigante_e_url_com_senha(monkeypatch):
+    import base64
+
+    corpo = base64.urlsafe_b64encode(('{"exp": ' + "9" * 400 + "}").encode()).decode().rstrip("=")
+    assert conexoes._dias_do_token(f"a.{corpo}.b") is None
+    monkeypatch.setenv("ORBIT_URL", "https://eu:segredo@orbit.exemplo")
+    assert conexoes._host_orbit() == "orbit.exemplo"
+    monkeypatch.setenv("ORBIT_URL", "http://orbit.exemplo")
+    assert "sem https" in conexoes._host_orbit()

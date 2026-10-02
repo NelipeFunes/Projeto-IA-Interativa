@@ -38,6 +38,27 @@ class FerramentasOrbit:
         quando = f" no dia {args['data']}" if args.get("data") else ""
         return f"Vou lançar {_reais(args.get('valor', 0))} de {args['descricao']}{cat}{quando}."
 
+    async def _titulo_real(self, args: dict[str, Any], estado: str) -> str:
+        """A tarefa que vai mesmo mudar, achada antes do "Confirma?" (revisão do PR 40: a pergunta mostrava a frase
+        do modelo, e o "sim" valia para outra tarefa). Ambígua ou ausente: o erro já sai aqui, sem pergunta."""
+        if not args.get("tarefa"):
+            raise ErroFerramenta("Qual tarefa? Diga o título.")
+        r = await self.host.chamar(self.servidor, "tarefas_buscar", {"tarefa": args["tarefa"], "estado": estado})
+        if not r.ok:
+            raise ErroFerramenta(f"Orbit: {r.texto[:300]}")
+        return r.texto.strip()[:200]
+
+    async def descrever_apagar(self, args: dict[str, Any]) -> str:
+        return f"Vou apagar a tarefa '{await self._titulo_real(args, 'qualquer')}' do Orbit."
+
+    async def descrever_concluir(self, args: dict[str, Any]) -> str:
+        if args.get("desfazer"):
+            return f"Vou reabrir a tarefa '{await self._titulo_real(args, 'feita')}'."
+        return f"Vou marcar como feita a tarefa '{await self._titulo_real(args, 'aberta')}'."
+
+    async def descrever_editar(self, args: dict[str, Any]) -> str:
+        return f"Vou mudar a tarefa '{await self._titulo_real(args, 'qualquer')}'."
+
     async def descrever_tarefa(self, args: dict[str, Any]) -> str:
         if not args.get("titulo"):
             raise ErroFerramenta("Informe o título da tarefa.")
@@ -79,10 +100,14 @@ class FerramentasOrbit:
             ),
             Ferramenta(
                 "tarefas_listar",
-                "Lista as tarefas abertas do Felipe no Orbit.",
-                esquema([]),
+                "Lista a lista de fazeres (tarefas) do Felipe no Orbit: as abertas, ou todas.",
+                esquema([], incluir_concluidas={"type": "boolean",
+                                                "description": "true para mostrar também as já feitas"}),
                 self._chamar("tarefas_listar"),
                 grupo="tarefas",
+                # Títulos escritos por quem tem a conta do Orbit (ou criados a partir de um convite): texto de fora,
+                # como o da agenda. Depois de ler, guardar memória e o modo "todas" pedem "sim" (revisão do PR 40).
+                conteudo_externo=True,
             ),
             Ferramenta(
                 "tarefas_criar",
@@ -96,6 +121,39 @@ class FerramentasOrbit:
                 self._chamar("tarefas_criar"),
                 escrita=True,
                 descrever=self.descrever_tarefa,
+                grupo="tarefas",
+            ),
+            Ferramenta(
+                "tarefas_concluir",
+                "Marca uma tarefa do Orbit como feita ('já paguei o IPVA', 'risca X da lista'); desfazer=true reabre.",
+                esquema(["tarefa"], tarefa=texto("O título da tarefa, sem o verbo do pedido ('IPVA', não 'já paguei "
+                                                 "o IPVA')"),
+                        desfazer={"type": "boolean", "description": "true para reabrir uma tarefa já feita"}),
+                self._chamar("tarefas_concluir"),
+                escrita=True,
+                descrever=self.descrever_concluir,
+                grupo="tarefas",
+            ),
+            Ferramenta(
+                "tarefas_editar",
+                "Muda o título, o vencimento ou a prioridade de uma tarefa do Orbit.",
+                esquema(["tarefa"], tarefa=texto("O título atual da tarefa"),
+                        titulo=texto("Título novo, opcional"), vencimento=texto("AAAA-MM-DD, opcional"),
+                        prioridade={"type": "string", "enum": ["baixa", "media", "alta"]},
+                        sem_vencimento={"type": "boolean", "description": "true para tirar a data"}),
+                self._chamar("tarefas_editar"),
+                escrita=True,
+                descrever=self.descrever_editar,
+                grupo="tarefas",
+            ),
+            Ferramenta(
+                "tarefas_apagar",
+                "Apaga uma tarefa do Orbit de vez (para tarefa feita, prefira tarefas_concluir).",
+                esquema(["tarefa"], tarefa=texto("O título da tarefa")),
+                self._chamar("tarefas_apagar"),
+                escrita=True,
+                sensivel=True,  # some de vez: sempre pede "sim"
+                descrever=self.descrever_apagar,
                 grupo="tarefas",
             ),
         ]
