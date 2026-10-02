@@ -123,6 +123,7 @@ async def montar(
             from vision.tools.spotify import Musica
 
             spotify = modulo_spotify.Spotify(cfg)
+            pc.spotify = spotify  # (só com pc.ativo, como aqui) o volume passa a olhar o Spotify primeiro
             musica = Musica(spotify)
             registro.adicionar(*musica.ferramentas())
             atalhos.append(musica.atalho)

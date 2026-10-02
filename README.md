@@ -46,6 +46,8 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   vê a senha dessas contas). Chave e senha digitadas ali vão para o `.env` e nunca voltam para a tela. Como as
   conexões são montadas ao iniciar, a tela oferece "Reiniciar agora" quando algo muda. Os comandos
   `vision google-login`, `spotify-login` etc. continuam valendo.
+- **Volume:** com o Spotify tocando, "aumenta/abaixa o volume" mexe no volume do próprio Spotify; com ele no
+  máximo, sobe o do Windows (e tira do mudo). Sem Spotify tocando, ou dizendo "volume do PC", é o Windows.
 - **Lista de fazeres:** as tarefas do Orbit. "O que tem na minha lista?", "adiciona trocar o óleo para sexta",
   "já paguei o IPVA" (marca como feita), "muda a prioridade de X"; apagar pede "sim". O login é pela tela de
   Conexões (se o Orbit mandar um código por e-mail, a tela pede o código).

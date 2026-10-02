@@ -19,12 +19,21 @@ FAIXA = {"uri": "spotify:track:1", "name": "Bohemian Rhapsody", "artists": [{"na
 
 
 class ApiFalsa:
-    def __init__(self, dispositivos_depois=1, status_play=204, expirar_token=False):
+    """`carrega_parado`: o Spotify do PC carrega a música avulsa e fica parado até outro play (visto em 02/10).
+    `nunca_toca`: nem com o segundo play."""
+
+    def __init__(self, dispositivos_depois=1, status_play=204, expirar_token=False, carrega_parado=False,
+                 nunca_toca=False, volume=50, suporta_volume=True):
         self.chamadas: list[tuple[str, str, dict]] = []
         self.dispositivos_vazios = dispositivos_depois  # quantas consultas sem dispositivo antes de aparecer um
         self.status_play = status_play
         self.expirar_token = expirar_token
         self.renovacoes = 0
+        self.carrega_parado = carrega_parado
+        self.nunca_toca = nunca_toca
+        self.volume = volume
+        self.suporta_volume = suporta_volume
+        self.player: dict | None = None  # o que o /me/player devolve (None = nada ativo)
 
     def __call__(self, req: httpx.Request) -> httpx.Response:
         corpo = json.loads(req.content) if req.content and req.headers.get("content-type") == "application/json" else {}
@@ -46,10 +55,29 @@ class ApiFalsa:
             return httpx.Response(200, json={"devices": [{"id": "pc1", "name": "DESKTOP", "type": "Computer",
                                                           "is_active": False}]})
         if req.url.path == "/v1/me/player/play":
+            if self.status_play in (200, 202, 204):
+                if corpo:  # pedido novo: carrega a música (ou o contexto)
+                    item = FAIXA if "uris" in corpo else {"uri": "spotify:track:da-playlist", "name": "X"}
+                    contexto = {"uri": corpo["context_uri"]} if "context_uri" in corpo else None
+                    self.player = {"is_playing": not (self.carrega_parado or self.nunca_toca), "item": item,
+                                   "context": contexto, "device": self._aparelho()}
+                elif self.player is not None and not self.nunca_toca:  # play sem corpo: continua
+                    self.player["is_playing"] = True
             return httpx.Response(self.status_play)
+        if req.url.path == "/v1/me/player":
+            return httpx.Response(200, json=self.player) if self.player else httpx.Response(204)
+        if req.url.path == "/v1/me/player/volume":
+            self.volume = int(req.url.params["volume_percent"])
+            if self.player:
+                self.player["device"] = self._aparelho()
+            return httpx.Response(204)
         if req.url.path == "/v1/me/player/currently-playing":
             return httpx.Response(200, json={"is_playing": True, "item": FAIXA})
         return httpx.Response(204)
+
+    def _aparelho(self) -> dict:
+        return {"id": "pc1", "name": "DESKTOP", "type": "Computer", "volume_percent": self.volume,
+                "supports_volume": self.suporta_volume}
 
 
 @pytest.fixture
@@ -322,3 +350,78 @@ def test_hostname_vence_outro_computador(monkeypatch):
     aparelhos = [{"id": "nb", "name": "Notebook", "type": "Computer", "is_active": True},
                  {"id": "pc", "name": "MEU-PC", "type": "Computer", "is_active": False}]
     assert spotify.Spotify._escolher(aparelhos)["id"] == "pc"
+
+
+# ------------------------------------------------------------------ 02/10: tocar de verdade e volume
+
+
+async def test_musica_carregada_e_parada_ganha_outro_play(com_login):
+    """"Ele para a que está tocando mas não segue": o PC carrega a faixa e fica parado. O Vision confere e dá play."""
+    api = ApiFalsa(dispositivos_depois=0, carrega_parado=True)
+    async with _sp(com_login, api) as sp:
+        assert await sp.tocar("bohemian rhapsody") == "Bohemian Rhapsody, de Queen"
+    plays = [c for c in api.chamadas if c[1] == "/v1/me/player/play"]
+    assert plays == [("PUT", "/v1/me/player/play", {"uris": ["spotify:track:1"]}),
+                     ("PUT", "/v1/me/player/play", {})]  # o segundo, sem corpo, só continua
+    assert api.player["is_playing"]
+
+
+async def test_se_nao_comecar_avisa_em_vez_de_dizer_tocando(com_login):
+    api = ApiFalsa(dispositivos_depois=0, nunca_toca=True)
+    async with _sp(com_login, api) as sp:
+        with pytest.raises(spotify.ErroSpotify, match="não começou"):
+            await sp.tocar("bohemian rhapsody")
+    assert len([c for c in api.chamadas if c[1] == "/v1/me/player/play"]) == 2  # um play de novo, não um laço
+
+
+async def test_tocando_de_primeira_nao_manda_play_de_novo(com_login):
+    api = ApiFalsa(dispositivos_depois=0)
+    async with _sp(com_login, api) as sp:
+        await sp.tocar("foco", "playlist")
+    assert len([c for c in api.chamadas if c[1] == "/v1/me/player/play"]) == 1
+
+
+async def test_volume_do_spotify_le_e_muda(com_login):
+    api = ApiFalsa(dispositivos_depois=0, volume=40)
+    async with _sp(com_login, api) as sp:
+        assert await sp.volume_atual() is None  # nada ativo na conta
+        await sp.tocar("bohemian rhapsody")
+        assert await sp.volume_atual() == {"volume": 40, "tocando": True, "aparelho": "DESKTOP", "id": "pc1",
+                                           "tipo": "Computer"}
+        await sp.mudar_volume(130, "pc1")  # fora da faixa: vira 100
+        assert api.volume == 100
+    api = ApiFalsa(dispositivos_depois=0, suporta_volume=False)
+    async with _sp(com_login, api) as sp:
+        await sp.tocar("bohemian rhapsody")
+        assert await sp.volume_atual() is None  # aparelho que não deixa mudar volume pela API
+
+
+
+async def test_falha_ao_conferir_nao_vira_erro_com_a_musica_tocando(com_login):
+    """Revisão do PR 41: um 502 no /me/player depois do play não desfaz o "Tocando"."""
+    api = ApiFalsa(dispositivos_depois=0)
+    original = api.__call__
+
+    class Instavel:
+        def __call__(self, req):
+            if req.url.path == "/v1/me/player":
+                return httpx.Response(502)
+            return original(req)
+
+    async with _sp(com_login, Instavel()) as sp:
+        assert await sp.tocar("bohemian rhapsody") == "Bohemian Rhapsody, de Queen"
+
+
+async def test_album_tocando_sem_context_nao_vira_erro(com_login):
+    api = ApiFalsa(dispositivos_depois=0)
+    original = api.__call__
+
+    def sem_contexto(req):
+        r = original(req)
+        if req.url.path == "/v1/me/player" and api.player:
+            api.player["context"] = None  # o Spotify às vezes não informa o contexto
+            return httpx.Response(200, json=api.player)
+        return r
+
+    async with _sp(com_login, sem_contexto) as sp:
+        await sp.tocar("foco", "playlist")  # tocando, só não dá para casar: fica o "Tocando"
