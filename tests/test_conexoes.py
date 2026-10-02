@@ -355,3 +355,131 @@ def _nucleo_sem_loop(cfg):
     from vision.nucleo import Nucleo
 
     return Nucleo(cfg, com_voz=False)
+
+
+# ------------------------------------------------------------------ revisão do PR 38
+
+
+def test_env_troca_todas_as_linhas_da_variavel_e_entende_export(tmp_path, monkeypatch):
+    """O dotenv usa a última linha: trocar só a 1ª deixaria a chave velha valendo (e no disco)."""
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    arquivo = tmp_path / ".env"
+    arquivo.write_text("TAVILY_API_KEY=tvly-velha-1\nORBIT_URL=x\nexport TAVILY_API_KEY=tvly-velha-2\n", encoding="utf-8")
+    conexoes.gravar_env(arquivo, {"TAVILY_API_KEY": "tvly-nova-123456"})
+    texto = arquivo.read_text(encoding="utf-8")
+    assert "velha" not in texto and texto.count("TAVILY_API_KEY") == 1
+    assert dotenv_values(arquivo, interpolate=False) == {"TAVILY_API_KEY": "tvly-nova-123456", "ORBIT_URL": "x"}
+    conexoes.gravar_env(arquivo, {"TAVILY_API_KEY": None})
+    assert not dotenv_values(arquivo, interpolate=False)["TAVILY_API_KEY"]
+
+
+@pytest.mark.parametrize("ruim", ["a\x0bb", "a\x0cb", "a\x1cb", "a\x85b", "a b", "a\tb"])
+def test_env_e_senha_recusam_caractere_de_controle(tmp_path, ruim):
+    with pytest.raises(ValueError):
+        conexoes.gravar_env(tmp_path / ".env", {"ORBIT_PASSWORD": ruim})
+    with pytest.raises(ValueError, match="senha"):
+        conexoes.validar("orbit", {"email": "a@b.com", "senha": ruim})
+
+
+def test_env_temporario_nao_fica_no_disco_se_a_troca_falhar(tmp_path, monkeypatch):
+    """O .env.tmp tem todos os segredos: com o .env preso (antivírus), ele não pode sobrar na raiz."""
+    monkeypatch.delenv("TAVILY_API_KEY", raising=False)
+    arquivo = tmp_path / ".env"
+
+    def preso(self, _destino):
+        raise PermissionError("em uso")
+
+    monkeypatch.setattr(type(arquivo), "replace", preso)
+    with pytest.raises(PermissionError):
+        conexoes.gravar_env(arquivo, {"TAVILY_API_KEY": "tvly-abcdefgh123"})
+    assert list(tmp_path.iterdir()) == []
+
+
+def test_env_tmp_fica_fora_do_git():
+    import subprocess
+
+    raiz = config.Path(__file__).resolve().parents[1]
+    r = subprocess.run(["git", "check-ignore", ".env.tmp", ".env.local"], cwd=raiz, capture_output=True, text=True)
+    assert r.stdout.split() == [".env.tmp", ".env.local"]
+    assert subprocess.run(["git", "check-ignore", "-q", ".env.example"], cwd=raiz).returncode == 1  # este vai
+
+
+async def test_desconectar_alexa_ou_wispr_pede_reinicio_ate_reiniciar(cfg_conexoes):
+    """A sessão viva no núcleo regravaria os tokens: o aviso de reiniciar não some sozinho."""
+    from vision import alexa
+
+    n = _nucleo(cfg_conexoes)
+    alexa.pasta(cfg_conexoes).mkdir(parents=True)
+    await n.desconectar("alexa")
+    assert "Reinicie" in n.andamento["alexa"]["texto"]
+    with n.barramento.assinar() as fila:
+        await n.ler_conexoes()
+        assert fila.get_nowait()["reiniciar"] == ["Alexa"]
+
+
+async def test_cancelar_o_login_do_wispr_fecha_a_conexao(cfg, monkeypatch):
+    """Revisão do PR 38: o cancelamento saía de iniciar() antes do finally e a porta 8767 ficava presa."""
+    from vision import wispr
+    from vision.tools import mcp_host
+
+    fechou = asyncio.Event()
+
+    class ConexaoLenta:
+        def __init__(self, *_a, **_k):
+            self.cliente, self.erro = None, None
+
+        async def iniciar(self):
+            await asyncio.sleep(60)
+
+        async def fechar(self):
+            fechou.set()
+
+    monkeypatch.setattr(mcp_host, "ConexaoMCP", ConexaoLenta)
+    tarefa = asyncio.ensure_future(wispr.login(cfg, avisar=lambda _t: None))
+    await asyncio.sleep(0.05)
+    tarefa.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await tarefa
+    assert fechou.is_set()
+
+
+@pytest.mark.parametrize("cai_ao_encerrar", [False, True])
+def test_main_reinicia_mesmo_se_o_encerramento_der_erro(cfg_conexoes, monkeypatch, cai_ao_encerrar):
+    from vision import nucleo
+
+    monkeypatch.setattr(nucleo.config, "carregar", lambda: cfg_conexoes)
+    monkeypatch.setattr(nucleo, "configurar_log", lambda *_a, **_k: cfg_conexoes.dados / "x.log")
+    monkeypatch.setattr(nucleo.inicializacao, "primeira_vez", lambda *_a: False)
+    soltou, subiu = [], []
+    monkeypatch.setattr(nucleo.InstanciaUnica, "pegar", lambda self: True)
+    monkeypatch.setattr(nucleo.InstanciaUnica, "soltar", lambda self: soltou.append(True))
+    monkeypatch.setattr(nucleo, "subir_de_novo", lambda _cfg, extra=None: subiu.append(extra))
+
+    async def rodar(self):
+        self.reiniciar_ao_sair = True
+        if cai_ao_encerrar:
+            raise RuntimeError("a janela não fechou direito")
+
+    monkeypatch.setattr(nucleo.Nucleo, "rodar", rodar)
+    nucleo.main(["--sem-voz"])
+    assert soltou == [True] and subiu == [["--sem-voz"]]  # e o --sem-voz vai junto
+
+
+def test_main_sem_conseguir_subir_o_novo_avisa_no_log(cfg_conexoes, monkeypatch, caplog):
+    from vision import nucleo
+
+    monkeypatch.setattr(nucleo.config, "carregar", lambda: cfg_conexoes)
+    monkeypatch.setattr(nucleo, "configurar_log", lambda *_a, **_k: cfg_conexoes.dados / "x.log")
+    monkeypatch.setattr(nucleo.inicializacao, "primeira_vez", lambda *_a: False)
+    monkeypatch.setattr(nucleo.InstanciaUnica, "pegar", lambda self: True)
+
+    async def rodar(self):
+        self.reiniciar_ao_sair = True
+
+    def falha(*_a, **_k):
+        raise OSError("bloqueado pelo antivírus")
+
+    monkeypatch.setattr(nucleo.Nucleo, "rodar", rodar)
+    monkeypatch.setattr(nucleo.subprocess, "Popen", falha)
+    assert nucleo.main([]) == 1
+    assert "não consegui subir o núcleo novo" in caplog.text

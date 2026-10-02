@@ -183,8 +183,8 @@ async def login(cfg: Config, avisar=print) -> int:
     from vision.tools.mcp_host import ConexaoMCP
 
     c = ConexaoMCP("wispr", transporte(cfg, interativo=True, avisar=avisar), timeout_s=PRAZO_LOGIN_S + 30)
-    await c.iniciar()
     try:
+        await c.iniciar()  # dentro do try: cancelado pela tela, o finally fecha o fluxo e a porta de retorno
         if c.cliente is None:
             if "Timeout" in str(c.erro):
                 avisar("O login não foi concluído a tempo (5 min). Tente de novo.")

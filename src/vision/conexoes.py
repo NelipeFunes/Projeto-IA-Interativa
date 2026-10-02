@@ -67,25 +67,37 @@ def gravar_env(arquivo: Path, mudancas: dict[str, str | None]) -> None:
     for chave, valor in mudancas.items():
         if chave not in CHAVES_ENV:
             raise ValueError(f"variável que a tela não pode mudar: {chave}")
-        if valor is not None and any(c in valor for c in "\r\n\0"):
-            raise ValueError("valor com quebra de linha")
+        # Nenhum caractere de controle (não só \r\n): \x0b, \x85, \u2028... quebram a linha para o splitlines
+        # e trocariam a senha em silêncio na próxima gravação (revisão do PR 38).
+        if valor is not None and not valor.isprintable():
+            raise ValueError("valor com caractere de controle")
     try:
-        linhas = arquivo.read_text(encoding="utf-8").splitlines()
+        linhas = arquivo.read_text(encoding="utf-8").split("\n")
     except FileNotFoundError:
         linhas = []
-    feitas = set()
-    for i, linha in enumerate(linhas):
-        nome = linha.split("=", 1)[0].strip()
-        if nome in mudancas and "=" in linha and not linha.lstrip().startswith("#") and nome not in feitas:
-            valor = mudancas[nome]
-            linhas[i] = f"{nome}={_aspas(valor) if valor else ''}"
-            feitas.add(nome)
+    if linhas and linhas[-1] == "":
+        linhas.pop()
+    saida, feitas = [], set()
+    for linha in linhas:
+        corpo = linha.strip().removeprefix("export ").lstrip()
+        nome = corpo.split("=", 1)[0].strip()
+        if nome in mudancas and "=" in corpo and not corpo.startswith("#"):
+            # Toda linha da variável (o dotenv usa a última): a 1ª vira o valor novo, as repetidas somem.
+            if nome not in feitas:
+                valor = mudancas[nome]
+                saida.append(f"{nome}={_aspas(valor) if valor else ''}")
+                feitas.add(nome)
+            continue
+        saida.append(linha)
     for nome, valor in mudancas.items():
         if nome not in feitas:
-            linhas.append(f"{nome}={_aspas(valor) if valor else ''}")
-    tmp = arquivo.with_suffix(".tmp")
-    tmp.write_text("\n".join(linhas) + "\n", encoding="utf-8", newline="\n")
-    tmp.replace(arquivo)  # nunca fica pela metade
+            saida.append(f"{nome}={_aspas(valor) if valor else ''}")
+    tmp = arquivo.with_suffix(".tmp")  # .env.tmp: no .gitignore, e apagado se a troca falhar
+    try:
+        tmp.write_text("\n".join(saida) + "\n", encoding="utf-8", newline="\n")
+        tmp.replace(arquivo)  # nunca fica pela metade
+    finally:
+        tmp.unlink(missing_ok=True)
     for nome, valor in mudancas.items():
         if valor:
             os.environ[nome] = valor
@@ -300,7 +312,7 @@ def validar(servico: Any, dados: Any) -> dict[str, str]:
         senha = dados.get("senha", "")  # senha não perde espaço das pontas
         if not EMAIL.match(d.get("email", "")):
             raise ValueError("e-mail inválido")
-        if not 1 <= len(senha) <= 200 or any(c in senha for c in "\r\n\0"):
+        if not 1 <= len(senha) <= 200 or not senha.isprintable():
             raise ValueError("senha inválida")
         return {"email": d["email"], "senha": senha}
     return {}

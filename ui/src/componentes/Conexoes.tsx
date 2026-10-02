@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Andamento, CampoConexao, DadosConexoes, Servico } from "../tipos";
 
 export interface AcoesConexoes {
@@ -57,15 +57,19 @@ function Cartao({ servico: s, andamento, acoes }: { servico: Servico; andamento?
   const [arquivo, setArquivo] = useState<string | null>(null);
   const [confirmarSaida, setConfirmarSaida] = useState(false);
   const rodando = andamento?.rodando === true;
+  const estavaRodando = useRef(rodando);
+  const limpar = () => {
+    setAberto(false);
+    setForm({});
+    setArquivo(null);
+  };
 
   useEffect(() => {
-    // Terminou bem: fecha o formulário e esquece o que foi digitado (a senha não fica na tela).
-    if (andamento && !andamento.rodando && andamento.ok) {
-      setAberto(false);
-      setForm({});
-      setArquivo(null);
-    }
-  }, [andamento]);
+    // Só na passagem "rodando → terminou bem" deste cartão: fecha e esquece o que foi digitado (a senha não
+    // fica na tela). Todo evento traz objetos novos: reagir a qualquer um fecharia o formulário de outro.
+    if (estavaRodando.current && !rodando && andamento?.ok) limpar();
+    estavaRodando.current = rodando;
+  }, [rodando, andamento?.ok]);
   useEffect(() => {
     if (!confirmarSaida) return;
     const t = setTimeout(() => setConfirmarSaida(false), 4000);
@@ -129,7 +133,7 @@ function Cartao({ servico: s, andamento, acoes }: { servico: Servico; andamento?
             </div>
           ))}
           <div className="ajustes-botoes">
-            <button type="button" className="botao botao-nao" onClick={() => setAberto(false)}>Voltar</button>
+            <button type="button" className="botao botao-nao" onClick={limpar}>Voltar</button>
             <button type="submit" className="botao botao-sim" disabled={faltando}>{s.acao ?? "Conectar"}</button>
           </div>
         </form>

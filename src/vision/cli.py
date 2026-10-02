@@ -91,6 +91,12 @@ def _abrir(cfg: config.Config) -> int:
     return 0
 
 
+def _depois_do_login(codigo: int) -> int:
+    if codigo == 0:
+        print("Reinicie o Vision para ele usar (bandeja → Sair e abrir de novo, ou Ajustes → Conexões → Reiniciar).")
+    return codigo
+
+
 def main(argv: list[str] | None = None) -> int:
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
     ap = argparse.ArgumentParser(prog="vision", description="Assistente pessoal local do Felipe")
@@ -176,7 +182,7 @@ def main(argv: list[str] | None = None) -> int:
     elif args.comando == "alexa-login":
         from vision.alexa import login_interativo
 
-        return asyncio.run(login_interativo(cfg))
+        return _depois_do_login(asyncio.run(login_interativo(cfg)))
     elif args.comando == "alexa-luzes":
         from vision.alexa import atualizar_lista
 
@@ -184,11 +190,11 @@ def main(argv: list[str] | None = None) -> int:
     elif args.comando == "wispr-login":
         from vision.wispr import login
 
-        return asyncio.run(login(cfg))
+        return _depois_do_login(asyncio.run(login(cfg)))
     elif args.comando == "spotify-login":
         from vision.spotify import login as spotify_login
 
-        return asyncio.run(spotify_login(cfg, args.client_id))
+        return _depois_do_login(asyncio.run(spotify_login(cfg, args.client_id)))
     elif args.comando in ("dormir", "acordar"):
         asyncio.run(_dormir(cfg, args.comando == "dormir"))
     elif args.comando == "memorias":

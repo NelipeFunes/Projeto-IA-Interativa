@@ -254,6 +254,9 @@ class Nucleo:
         self.conexoes_inicio = conexoes.assinatura(cfg)
         self.logins: dict[str, tuple[asyncio.Task, threading.Event]] = {}
         self.andamento: dict[str, dict[str, Any]] = {}
+        # Desconectados nesta sessão: a Alexa e o Wispr do núcleo ainda têm a sessão na memória e a regravariam
+        # no disco (revisão do PR 38). Ficam no aviso de reiniciar até o Vision reiniciar.
+        self.desconectados: set[str] = set()
 
     # ---------- o que a tela pode pedir ----------
 
@@ -298,11 +301,13 @@ class Nucleo:
         status = self.j.host.status() if self.j is not None else {}
         servicos = await asyncio.to_thread(conexoes.estado, self.cfg, status)
         reiniciar = await asyncio.to_thread(conexoes.mudou_desde, self.cfg, self.conexoes_inicio)
+        reiniciar += [s.nome for s in conexoes.SERVICOS if s.id in self.desconectados and s.nome not in reiniciar]
         self.barramento.publicar({"tipo": "conexoes", "servicos": servicos, "andamento": dict(self.andamento),
                                   "reiniciar": reiniciar})
 
     def _andamento(self, servico: str, texto: str, *, rodando: bool, ok: bool | None = None) -> None:
-        self.andamento[servico] = {"texto": str(texto)[:500], "rodando": rodando, "ok": ok}
+        # 2.000: o endereço de autorização do Wispr (com registro do cliente) passa de 500 e o link sairia cortado.
+        self.andamento[servico] = {"texto": str(texto)[:2000], "rodando": rodando, "ok": ok}
 
     async def conectar(self, servico: str, dados: dict[str, Any]) -> None:
         if servico in self.logins:
@@ -365,6 +370,9 @@ class Nucleo:
             return
         try:
             texto = await asyncio.to_thread(conexoes.desconectar, self.cfg, servico)
+            if servico in ("alexa", "wispr"):
+                self.desconectados.add(servico)
+                texto += " Reinicie para o Vision soltar a sessão que está em uso."
             self._andamento(servico, texto, rodando=False, ok=True)
             log.info("conexão %s: desconectada", servico)
         except (ValueError, OSError) as e:
@@ -753,25 +761,31 @@ def main(argv: list[str] | None = None, *, console: bool = False) -> int:
         log.exception("não consegui criar o atalho de inicialização")
     log.info("núcleo iniciando (log em %s)", arquivo_log)
     nucleo = Nucleo(cfg, abrir_janela=abrir, com_voz="--sem-voz" not in argv)
+    codigo = 0
     try:
         asyncio.run(nucleo.rodar())
     except KeyboardInterrupt:
         pass
     except Exception:  # noqa: BLE001
         log.exception("o núcleo caiu")
-        return 1
-    if nucleo.reiniciar_ao_sair:
+        codigo = 1
+    if nucleo.reiniciar_ao_sair:  # mesmo se o encerramento deu erro: o pedido foi reiniciar, não sair
         unica.soltar()
-        subir_de_novo(cfg)
-    return 0
+        try:
+            subir_de_novo(cfg, ["--sem-voz"] if "--sem-voz" in argv else [])
+        except Exception:  # noqa: BLE001 - antivírus, exe movido: fica no log (pythonw não tem console)
+            log.exception("não consegui subir o núcleo novo; abra o Vision de novo")
+            return 1
+    return codigo
 
 
-def subir_de_novo(cfg: config.Config) -> None:
+def subir_de_novo(cfg: config.Config, extra_argv: list[str] | None = None) -> None:
     """Sobe o núcleo novo, já com a janela. As variáveis que a tela grava no .env ficam de fora do ambiente
     herdado: o novo lê o .env de novo (load_dotenv não troca o que já veio do processo pai)."""
     exe, extra = inicializacao.alvo()
     env = {k: v for k, v in os.environ.items() if k not in conexoes.CHAVES_ENV}
-    subprocess.Popen([str(exe), *extra.split(), "--abrir", "--reiniciando"], cwd=cfg.raiz, env=env, close_fds=True,
+    subprocess.Popen([str(exe), *extra.split(), "--abrir", "--reiniciando", *(extra_argv or [])], cwd=cfg.raiz,
+                     env=env, close_fds=True,
                      creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0))
     log.info("núcleo novo pedido (%s)", exe.name)
 
