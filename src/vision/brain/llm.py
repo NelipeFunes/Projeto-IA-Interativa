@@ -7,6 +7,10 @@ from dataclasses import dataclass, field
 from typing import Any, Protocol
 
 
+class Interrompido(Exception):
+    """O Felipe cortou a resposta (falou por cima): a geração para no próximo pedaço de texto."""
+
+
 @dataclass
 class ChamadaFerramenta:
     nome: str

@@ -18,7 +18,7 @@ from typing import Any
 
 from vision import tempo
 from vision.brain import confirmacao as classificador, intencao, prompt
-from vision.brain.llm import LLM, RespostaLLM
+from vision.brain.llm import LLM, Interrompido, RespostaLLM
 from vision.memory.store import Memorias
 from vision.tools.base import ErroFerramenta, Ferramenta, Registro
 
@@ -67,6 +67,7 @@ class Resposta:
     aguardando_confirmacao: bool = False
     segundos: float = 0.0
     insistiu: bool = False
+    interrompido: bool = False  # o Felipe falou por cima e a geração parou no meio
 
 
 
@@ -168,9 +169,13 @@ class Agente:
         sessao: str = "padrao",
         ao_texto: Callable[[str], None] | None = None,
         pendente_esperada: str | None = None,
+        parar: Callable[[], bool] | None = None,
     ) -> Resposta:
         """`pendente_esperada`: o "sim"/"não" é a resposta a ESSA confirmação (clique na tela). Conferido dentro
-        da trava: se a voz resolveu ou trocou a pendência enquanto isso, o clique não vale para a nova."""
+        da trava: se a voz resolveu ou trocou a pendência enquanto isso, o clique não vale para a nova.
+
+        `parar`: quando ficar verdadeiro (o Felipe falou por cima), a geração para no próximo pedaço de texto ou
+        antes da próxima volta do modelo. Uma ferramenta que já está rodando termina; nenhuma nova começa."""
         s = self.sessao(canal, sessao)
         self._emitir("fala_usuario", texto=texto, canal=canal)
         if self.ao_evento is not None:
@@ -180,6 +185,16 @@ class Agente:
                 self._emitir("resposta_parcial", texto=parte)
                 if original:
                     original(parte)
+        parcial: list[str] = []
+        if parar is not None:
+            repassar = ao_texto
+
+            def ao_texto(parte: str) -> None:
+                if parar():
+                    raise Interrompido
+                parcial.append(parte)
+                if repassar:
+                    repassar(parte)
 
         async with s.trava:
             inicio = time.perf_counter()
@@ -189,7 +204,14 @@ class Agente:
                 r = (await self._tratar_confirmacao(s, texto, ao_texto, estrito=canal == "voz")
                      if s.pendente is not None else None)
                 if r is None:
-                    r = await self._pensar(s, texto, canal, ao_texto)
+                    try:
+                        r = await self._pensar(s, texto, canal, ao_texto, parar)
+                    except Interrompido:
+                        # O que ele chegou a dizer fica no histórico, marcado: o próximo pedido tem o contexto.
+                        dito = "".join(parcial).strip()
+                        r = Resposta(dito, interrompido=True)
+                        s.turnos.append([{"role": "user", "content": texto},
+                                         {"role": "assistant", "content": (dito + " [interrompido]").strip()}])
                 self._registrar(canal, sessao, texto, r)
             r.segundos = time.perf_counter() - inicio
         self._emitir("resposta", texto=r.texto, aguardando_confirmacao=r.aguardando_confirmacao)
@@ -306,7 +328,8 @@ class Agente:
                 msgs.append(m)
         return msgs
 
-    async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None) -> Resposta:
+    async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None,
+                      parar: Callable[[], bool] | None = None) -> Resposta:
         # No modo "todas", depois de ler texto de fora quem decide é o caminho normal. Luz nunca é sensível.
         if self.confirmacao != "todas" or (not self._ainda_tem_externo(s) and not s.nota):
             for atalho in self.atalhos:
@@ -332,8 +355,12 @@ class Agente:
         final = ""
 
         for volta in range(MAX_VOLTAS):
+            if parar is not None and parar():
+                raise Interrompido  # cortado entre uma volta e outra: as ferramentas pedidas depois nem rodam
             transmitir = ao_texto if volta > 0 else None  # a 1ª volta decide ferramentas; não fala antes
             r: RespostaLLM = await self.llm.conversar(mensagens, ferramentas, transmitir)
+            if parar is not None and parar():
+                raise Interrompido  # ele falou enquanto o modelo decidia: o que foi pedido agora não roda
             transmitido = transmitir is not None
 
             escreveu = any(self._mudou_algo(u) for u in usadas)

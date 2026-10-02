@@ -131,3 +131,52 @@ async def test_prazo_estourado_guarda_resposta(registro, memorias, tmp_path):
     await asyncio.sleep(0.4)
     r2 = await a.responder_com_prazo("oi de novo", "alexa", "s1", prazo_s=0.05)
     assert r2.texto == "Resposta demorada."
+
+
+async def test_parar_corta_o_modelo_e_nao_roda_a_ferramenta_seguinte():
+    """Falar por cima: o modelo para de escrever, e o que ele pediria depois não roda (pendência de 01/10)."""
+    from fakes.llm_falso import LLMFalso, chama, fala
+
+    from vision.tools.base import Ferramenta, Registro, esquema
+
+    rodou = []
+
+    async def acender(_args):
+        rodou.append("luz")
+        return "acesa"
+
+    r = Registro()
+    r.adicionar(Ferramenta("luz_acender", "acende", esquema([]), acender, escrita=True, confirmar=False))
+    cortado = [False]
+
+    def depois_de_cortar(_msgs):
+        cortado[0] = True  # o Felipe falou enquanto o modelo pensava a 1ª volta
+        return chama("luz_acender")
+
+    agente = Agente(LLMFalso([depois_de_cortar, fala("Acendi.")]), r, None, confirmacao="nenhuma")
+    resp = await agente.responder("acende a luz", canal="voz", sessao="v", ao_texto=lambda _t: None,
+                                  parar=lambda: cortado[0])
+    assert resp.interrompido and rodou == []
+
+    class LLMQueTransmite:
+        modelo = "falso"
+
+        def __init__(self):
+            self.voltas = 0
+
+        async def conversar(self, mensagens, ferramentas, ao_texto=None):
+            from vision.brain.llm import RespostaLLM
+
+            self.voltas += 1
+            if self.voltas == 1:
+                return chama("luz_acender")
+            for frase in ("Acendi a luz. ", "Também posso ", "fazer outras coisas."):
+                ao_texto(frase)
+            return RespostaLLM("".join(["Acendi a luz. ", "Também posso ", "fazer outras coisas."]))
+
+    falado = []
+    agente2 = Agente(LLMQueTransmite(), r, None, confirmacao="nenhuma")
+    resp2 = await agente2.responder("acende a luz", canal="voz", sessao="v", ao_texto=falado.append,
+                                    parar=lambda: len(falado) >= 1)
+    assert resp2.interrompido and falado == ["Acendi a luz. "] and rodou == ["luz"]
+    assert agente2.sessoes[("voz", "v")].turnos[-1][-1]["content"] == "Acendi a luz. [interrompido]"
