@@ -282,3 +282,30 @@ async def test_noticias_com_cache_links_e_web_ler(tmp_path):
     assert "https://noticias.exemplo.com/a" in w._links  # o web_ler pode abrir a manchete
     w._noticias_ddg = lambda t, m: []
     assert "Nenhuma notícia" in await f.noticias({"tema": "xyzzy"})
+
+
+
+async def test_noticias_limpam_o_tema_nao_guardam_vazio_e_erro_vira_mensagem(tmp_path):
+    from vision.tools.web import _ha
+
+    w, _ = criar(tmp_path, Servidor())
+    temas = []
+
+    def vazias(tema, maximo):
+        temas.append(tema)
+        return []
+
+    w._noticias_ddg = vazias
+    f = FerramentasWeb(w)
+    assert "Nenhuma notícia recente" in await f.noticias({"tema": "fulano@exemplo.com política"})
+    assert temas == ["notícias de política"]  # o e-mail não saiu
+    await f.noticias({"tema": "política"})
+    assert len(temas) == 2  # vazio não ficou em cache
+
+    def quebra(_t, _m):
+        raise RuntimeError("ratelimit")
+
+    w._noticias_ddg = quebra
+    with pytest.raises(ErroFerramenta, match="não vieram"):
+        await f.noticias({"tema": "economia"})
+    assert _ha("isso não é data") == "" and _ha("2000-01-01T00:00:00Z") == ""

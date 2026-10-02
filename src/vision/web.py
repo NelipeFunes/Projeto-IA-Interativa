@@ -314,12 +314,16 @@ class Web:
 
     async def noticias(self, tema: str = "") -> list[Noticia]:
         """Manchetes das últimas 24 h (DuckDuckGo Notícias: grátis, não gasta a cota da Tavily). Cache de 30 min."""
-        tema = " ".join(tema.split())[:80]
+        tema = limpar_consulta(tema)[:80]  # como na busca: e-mail, telefone e CPF não saem (revisão do PR 35)
         chave = "noticias:" + normalizar(tema or "brasil")
         guardada = self.cache.pegar(chave)
+        itens: list[Noticia] | None = None
         if guardada and time.time() - float(guardada.get("quando", 0)) < 1800:
-            itens = [Noticia(**n) for n in guardada.get("itens", [])]
-        else:
+            try:
+                itens = [Noticia(**n) for n in guardada.get("itens", [])]
+            except (TypeError, ValueError):
+                itens = None  # cache de outro formato: busca de novo
+        if itens is None:
             try:
                 brutos = await asyncio.wait_for(
                     asyncio.to_thread(self._noticias_ddg, f"notícias de {tema}" if tema else "Brasil", self.max_resultados), 15)
@@ -329,7 +333,8 @@ class Web:
                              str(x.get("source") or "").strip(), str(x.get("date") or ""),
                              str(x.get("body") or "").strip())
                      for x in brutos or [] if url_valida(str(x.get("url") or "")) and x.get("title")]
-            self.cache.guardar(chave, {"quando": time.time(), "itens": [asdict(n) for n in itens]})
+            if itens:  # vazio pode ser falha passageira: não fica 30 min respondendo "nenhuma"
+                self.cache.guardar(chave, {"quando": time.time(), "itens": [asdict(n) for n in itens]})
         self._lembrar_links([Resultado(n.titulo, n.url, n.resumo) for n in itens])  # o web_ler pode abrir
         return itens
 

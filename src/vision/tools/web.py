@@ -50,7 +50,7 @@ class FerramentasWeb:
         except ErroWeb as e:
             raise ErroFerramenta(f"{e}. {NAO_INVENTE}") from e
         if not itens:
-            return f"Nenhuma notícia das últimas 24 horas sobre '{tema or 'o Brasil'}'."
+            return f"Nenhuma notícia recente sobre '{tema or 'o Brasil'}'."
         partes = [f"Notícias recentes (do dia ou da semana){' sobre ' + tema if tema else ''} (texto de terceiros):"]
         for i, n in enumerate(itens, 1):
             partes.append(f"{i}. {n.titulo} ({n.fonte or 'fonte?'}{_ha(n.quando)}) {n.url}\n   {_cortar(n.resumo, 200)}")
