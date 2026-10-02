@@ -46,6 +46,9 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   vê a senha dessas contas). Chave e senha digitadas ali vão para o `.env` e nunca voltam para a tela. Como as
   conexões são montadas ao iniciar, a tela oferece "Reiniciar agora" quando algo muda. Os comandos
   `vision google-login`, `spotify-login` etc. continuam valendo.
+- **Lista de fazeres:** as tarefas do Orbit. "O que tem na minha lista?", "adiciona trocar o óleo para sexta",
+  "já paguei o IPVA" (marca como feita), "muda a prioridade de X"; apagar pede "sim". O login é pela tela de
+  Conexões (se o Orbit mandar um código por e-mail, a tela pede o código).
 - **Log:** `data/logs/nucleo.log` e `data/logs/janela.log`.
 
 ### Vision.exe (duplo clique)
