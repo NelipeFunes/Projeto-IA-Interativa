@@ -68,13 +68,19 @@ class OllamaLLM:
                 segundos=(r.total_duration or 0) / 1e9,
             )
         texto, chamadas, tokens, segundos = [], [], 0, 0.0
-        async for parte in await self.cliente.chat(**comum, stream=True):
-            if parte.message.content:
-                texto.append(parte.message.content)
-                ao_texto(parte.message.content)
-            chamadas += _chamadas(parte.message.tool_calls)
-            if parte.done:
-                tokens, segundos = parte.eval_count or 0, (parte.total_duration or 0) / 1e9
+        fluxo = await self.cliente.chat(**comum, stream=True)
+        try:
+            async for parte in fluxo:
+                if parte.message.content:
+                    texto.append(parte.message.content)
+                    ao_texto(parte.message.content)  # pode levantar Interrompido: o finally fecha a conexão já
+                chamadas += _chamadas(parte.message.tool_calls)
+                if parte.done:
+                    tokens, segundos = parte.eval_count or 0, (parte.total_duration or 0) / 1e9
+        finally:
+            fechar = getattr(fluxo, "aclose", None)
+            if fechar is not None:
+                await fechar()  # sem esperar o coletor de lixo: o Ollama para de gerar quando a conexão cai
         return RespostaLLM("".join(texto), chamadas, tokens, segundos)
 
     async def carregar(self) -> None:

@@ -180,3 +180,63 @@ async def test_parar_corta_o_modelo_e_nao_roda_a_ferramenta_seguinte():
                                     parar=lambda: len(falado) >= 1)
     assert resp2.interrompido and falado == ["Acendi a luz. "] and rodou == ["luz"]
     assert agente2.sessoes[("voz", "v")].turnos[-1][-1]["content"] == "Acendi a luz. [interrompido]"
+
+
+async def test_corte_mantem_no_historico_o_que_ja_rodou_e_nao_deixa_pendencia_escondida():
+    """Revisão do PR 31: a ferramenta da volta 0 fica no histórico; um "Confirma?" nunca é cortado no meio."""
+    from fakes.llm_falso import chama
+
+    from vision.brain.llm import RespostaLLM
+    from vision.tools.base import Ferramenta, Registro, esquema
+
+    rodou = []
+
+    async def acender(_args):
+        rodou.append("luz")
+        return "acesa"
+
+    async def apagar(_args):
+        return "apagado"
+
+    async def descrever(_args):
+        return "Vou apagar o evento."
+
+    r = Registro()
+    r.adicionar(Ferramenta("luz_acender", "acende", esquema([]), acender, escrita=True, confirmar=False,
+                           grupo="casa"))
+    r.adicionar(Ferramenta("agenda_apagar", "apaga", esquema([]), apagar, escrita=True, sensivel=True,
+                           grupo="agenda", descrever=descrever))
+
+    class Transmite:
+        modelo = "falso"
+
+        def __init__(self, primeira):
+            self.voltas, self.primeira = 0, primeira
+
+        async def conversar(self, mensagens, ferramentas, ao_texto=None):
+            self.voltas += 1
+            if self.voltas == 1:
+                return self.primeira
+            ao_texto("Acendi. ")
+            ao_texto("E mais uma coisa.")
+            return RespostaLLM("Acendi. E mais uma coisa.")
+
+    falado = []
+    a = Agente(Transmite(chama("luz_acender")), r, None, confirmacao="sensiveis")
+    resp = await a.responder("acende a luz", canal="voz", sessao="v", ao_texto=falado.append,
+                             parar=lambda: len(falado) >= 1)
+    turno = a.sessoes[("voz", "v")].turnos[-1]
+    assert resp.interrompido and [u["nome"] for u in resp.ferramentas] == ["luz_acender"]
+    assert any(m.get("role") == "tool" for m in turno) and turno[-1]["content"] == "Acendi. [interrompido]"
+
+    # Pedido que vira "Confirma?": a fala da pergunta não é cortada pelo agente; quem descarta a pendência é o
+    # laço de voz (aguardando_confirmacao + interrompido_por), como desde o PR 17.
+    cortado = [False]
+    b = Agente(Transmite(chama("agenda_apagar")), r, None, confirmacao="sensiveis")
+
+    def marca(_t):
+        cortado[0] = True
+
+    resp2 = await b.responder("apaga a reunião de amanhã", canal="voz", sessao="v", ao_texto=marca,
+                              parar=lambda: cortado[0])
+    assert resp2.aguardando_confirmacao and not resp2.interrompido

@@ -185,16 +185,6 @@ class Agente:
                 self._emitir("resposta_parcial", texto=parte)
                 if original:
                     original(parte)
-        parcial: list[str] = []
-        if parar is not None:
-            repassar = ao_texto
-
-            def ao_texto(parte: str) -> None:
-                if parar():
-                    raise Interrompido
-                parcial.append(parte)
-                if repassar:
-                    repassar(parte)
 
         async with s.trava:
             inicio = time.perf_counter()
@@ -204,14 +194,11 @@ class Agente:
                 r = (await self._tratar_confirmacao(s, texto, ao_texto, estrito=canal == "voz")
                      if s.pendente is not None else None)
                 if r is None:
+                    rastro: dict[str, Any] = {}
                     try:
-                        r = await self._pensar(s, texto, canal, ao_texto, parar)
+                        r = await self._pensar(s, texto, canal, ao_texto, parar, rastro)
                     except Interrompido:
-                        # O que ele chegou a dizer fica no histórico, marcado: o próximo pedido tem o contexto.
-                        dito = "".join(parcial).strip()
-                        r = Resposta(dito, interrompido=True)
-                        s.turnos.append([{"role": "user", "content": texto},
-                                         {"role": "assistant", "content": (dito + " [interrompido]").strip()}])
+                        r = self._fechar_interrompido(s, texto, rastro)
                 self._registrar(canal, sessao, texto, r)
             r.segundos = time.perf_counter() - inicio
         self._emitir("resposta", texto=r.texto, aguardando_confirmacao=r.aguardando_confirmacao)
@@ -328,8 +315,23 @@ class Agente:
                 msgs.append(m)
         return msgs
 
+    def _fechar_interrompido(self, s: Sessao, texto: str, rastro: dict[str, Any]) -> Resposta:
+        """O turno cortado entra no histórico como foi: as ferramentas que já rodaram (o modelo não repete nem
+        nega o que fez) e o que ele chegou a dizer, marcado [interrompido]. Nenhuma pendência nasce de um corte."""
+        if s.pendente is not None and s.pendente.id == rastro.get("pendente_nova"):
+            s.pendente = None  # defensivo: o corte é antes de criar a pendência, mas não pode sobrar uma não ouvida
+            self._emitir("pendente_resolvido", id=rastro["pendente_nova"], resultado="cancelada")
+        turno = rastro.get("turno") or [{"role": "user", "content": texto}]
+        usadas = rastro.get("usadas") or []
+        dito = "".join(rastro.get("parcial") or []).strip()
+        turno.append({"role": "assistant", "content": (dito + " [interrompido]").strip()})
+        s.turnos.append(turno)
+        if any((f := self.registro.get(u["nome"])) is not None and f.conteudo_externo for u in usadas):
+            s.externo_ate_turno = len(s.turnos) - 1 + self.turnos_historico
+        return Resposta(dito, usadas, s.pendente is not None, interrompido=True)
+
     async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None,
-                      parar: Callable[[], bool] | None = None) -> Resposta:
+                      parar: Callable[[], bool] | None = None, rastro: dict[str, Any] | None = None) -> Resposta:
         # No modo "todas", depois de ler texto de fora quem decide é o caminho normal. Luz nunca é sensível.
         if self.confirmacao != "todas" or (not self._ainda_tem_externo(s) and not s.nota):
             for atalho in self.atalhos:
@@ -343,6 +345,17 @@ class Agente:
         mensagens = [{"role": "system", "content": sistema}, *self._historico(s), *nota, *turno]
         ferramentas = self.registro.para_ollama()
         usadas: list[dict[str, Any]] = []
+        parcial: list[str] = []
+        if rastro is not None:
+            rastro.update(turno=turno, usadas=usadas, parcial=parcial)
+
+        def cortavel(parte: str) -> None:
+            """Só o texto que o modelo está transmitindo pode ser cortado (a conexão fecha e ele para)."""
+            if parar is not None and parar():
+                raise Interrompido
+            parcial.append(parte)
+            if ao_texto:
+                ao_texto(parte)
         leu_de_fora = self.confirmacao != "nenhuma" and self._ainda_tem_externo(s)
         diretas = 0
         grupos = [g for g in intencao.detectar(texto) if self.registro.nomes_do_grupo(g)]
@@ -357,7 +370,7 @@ class Agente:
         for volta in range(MAX_VOLTAS):
             if parar is not None and parar():
                 raise Interrompido  # cortado entre uma volta e outra: as ferramentas pedidas depois nem rodam
-            transmitir = ao_texto if volta > 0 else None  # a 1ª volta decide ferramentas; não fala antes
+            transmitir = cortavel if volta > 0 and (ao_texto or parar) else None  # a 1ª volta decide ferramentas
             r: RespostaLLM = await self.llm.conversar(mensagens, ferramentas, transmitir)
             if parar is not None and parar():
                 raise Interrompido  # ele falou enquanto o modelo decidia: o que foi pedido agora não roda
@@ -443,6 +456,8 @@ class Agente:
                 turno.append(msg_tool)
 
             if nova_pendente is not None:
+                if rastro is not None:
+                    rastro["pendente_nova"] = nova_pendente.id
                 s.pendente = nova_pendente
                 self._emitir("pendente", pendente=self._pendente_para_tela(nova_pendente))
                 final = f"{nova_pendente.descricao} Confirma?"
