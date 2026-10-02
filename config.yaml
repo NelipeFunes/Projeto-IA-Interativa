@@ -46,6 +46,7 @@ agenda:
   # pelo Vision. "O que tenho amanhã?" responde sem esperar o Google. Mais velho que cache_min, consulta direto.
   cache_dias: 7
   cache_min: 10
+  avisar_antes_min: 10      # o Vision avisa sozinho (fala + tela) antes de cada compromisso; 0 desliga
 
 mcp:
   google-calendar:
