@@ -30,10 +30,14 @@ PADROES = {
                        re.IGNORECASE),
     # Só verbo + alvo: "qual sua música favorita?" não é pedido para mexer no PC.
     "pc": re.compile(r"\b(abr(e|a|ir)|fech(a|e|ar)) |\bvolume\b|\bpaus(a|e|ar)\b|\bpr[oó]xima (m[uú]sica|faixa)\b|"
-                     r"\btoca(r)? (a |uma |o |um )?\w|\bno spotify\b|\btrav(a|e|ar) (o pc|a tela|o computador)\b|"
+                     r"\btrav(a|e|ar) (o pc|a tela|o computador)\b|"
                      r"\b(deslig|reinici|suspend)\w* o (pc|computador)\b|\bpowershell\b|"
                      r"\b(lista|listar|mostra|apaga|move|copia|renomeia|cria)\w* (os |as |o |a |uma |um )?"
                      r"(arquivos?|pastas?)\b", re.IGNORECASE),
+    # "toca" só como pedido, no começo da frase: "isso me toca", "o sino toca às 7" não (revisão do PR 21).
+    "musica": re.compile(r"^\W*(?:(?:vision|vis[aã]o|hey|ei|ok|pode|por favor|a[ií]|e|ent[aã]o|agora|j[aá]|me)\W+)*"
+                         r"(?:toca|tocar|toque|d[aá] play)\s+\w|\bno spotify\s*\W*$|"
+                         r"\b(que|qual) m[uú]sica (est[aá] |t[aá] )?tocando\b", re.IGNORECASE),
     "timer": re.compile(r"\b(timer|alarme|cron[oô]metro|temporizador|me avis[ae] (daqui|em|às|as|quando der))\b",
                         re.IGNORECASE),
     "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
@@ -47,7 +51,7 @@ PADROES = {
 
 # Grupos que, em PERGUNTA, não obrigam a chamar ferramenta logo de cara: "abre/fecha/volume" aparecem em
 # pergunta comum ("como abrir uma conta no banco?"). Em pedido, obrigam (revisão do PR 20).
-SEM_INSISTIR = {"pc"}
+SEM_INSISTIR = {"pc", "musica"}
 
 
 def detectar(texto: str) -> list[str]:

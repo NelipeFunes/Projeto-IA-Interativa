@@ -108,6 +108,17 @@ async def montar(
         temporizador = Temporizador(timers)
         registro.adicionar(*temporizador.ferramentas())
         atalhos.append(temporizador.atalho)
+    spotify = None
+    if cfg.get("pc.ativo", True) and cfg.get("spotify.ativo", True):
+        from vision import spotify as modulo_spotify
+
+        if modulo_spotify.tem_login(cfg):  # sem `vision spotify-login`, as ferramentas de música nem aparecem
+            from vision.tools.spotify import Musica
+
+            spotify = modulo_spotify.Spotify(cfg)
+            musica = Musica(spotify)
+            registro.adicionar(*musica.ferramentas())
+            atalhos.append(musica.atalho)
     if cfg.get("alexa.ativo", True):
         from vision import alexa as modulo_alexa
 
@@ -143,6 +154,8 @@ async def montar(
                 memorias.fechar()
             if alexa is not None:
                 await alexa.fechar()
+            if spotify is not None:
+                await spotify.fechar()
 
 
 def _modo_confirmacao(cfg: Config) -> str:
