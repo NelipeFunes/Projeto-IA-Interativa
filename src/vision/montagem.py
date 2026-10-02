@@ -111,6 +111,10 @@ async def montar(
         temporizador = Temporizador(timers)
         registro.adicionar(*temporizador.ferramentas())
         atalhos.append(temporizador.atalho)
+        from vision.tools import sistema as ferramentas_sistema
+
+        registro.adicionar(*ferramentas_sistema.ferramentas())
+        atalhos.append(ferramentas_sistema.atalho)
     spotify = None
     if cfg.get("pc.ativo", True) and cfg.get("spotify.ativo", True):
         from vision import spotify as modulo_spotify
@@ -132,6 +136,14 @@ async def montar(
             casa = Casa(alexa, confirmar=bool(cfg.get("alexa.confirmar_luzes", False)))
             registro.adicionar(*casa.ferramentas())
             atalhos.append(casa.atalho)
+    if cfg.get("clima.ativo", True) or agenda is not None:
+        from vision.clima import Clima
+        from vision.tools.briefing import Briefing
+
+        clima = Clima(cfg.dados / "cache", str(cfg.get("clima.cidade") or "")) if cfg.get("clima.ativo", True) else None
+        briefing = Briefing(cfg.get("usuario.nome", "Felipe"), clima, agenda, timers)
+        registro.adicionar(*briefing.ferramentas())
+        atalhos.append(briefing.atalho)
     if cfg.get("web.ativo", True):
         from vision.tools.web import FerramentasWeb
         from vision.web import Web
@@ -141,6 +153,18 @@ async def montar(
             cfg.dados / "cache", validade_h=float(cfg.get("web.cache_horas", 6)),
             max_resultados=int(cfg.get("web.resultados", 5)), limite_cota=int(cfg.get("web.cota_mensal", 1000)),
         )).ferramentas())
+    from vision.tools.ajuda import Ajuda
+
+    ajuda = Ajuda(registro)  # por último: lista o que estiver ligado
+    registro.adicionar(*ajuda.ferramentas())
+    atalhos.append(ajuda.atalho)
+    if cfg.get("protocolos.ativo", True):
+        from vision.tools.protocolos import Protocolos
+
+        # Por último: os passos de cada protocolo são conferidos contra as ferramentas que já existem.
+        protocolos = Protocolos(cfg.dados / "protocolos.yaml", registro)
+        registro.adicionar(*protocolos.ferramentas())
+        atalhos.insert(0, protocolos.atalho)  # a frase do protocolo vale antes dos outros atalhos
     agente = Agente(
         llm or criar_llm(cfg),
         registro,

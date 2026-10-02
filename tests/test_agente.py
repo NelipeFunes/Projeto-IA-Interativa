@@ -131,3 +131,181 @@ async def test_prazo_estourado_guarda_resposta(registro, memorias, tmp_path):
     await asyncio.sleep(0.4)
     r2 = await a.responder_com_prazo("oi de novo", "alexa", "s1", prazo_s=0.05)
     assert r2.texto == "Resposta demorada."
+
+
+async def test_parar_corta_o_modelo_e_nao_roda_a_ferramenta_seguinte():
+    """Falar por cima: o modelo para de escrever, e o que ele pediria depois não roda (pendência de 01/10)."""
+    from fakes.llm_falso import LLMFalso, chama, fala
+
+    from vision.tools.base import Ferramenta, Registro, esquema
+
+    rodou = []
+
+    async def acender(_args):
+        rodou.append("luz")
+        return "acesa"
+
+    r = Registro()
+    r.adicionar(Ferramenta("luz_acender", "acende", esquema([]), acender, escrita=True, confirmar=False))
+    cortado = [False]
+
+    def depois_de_cortar(_msgs):
+        cortado[0] = True  # o Felipe falou enquanto o modelo pensava a 1ª volta
+        return chama("luz_acender")
+
+    agente = Agente(LLMFalso([depois_de_cortar, fala("Acendi.")]), r, None, confirmacao="nenhuma")
+    resp = await agente.responder("acende a luz", canal="voz", sessao="v", ao_texto=lambda _t: None,
+                                  parar=lambda: cortado[0])
+    assert resp.interrompido and rodou == []
+
+    class LLMQueTransmite:
+        modelo = "falso"
+
+        def __init__(self):
+            self.voltas = 0
+
+        async def conversar(self, mensagens, ferramentas, ao_texto=None):
+            from vision.brain.llm import RespostaLLM
+
+            self.voltas += 1
+            if self.voltas == 1:
+                return chama("luz_acender")
+            for frase in ("Acendi a luz. ", "Também posso ", "fazer outras coisas."):
+                ao_texto(frase)
+            return RespostaLLM("".join(["Acendi a luz. ", "Também posso ", "fazer outras coisas."]))
+
+    falado = []
+    agente2 = Agente(LLMQueTransmite(), r, None, confirmacao="nenhuma")
+    resp2 = await agente2.responder("acende a luz", canal="voz", sessao="v", ao_texto=falado.append,
+                                    parar=lambda: len(falado) >= 1)
+    assert resp2.interrompido and falado == ["Acendi a luz. "] and rodou == ["luz"]
+    assert agente2.sessoes[("voz", "v")].turnos[-1][-1]["content"] == "Acendi a luz. [interrompido]"
+
+
+async def test_corte_mantem_no_historico_o_que_ja_rodou_e_nao_deixa_pendencia_escondida():
+    """Revisão do PR 31: a ferramenta da volta 0 fica no histórico; um "Confirma?" nunca é cortado no meio."""
+    from fakes.llm_falso import chama
+
+    from vision.brain.llm import RespostaLLM
+    from vision.tools.base import Ferramenta, Registro, esquema
+
+    rodou = []
+
+    async def acender(_args):
+        rodou.append("luz")
+        return "acesa"
+
+    async def apagar(_args):
+        return "apagado"
+
+    async def descrever(_args):
+        return "Vou apagar o evento."
+
+    r = Registro()
+    r.adicionar(Ferramenta("luz_acender", "acende", esquema([]), acender, escrita=True, confirmar=False,
+                           grupo="casa"))
+    r.adicionar(Ferramenta("agenda_apagar", "apaga", esquema([]), apagar, escrita=True, sensivel=True,
+                           grupo="agenda", descrever=descrever))
+
+    class Transmite:
+        modelo = "falso"
+
+        def __init__(self, primeira):
+            self.voltas, self.primeira = 0, primeira
+
+        async def conversar(self, mensagens, ferramentas, ao_texto=None):
+            self.voltas += 1
+            if self.voltas == 1:
+                return self.primeira
+            ao_texto("Acendi. ")
+            ao_texto("E mais uma coisa.")
+            return RespostaLLM("Acendi. E mais uma coisa.")
+
+    falado = []
+    a = Agente(Transmite(chama("luz_acender")), r, None, confirmacao="sensiveis")
+    resp = await a.responder("acende a luz", canal="voz", sessao="v", ao_texto=falado.append,
+                             parar=lambda: len(falado) >= 1)
+    turno = a.sessoes[("voz", "v")].turnos[-1]
+    assert resp.interrompido and [u["nome"] for u in resp.ferramentas] == ["luz_acender"]
+    assert any(m.get("role") == "tool" for m in turno) and turno[-1]["content"] == "Acendi. [interrompido]"
+
+    # Pedido que vira "Confirma?": a fala da pergunta não é cortada pelo agente; quem descarta a pendência é o
+    # laço de voz (aguardando_confirmacao + interrompido_por), como desde o PR 17.
+    cortado = [False]
+    b = Agente(Transmite(chama("agenda_apagar")), r, None, confirmacao="sensiveis")
+
+    def marca(_t):
+        cortado[0] = True
+
+    resp2 = await b.responder("apaga a reunião de amanhã", canal="voz", sessao="v", ao_texto=marca,
+                              parar=lambda: cortado[0])
+    assert resp2.aguardando_confirmacao and not resp2.interrompido
+
+
+async def test_acao_que_ninguem_pediu_vira_confirmacao():
+    """02/10: "estou cansado" fez o modelo acender as luzes a 40% sozinho. Agora vira "Confirma?"."""
+    from fakes.llm_falso import LLMFalso, chama, fala
+
+    from vision.tools.base import Ferramenta, Registro, esquema, numero
+
+    rodou = []
+
+    async def acender(args):
+        rodou.append(args)
+        return "acesa"
+
+    r = Registro()
+    r.adicionar(Ferramenta("luz_acender", "acende", esquema([], brilho=numero("b")), acender, escrita=True,
+                           confirmar=False, grupo="casa", descrever=lambda a: _async("Vou acender a luz.")))
+    agente = Agente(LLMFalso([chama("luz_acender", brilho=40), fala("Quer que eu acenda?")]), r, None,
+                    confirmacao="sensiveis")
+    resp = await agente.responder("estou cansado", canal="voz", sessao="v")
+    assert rodou == [] and resp.aguardando_confirmacao
+
+    pedido = Agente(LLMFalso([chama("luz_acender", brilho=40), fala("Acendi."), chama("luz_acender", brilho=80),
+                              fala("Pronto.")]), r, None, confirmacao="sensiveis")
+    await pedido.responder("acende a luz do quarto", canal="voz", sessao="v")
+    assert rodou == [{"brilho": 40}]  # pedido de verdade: roda direto, como antes
+    await pedido.responder("mais forte", canal="voz", sessao="v")  # continuação do pedido anterior: vale
+    assert rodou == [{"brilho": 40}, {"brilho": 80}]
+
+
+async def _async(valor):
+    return valor
+
+
+
+@pytest.mark.parametrize("frase", ["pausa a música", "pula essa música", "próxima música", "toca Queen"])
+async def test_controle_de_musica_pedido_nao_vira_confirmacao(frase):
+    from fakes.llm_falso import LLMFalso, chama, fala
+
+    from vision.tools.base import Ferramenta, Registro, esquema
+
+    rodou = []
+
+    async def controlar(args):
+        rodou.append(args)
+        return "ok"
+
+    r = Registro()
+    r.adicionar(Ferramenta("musica_controlar", "Pausa, continua ou pula a música.", esquema([]), controlar,
+                           escrita=True, confirmar=False, grupo="musica"))
+    a = Agente(LLMFalso([chama("musica_controlar"), fala("Feito.")]), r, None, confirmacao="sensiveis")
+    resp = await a.responder(frase, canal="voz", sessao="v")
+    assert rodou and not resp.aguardando_confirmacao
+
+
+async def test_sem_descrever_a_pergunta_e_falavel():
+    from fakes.llm_falso import LLMFalso, chama, fala
+
+    from vision.tools.base import Ferramenta, Registro, esquema, texto
+
+    async def nada(_args):
+        return "ok"
+
+    r = Registro()
+    r.adicionar(Ferramenta("timer_cancelar", "Cancela um timer ligado. Use quando...", esquema([], qual=texto("n")),
+                           nada, escrita=True, confirmar=False, grupo="timer"))
+    a = Agente(LLMFalso([chama("timer_cancelar", qual="café"), fala("?")]), r, None, confirmacao="sensiveis")
+    resp = await a.responder("estou cansado", canal="voz", sessao="v")
+    assert resp.texto == "Vou fazer isto: cancela um timer ligado (café). Confirma?"

@@ -33,11 +33,19 @@ class Musica:
             raise ErroFerramenta("Tocar o quê? Diga a música, o artista, o álbum ou a playlist.")
         if tipo not in TIPOS:
             tipo = "musica"
-        tocando = await self._chamar(self.spotify.tocar(busca, tipo))
+        onde = " ".join(str(args.get("onde") or "").split())[:40] or None
+        if onde and _sem_acento_pc(onde):
+            onde = None  # "no PC" é o padrão
+        tocando = await self._chamar(self.spotify.tocar(busca, tipo, onde))
         return f"Tocando {tocando}."
 
     async def descrever_tocar(self, args: dict[str, Any]) -> str:
-        return f"Vou tocar no Spotify: {' '.join(str(args.get('busca') or '').split())[:120]}."
+        """O "Confirma?" diz onde vai tocar: um "sim" não pode mandar música para o Echo de outro cômodo às cegas."""
+        busca = " ".join(str(args.get("busca") or "").split())[:120]
+        onde = " ".join(str(args.get("onde") or "").split())[:40]
+        if onde and not _sem_acento_pc(onde):
+            return f"Vou tocar no Spotify: {busca}, em {onde}."
+        return f"Vou tocar no Spotify do PC: {busca}."
 
     async def controlar(self, args: dict[str, Any]) -> str:
         acao = str(args.get("acao") or "").lower()
@@ -70,7 +78,9 @@ class Musica:
                        "precisar).",
                        esquema(["busca"], busca=texto("O que tocar, como o Felipe disse (ex.: 'Bohemian Rhapsody')"),
                                tipo={"type": "string", "enum": TIPOS,
-                                     "description": "musica (padrão), artista, album ou playlist"}),
+                                     "description": "musica (padrão), artista, album ou playlist"},
+                               onde=texto("SÓ se o Felipe disser onde tocar ('na Alexa', 'no Echo', 'no celular'). "
+                                          "Sem isso, deixe vazio: toca no PC.")),
                        self.tocar, escrita=True, grupo="musica", confirmar=False, confirmar_se_externo=True,
                        descrever=self.descrever_tocar, prazo_s=PRAZO_PC_S),
             Ferramenta("musica_controlar", "Pausa, continua, pula ou volta a música do Spotify.",
@@ -126,4 +136,19 @@ def comando_de_musica(frase: str) -> dict[str, Any] | None:
     primeira = next((p for p in resto.split() if p not in {"a", "o", "as", "os"}), "")
     if primeira in _NAO_E_MUSICA:
         return None  # "toca a próxima" é pular; "toca a campainha" não é Spotify (revisão do PR 21)
-    return {"busca": resto, "tipo": tipo}
+    args: dict[str, Any] = {"busca": resto, "tipo": tipo}
+    m = _ONDE.search(resto)
+    if m:  # "toca Queen na Alexa": o aparelho sai da busca
+        args["busca"], args["onde"] = resto[: m.start()].strip(), m.group(1)
+        if not args["busca"]:
+            return None
+    return args
+
+
+# Aparelho dito no fim do pedido. Só esses nomes: "toca Garota de Ipanema" não pode perder o "de Ipanema".
+_ONDE = re.compile(r"\s+(?:na|no|pela|pelo)\s+((?:alexa|echo(?: dot)?|caixa(?:inha)?|celular|tv|televisao)"
+                   r"(?:\s+d[aoe]\s+\w+)?)$")
+
+
+def _sem_acento_pc(onde: str) -> bool:
+    return normalizar(onde).removeprefix("no ").removeprefix("na ").strip() in {"pc", "computador", "pc mesmo"}

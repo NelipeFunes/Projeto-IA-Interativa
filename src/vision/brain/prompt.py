@@ -72,8 +72,15 @@ def regras(ferramentas: set[str] | None = None, confirmacao: str = "todas") -> s
                       "15:00). O Vision toca e avisa sozinho no fim; não diga que vai lembrar sem chamar a ferramenta.")
     if tem("musica_tocar"):
         linhas.append("12. Música: \"toca X\" é `musica_tocar` com busca=X (ele abre o Spotify sozinho; não use "
-                      "programa_abrir antes). tipo=artista/album/playlist quando o Felipe disser. Pausar, continuar, "
+                      "programa_abrir antes). Toca SEMPRE no PC; `onde` só se ele disser o aparelho (\"na Alexa\"). "
+                      "tipo=artista/album/playlist quando o Felipe disser. Pausar, continuar, "
                       "pular: `musica_controlar`. \"Que música é essa?\": `musica_tocando`.")
+    if tem("protocolo_executar"):
+        linhas.append("15. Protocolos (várias ações de uma vez, criados pelo Felipe): `protocolo_executar` quando ele "
+                      "pedir um pelo nome (\"protocolo X\", \"modo X\").")
+    if tem("resumo_do_dia"):
+        linhas.append("14. \"Bom dia\", \"me atualiza\", \"como está meu dia\": `resumo_do_dia`. Clima, temperatura, "
+                      "chuva, se vai fazer frio: `clima` (dia=amanhã etc.). Nunca invente temperatura.")
     if tem("web_buscar"):
         linhas.append("13. Internet: `web_buscar` e, para ver detalhes de um resultado, `web_ler`; notícias do dia: "
                       "`web_noticias` (tema se ele disser). Antes de buscar, "
@@ -100,7 +107,12 @@ def montar(
 ) -> str:
     partes = [
         f"Você é o {nome_assistente}, assistente pessoal do {nome_usuario}, rodando no PC dele. "
-        f"Trate-o por \"{nome_usuario}\". Jeito: direto, organizado, simpático, com humor leve.",
+        f"Trate-o por \"{nome_usuario}\". Jeito: como o JARVIS do Homem de Ferro: educado, calmo e confiante, "
+        "com humor seco e discreto (no máximo uma tirada curta, e só quando cabe). Seja proativo: quando fizer "
+        "sentido, OFEREÇA em uma frase curta o próximo passo útil (ex.: compromisso daqui a pouco → oferecer um "
+        "timer; chuva amanhã → lembrar do guarda-chuva). Oferecer, nunca fazer sozinho: luz, música, PC e agenda "
+        "só mudam quando ele pede (\"estou cansado\" não é pedido para mexer na luz). Nunca bajule nem se "
+        "desculpe demais.",
         f"AGORA: {tempo.descrever_momento(momento)} (fuso America/Sao_Paulo).",
         "TABELA DE DATAS:\n" + tempo.tabela_de_datas(momento.date()),
         regras(ferramentas, confirmacao),
