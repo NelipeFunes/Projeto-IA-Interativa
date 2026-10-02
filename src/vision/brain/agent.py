@@ -25,6 +25,9 @@ from vision.tools.base import ErroFerramenta, Ferramenta, Registro
 log = logging.getLogger(__name__)
 
 MAX_VOLTAS = 5
+# Grupos cuja escrita não exige que a fala tenha "cara de pedido" daquele tipo (a trava acima): a memória já tem a
+# própria regra (guardar fato contado), e "geral" é o que não tem grupo.
+SEM_TRAVA_DE_PEDIDO = {"memoria", "geral"}
 MAX_DIRETAS = 8  # escritas sem confirmação num mesmo pedido
 MODOS_CONFIRMACAO = ("todas", "sensiveis", "nenhuma")
 CORTE_TOOL_ANTIGO = 600
@@ -323,6 +326,12 @@ class Agente:
         leu_de_fora = self.confirmacao != "nenhuma" and self._ainda_tem_externo(s)
         diretas = 0
         grupos = [g for g in intencao.detectar(texto) if self.registro.nomes_do_grupo(g)]
+        # Que tipo de ação foi PEDIDA (nesta fala ou na anterior, para "e a da sala também?"). Visto em 02/10:
+        # "estou cansado" fez o modelo acender as luzes a 40% por conta própria.
+        pedidos = set(intencao.detectar(texto))
+        if s.turnos:
+            anterior = next((m["content"] for m in s.turnos[-1] if m.get("role") == "user"), "")
+            pedidos |= set(intencao.detectar(anterior))
         # Só um pedido de ação (não pergunta, nem resposta a uma pendência que acabou de ser descartada) pode ter
         # um "Feito." de mentira: "já marquei a prova?" → "Marquei sim, dia 5" é resposta legítima.
         pedido_de_acao = bool(grupos) and not texto.strip().endswith("?") and not nota
@@ -383,6 +392,8 @@ class Agente:
                     c.args = f.normalizar_args(c.args)
                 self._emitir("ferramenta_inicio", nome=c.nome, args=c.args)
                 pergunta = f is not None and self._pede_confirmacao(f, leu_de_fora)
+                if f is not None and f.escrita and not pergunta and f.grupo not in pedidos | SEM_TRAVA_DE_PEDIDO:
+                    pergunta = True  # ação que ninguém pediu: vira "Confirma?" em vez de acontecer sozinha
                 limite = f is not None and f.escrita and not pergunta and diretas >= MAX_DIRETAS
                 if limite and self.confirmacao == "todas":
                     pergunta, limite = True, False  # modo antigo: o excesso vira pendência

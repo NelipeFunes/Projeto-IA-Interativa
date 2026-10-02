@@ -131,3 +131,35 @@ async def test_prazo_estourado_guarda_resposta(registro, memorias, tmp_path):
     await asyncio.sleep(0.4)
     r2 = await a.responder_com_prazo("oi de novo", "alexa", "s1", prazo_s=0.05)
     assert r2.texto == "Resposta demorada."
+
+
+async def test_acao_que_ninguem_pediu_vira_confirmacao():
+    """02/10: "estou cansado" fez o modelo acender as luzes a 40% sozinho. Agora vira "Confirma?"."""
+    from fakes.llm_falso import LLMFalso, chama, fala
+
+    from vision.tools.base import Ferramenta, Registro, esquema, numero
+
+    rodou = []
+
+    async def acender(args):
+        rodou.append(args)
+        return "acesa"
+
+    r = Registro()
+    r.adicionar(Ferramenta("luz_acender", "acende", esquema([], brilho=numero("b")), acender, escrita=True,
+                           confirmar=False, grupo="casa", descrever=lambda a: _async("Vou acender a luz.")))
+    agente = Agente(LLMFalso([chama("luz_acender", brilho=40), fala("Quer que eu acenda?")]), r, None,
+                    confirmacao="sensiveis")
+    resp = await agente.responder("estou cansado", canal="voz", sessao="v")
+    assert rodou == [] and resp.aguardando_confirmacao
+
+    pedido = Agente(LLMFalso([chama("luz_acender", brilho=40), fala("Acendi."), chama("luz_acender", brilho=80),
+                              fala("Pronto.")]), r, None, confirmacao="sensiveis")
+    await pedido.responder("acende a luz do quarto", canal="voz", sessao="v")
+    assert rodou == [{"brilho": 40}]  # pedido de verdade: roda direto, como antes
+    await pedido.responder("mais forte", canal="voz", sessao="v")  # continuação do pedido anterior: vale
+    assert rodou == [{"brilho": 40}, {"brilho": 80}]
+
+
+async def _async(valor):
+    return valor
