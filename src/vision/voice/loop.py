@@ -887,8 +887,12 @@ class LoopVoz:
             self.jogando = True
             if self.estado == "ocioso":
                 self._mostrar("ocioso")  # vira "jogo"
-            await self.agente.descarregar()
-            await self._voz_na_placa(False)
+            try:
+                await self.agente.descarregar()
+                await self._voz_na_placa(False)
+            except Exception:
+                self.jogando = False  # não deu: a próxima checagem tenta de novo (3ª revisão do PR 44)
+                raise
             self.escrever("[modo jogo] modelo fora da VRAM; 'Hey Vision' pausado, o atalho continua valendo.")
         elif not agora and self.jogando:
             self.jogando = False

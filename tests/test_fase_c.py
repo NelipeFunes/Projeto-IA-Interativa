@@ -399,8 +399,11 @@ async def test_vigia_do_jogo_nao_morre_se_o_ollama_falhar(caplog):
 
     from vision.voice.loop import LoopVoz
 
+    tentativas = []
+
     class AgenteQuebrado:
         async def descarregar(self):
+            tentativas.append(1)
             raise ConnectionError("Ollama subindo")
 
         async def carregar(self):
@@ -415,7 +418,8 @@ async def test_vigia_do_jogo_nao_morre_se_o_ollama_falhar(caplog):
     este = psutil.Process(os.getpid()).name()  # "o jogo" é o próprio processo do teste: está aberto
     with pytest.raises(TimeoutError):  # ainda rodando depois da falha: não morreu
         await asyncio.wait_for(laco.vigiar_jogos([este], 0.02), 0.3)
-    assert laco.jogando and "vigia do modo jogo falhou" in caplog.text
+    assert "vigia do modo jogo falhou" in caplog.text
+    assert len(tentativas) >= 2 and not laco.jogando  # tenta de novo a cada checagem, não desiste
 
 
 async def test_ao_fechar_o_vision_o_modelo_sai_da_placa():
