@@ -92,7 +92,8 @@ class Voz:
         else:
             ruido = {k: v for k, v in (("noise_scale", variacao), ("noise_w_scale", variacao_ritmo)) if v is not None}
         self.cfg = SynthesisConfig(length_scale=velocidade, **ruido)
-        self.pausa = np.zeros(int(self.taxa * (PAUSA_ENTRE_FRASES_S if pausa_s is None else pausa_s)), np.float32)
+        pausa_s = PAUSA_ENTRE_FRASES_S if pausa_s is None else min(max(pausa_s, 0.0), 1.0)
+        self.pausa = np.zeros(int(self.taxa * pausa_s), np.float32)
 
     def sintetizar(self, texto: str, normalizar: bool = True) -> np.ndarray:
         """Devolve float32 mono em self.taxa Hz."""
@@ -103,8 +104,9 @@ class Voz:
         partes = [p for p in partes if p.size]
         if not partes:
             return np.zeros(0, dtype=np.float32)
-        com_pausas = [x for p in partes for x in (p, self.pausa)][:-1]  # pausa entre as frases, não no fim
-        return np.concatenate(com_pausas).astype(np.float32)
+        # A pausa vai depois de cada frase, inclusive a última: o laço de voz sintetiza uma frase por vez e emenda
+        # os áudios, então é ela que separa uma frase da outra (revisão do PR 26).
+        return np.concatenate([x for p in partes for x in (p, self.pausa)]).astype(np.float32)
 
 
 class VozXTTS:
@@ -215,13 +217,20 @@ class VozXTTS:
 def carregar_piper(cfg: Config, nome: str | None = None) -> Voz:
     nome = nome or cfg.get("voz.voz_piper", "pt_BR-faber-medium")
 
-    def numero(chave: str) -> float | None:
+    def numero(chave: str, minimo: float, maximo: float) -> float | None:
+        """Valor do config dentro dos limites; inválido vira o padrão (a voz não pode deixar de carregar)."""
         valor = cfg.get(chave)
-        return None if valor is None else float(valor)
+        if valor is None or valor == "":
+            return None
+        try:
+            return min(max(float(str(valor).replace(",", ".")), minimo), maximo)
+        except ValueError:
+            log.warning("%s inválido no config (%r): usando o padrão", chave, valor)
+            return None
 
     return Voz(cfg.modelos / "piper" / f"{nome}.onnx", float(cfg.get("voz.velocidade_fala", 1.0)),
-               variacao=numero("voz.piper_variacao"), variacao_ritmo=numero("voz.piper_variacao_ritmo"),
-               pausa_s=numero("voz.pausa_entre_frases_s"))
+               variacao=numero("voz.piper_variacao", 0.0, 1.5), variacao_ritmo=numero("voz.piper_variacao_ritmo", 0.0, 1.5),
+               pausa_s=numero("voz.pausa_entre_frases_s", 0.0, 1.0))
 
 
 def carregar_voz(cfg: Config, nome: str | None = None) -> Voz | VozXTTS:

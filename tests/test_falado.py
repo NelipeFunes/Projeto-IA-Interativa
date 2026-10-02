@@ -31,6 +31,9 @@ from vision.voice.falado import frases, para_fala
         ("Faltam 1 km e 5 min.", "Faltam 1 quilômetro e 5 minutos."),
         ("12 x 8 dá 96", "12 vezes 8 dá 96"),
         ("Prédio nº 45, 2 Lugares", "Prédio número 45, 2 Lugares"),
+        ("Ficou em 1º lugar no 2º andar.", "Ficou em 1º lugar no 2º andar."),
+        ("Versão 1.2.3 de 02.10.2026", "Versão 1.2.3 de 02.10.2026"),
+        ("Tração 4x4, tela 1920x1080", "Tração 4 por 4, tela 1920 por 1080"),
     ],
 )
 def test_para_fala(entrada, saida):

@@ -484,3 +484,19 @@ def test_acabamento_tira_silencio_iguala_volume_e_suaviza_as_bordas():
     assert np.max(np.abs(b)) <= LIMITE_PICO + 1e-6
     assert abs(a[0]) < 1e-6 and abs(a[-1]) < 1e-6  # começa e termina em zero: sem estalo
     assert acabamento(np.zeros(100, np.float32), taxa).size == 0
+
+
+def test_piper_poe_a_pausa_depois_de_cada_frase():
+    """Revisão do PR 26: o laço sintetiza uma frase por vez, então a pausa tem que vir no fim de cada uma."""
+    from pathlib import Path
+
+    from vision.voice.tts import Voz
+
+    modelo = Path(__file__).resolve().parents[1] / "modelos" / "piper" / "pt_BR-faber-medium.onnx"
+    if not modelo.exists():
+        pytest.skip("sem o modelo do Piper")
+    sem = Voz(modelo, deterministico=True, pausa_s=0.0).sintetizar("Bom dia.")
+    com = Voz(modelo, deterministico=True, pausa_s=0.3).sintetizar("Bom dia.")
+    taxa = 22050
+    assert abs((com.size - sem.size) / taxa - 0.3) < 0.02 and not np.any(com[-int(0.25 * taxa):])
+    assert Voz(modelo, deterministico=True, pausa_s=-5).pausa.size == 0  # valor ruim não derruba

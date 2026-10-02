@@ -66,7 +66,7 @@ UNIDADES = [
     (r"GB", ("giga", "gigas")),
     (r"MB", ("mega", "megas")),
     (r"°\s?C|ºC", ("grau", "graus")),
-    (r"°|º(?!\w)", ("grau", "graus")),
+    (r"°", ("grau", "graus")),  # só o sinal de grau: "º" sozinho é ordinal ("1º lugar")
     (r"min", ("minuto", "minutos")),
 ]
 
@@ -80,10 +80,11 @@ def _unidade(singular: str, plural: str):
 
 
 def unidades(t: str) -> str:
-    t = re.sub(r"(\d)\.(\d{1,2})(?!\d)", r"\1,\2", t)       # 1.7 (decimal em inglês) → 1,7; 1.250 fica
+    t = re.sub(r"(?<![\d.])(\d+)\.(\d{1,2})(?![\d.])", r"\1,\2", t)  # 1.7 → 1,7; 1.250, 1.2.3 e 02.10.2026 ficam
     t = re.sub(r"(\d)\s?%", r"\1 por cento", t)
-    t = re.sub(r"(\d)\s*[xX×]\s*(\d)", r"\1 vezes \2", t)   # 12 x 8
-    t = re.sub(r"\bn[ºo°]\s?(?=\d)", "número ", t)
+    t = re.sub(r"(\d)\s+[xX×]\s+(\d)", r"\1 vezes \2", t)   # 12 x 8 (conta, com espaços)
+    t = re.sub(r"(\d)[xX×](\d)", r"\1 por \2", t)             # 4x4, 1920x1080 (medida, colado)
+    t = re.sub(r"\b[nN]\.?[º°]\s?(?=\d)", "número ", t)  # nº 45, n.º 45 ("no 2º andar" não)
     for padrao, (singular, plural) in UNIDADES:
         t = re.sub(r"(\d+(?:,\d+)?)\s?(?:" + padrao + r")(?![\w/])", _unidade(singular, plural), t)
     return t
