@@ -68,6 +68,9 @@ mcp:
     oauth: data/wispr-oauth.json
     timeout_s: 30
 
+sistema:
+  alertas: true             # avisa sozinho com placa de vídeo a 85°C+, memória ou disco a 95%+ (1x por hora cada)
+
 pc:
   # Mexer no PC (pedido de 01/10): abrir/fechar programas, sites, volume, mídia, travar, desligar (pede "sim"),
   # timers e alarmes, e comando do PowerShell quando nada serve (SEMPRE pede "sim", mostrando o comando).
