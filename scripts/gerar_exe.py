@@ -40,7 +40,8 @@ def gerar(saida: Path = SAIDA) -> Path:
     for arquivo in (FONTE, ICONE):
         if not arquivo.exists():
             raise SystemExit(f"Falta {arquivo}")
-    r = subprocess.run(comando(csc, saida), capture_output=True, text=True, cwd=RAIZ)
+    r = subprocess.run(comando(csc, saida), capture_output=True, text=True, cwd=RAIZ, encoding="oem",
+                       errors="replace")  # o csc escreve na página do console, não na ANSI
     if r.returncode != 0:
         raise SystemExit("O compilador falhou:\n" + (r.stdout + r.stderr).strip())
     return saida

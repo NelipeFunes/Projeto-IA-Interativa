@@ -29,3 +29,18 @@ def test_gera_um_executavel_de_verdade(tmp_path):
     exe = gerar_exe.gerar(tmp_path / "Vision.exe")
     dados = exe.read_bytes()
     assert dados[:2] == b"MZ" and 50_000 < len(dados) < 1_000_000
+
+
+def test_binarios_gerados_ficam_fora_do_git():
+    import subprocess
+
+    raiz = gerar_exe.RAIZ
+    r = subprocess.run(["git", "-C", str(raiz), "check-ignore", "Vision.exe", "dist/Vision/Vision.exe", "build/x"],
+                       capture_output=True, text=True)
+    assert set(r.stdout.split()) == {"Vision.exe", "dist/Vision/Vision.exe", "build/x"}
+
+
+def test_lancador_escapa_argumentos_e_exige_o_marcador_do_projeto():
+    fonte = gerar_exe.FONTE.read_text(encoding="utf-8")
+    assert "Escapar" in fonte and "string.Join(\" \", args)" not in fonte
+    assert 'pyproject.toml' in fonte and "NativeErrorCode" in fonte
