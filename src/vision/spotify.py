@@ -42,6 +42,11 @@ ESCOPOS = "user-read-playback-state user-modify-playback-state user-read-current
 URL_CONTAS = "https://accounts.spotify.com"
 URL_API = "https://api.spotify.com/v1"
 PRAZO_LOGIN_S = 300
+# 02/10: "ele para a que está tocando mas não segue". Com uma música avulsa (`uris`) o Spotify do PC às vezes
+# carrega a faixa e fica parado, e a API responde 204 do mesmo jeito. Depois de mandar tocar, o Vision confere
+# por até CONFERIR_TOCAR_S; parada, ele dá play de novo uma vez. Sem tocar, avisa em vez de dizer "Tocando".
+CONFERIR_TOCAR_S = 4.0
+INTERVALO_CONFERIR_S = 0.7
 ESPERA_DISPOSITIVO_S = 22  # Spotify abrindo do zero leva ~10 s; cabe no prazo de 30 s da ferramenta
 
 
@@ -304,7 +309,60 @@ class Spotify:
         if r.status_code not in (200, 202, 204):
             raise ErroSpotify(f"O Spotify não conseguiu tocar ({r.status_code}).")
         tocando = descrever_item(item, tipo)
+        await self._conferir_tocando(disp["id"], item, tipo, tocando)
         return f"{tocando} ({disp.get('name') or 'outro aparelho'})" if onde else tocando
+
+    async def _conferir_tocando(self, aparelho: str, item: dict[str, Any], tipo: str, tocando: str) -> None:
+        """Espera o que foi pedido aparecer tocando. Carregado e parado: um play de novo (uma vez)."""
+        esperado = item.get("uri")
+        deu_play_de_novo = False
+        for _ in range(max(1, round(CONFERIR_TOCAR_S / INTERVALO_CONFERIR_S))):
+            await self._dormir(INTERVALO_CONFERIR_S)
+            agora = await self._player()
+            atual = (agora or {}).get("item") or {}
+            contexto = ((agora or {}).get("context") or {}).get("uri")
+            # A faixa pode vir "religada" para outra versão do mercado (linked_from guarda a pedida).
+            e_o_pedido = esperado in (atual.get("uri"), (atual.get("linked_from") or {}).get("uri")) \
+                if tipo == "musica" else contexto == esperado
+            if agora and e_o_pedido and agora.get("is_playing"):
+                return
+            if agora and e_o_pedido and not deu_play_de_novo:
+                deu_play_de_novo = True
+                await self._api("PUT", "/me/player/play", params={"device_id": aparelho})
+        raise ErroSpotify(f"Mandei tocar {tocando}, mas o Spotify não começou. Tente de novo ou dê play no "
+                          "app do Spotify.")
+
+    async def _player(self) -> dict[str, Any] | None:
+        """O estado do player (aparelho, volume, o que toca). None: nada ativo na conta."""
+        r = await self._api("GET", "/me/player")
+        if r.status_code == 204 or not r.content:
+            return None
+        if r.status_code != 200:
+            raise ErroSpotify(f"Não consegui ver o player do Spotify ({r.status_code}).")
+        dados = r.json()
+        return dados if isinstance(dados, dict) else None
+
+    async def volume_atual(self) -> dict[str, Any] | None:
+        """{"volume", "tocando", "aparelho", "id"} do aparelho ativo, ou None (nada ativo, ou o aparelho não deixa
+        mudar o volume pela API, como alguns celulares)."""
+        agora = await self._player()
+        disp = (agora or {}).get("device") or {}
+        if not disp or not disp.get("supports_volume", True) or disp.get("volume_percent") is None:
+            return None
+        return {"volume": int(disp["volume_percent"]), "tocando": bool(agora.get("is_playing")),
+                "aparelho": disp.get("name") or "Spotify", "id": disp.get("id")}
+
+    async def mudar_volume(self, nivel: int, aparelho: str | None = None) -> None:
+        params: dict[str, Any] = {"volume_percent": max(0, min(100, int(nivel)))}
+        if aparelho:
+            params["device_id"] = aparelho
+        r = await self._api("PUT", "/me/player/volume", params=params)
+        if r.status_code == 404:
+            raise ErroSpotify("Nada está tocando no Spotify agora.")
+        if r.status_code == 403:
+            raise ErroSpotify("Esse aparelho não deixa mudar o volume pelo Spotify.")
+        if r.status_code not in (200, 202, 204):
+            raise ErroSpotify(f"O Spotify não mudou o volume ({r.status_code}).")
 
     async def controlar(self, acao: str) -> str:
         metodo, caminho, feito = {

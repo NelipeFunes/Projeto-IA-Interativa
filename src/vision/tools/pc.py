@@ -115,6 +115,21 @@ def nivel_alvo(acao: str, atual: float, nivel: float | None) -> float:
     return max(0.0, min(1.0, alvo))
 
 
+def _ler_volume() -> tuple[int, bool]:
+    """(nível em %, mudo) do alto-falante padrão, sem mudar nada."""
+    import comtypes
+    from pycaw.pycaw import AudioUtilities
+
+    comtypes.CoInitialize()
+    try:
+        ev = AudioUtilities.GetSpeakers().EndpointVolume
+        nivel, mudo = round(ev.GetMasterVolumeLevelScalar() * 100), bool(ev.GetMute())
+        del ev
+        return nivel, mudo
+    finally:
+        comtypes.CoUninitialize()
+
+
 def _volume(acao: str, nivel: float | None) -> int:
     """Volume do alto-falante padrão (Core Audio). Devolve o nível final em %."""
     import comtypes
@@ -141,10 +156,15 @@ def _volume(acao: str, nivel: float | None) -> int:
 
 
 class PC:
-    def __init__(self, pasta_logs: Path, abrir=os.startfile, navegador=webbrowser.open):
+    def __init__(self, pasta_logs: Path, abrir=os.startfile, navegador=webbrowser.open, *,
+                 ler_volume=_ler_volume, mudar_volume=_volume):
         self.pasta_logs = pasta_logs
         self._abrir = abrir  # trocáveis nos testes
         self._navegador = navegador
+        self._ler_volume = ler_volume
+        self._volume = mudar_volume
+        # O Spotify (vision/spotify.py), quando ligado: o volume mexe nele primeiro (vision/volume.py).
+        self.spotify: Any = None
         self._apps: list[dict[str, str]] = []
         self._apps_em = 0.0
 
@@ -251,18 +271,55 @@ class PC:
         return f"Abri {url} no navegador."
 
     async def mudar_volume(self, args: dict[str, Any]) -> str:
+        from vision.volume import planejar
+
         acao = str(args.get("acao") or "").lower()
         nivel = args.get("nivel")
+        onde = str(args.get("onde") or "auto").lower()
         if acao not in {"definir", "aumentar", "diminuir", "mudo", "som"}:
             raise ErroFerramenta("Ação de volume: definir, aumentar, diminuir, mudo ou som.")
+        if onde not in {"auto", "spotify", "pc"}:
+            onde = "auto"
         try:
             nivel = None if nivel in (None, "") else float(nivel)
         except (TypeError, ValueError) as e:
             raise ErroFerramenta("Nível de volume de 0 a 100.") from e
         if acao == "definir" and (nivel is None or not 0 <= nivel <= 100):
             raise ErroFerramenta("Nível de volume de 0 a 100.")
-        final = await asyncio.to_thread(_volume, acao, nivel)
-        return "Som mudo." if acao == "mudo" else f"Volume em {final}%."
+        spotify = None
+        if self.spotify is not None and acao not in ("mudo", "som") and onde != "pc":
+            try:
+                spotify = await self.spotify.volume_atual()
+            except Exception as e:  # noqa: BLE001 - Spotify fora do ar: o volume do Windows continua funcionando
+                log.warning("não consegui ler o volume do Spotify: %s", e)
+        if onde == "spotify" and spotify is None:
+            raise ErroFerramenta("O Spotify não está tocando em nenhum aparelho que deixe mudar o volume.")
+        windows, mudo = await asyncio.to_thread(self._ler_volume) if spotify is not None else (0, False)
+        plano = planejar(acao, nivel, onde=onde, spotify=spotify, windows=windows, windows_mudo=mudo)
+        if plano.motivo == "tudo_no_maximo":
+            return "O Spotify e o Windows já estão no máximo."
+        partes = []
+        if plano.spotify is not None:
+            try:
+                await self.spotify.mudar_volume(plano.spotify, spotify.get("id"))
+            except Exception as e:  # noqa: BLE001 - ErroSpotify traz a frase; o resto vira mensagem também
+                raise ErroFerramenta(str(e) or "O Spotify não mudou o volume.") from e
+            partes.append(f"Spotify em {plano.spotify}%")
+        if plano.tirar_mudo:
+            await asyncio.to_thread(self._volume, "som", None)
+        if plano.windows is not None:
+            acao_w, nivel_w = plano.windows
+            final = await asyncio.to_thread(self._volume, acao_w, nivel_w)
+            if acao_w == "mudo":
+                return "Som mudo."
+            if spotify is None:
+                return f"Volume em {final}%."
+            if plano.motivo == "spotify_no_maximo":
+                return f"O Spotify já estava no máximo: subi o Windows para {final}%."
+            if plano.motivo == "spotify_no_zero":
+                return f"O Spotify já estava no zero: abaixei o Windows para {final}%."
+            partes.append(f"Windows em {final}%")
+        return " e ".join(partes) + "."
 
     async def controlar_midia(self, args: dict[str, Any]) -> str:
         acao = str(args.get("acao") or "").lower()
@@ -360,10 +417,15 @@ class PC:
                        esquema(["endereco"], endereco=texto("Endereço (ex.: youtube.com) ou o que buscar")),
                        self.abrir_site, escrita=True, grupo="pc", confirmar=False,
                        descrever=_descrever("Vou abrir no navegador: {}", "endereco"), **_DIRETA),
-            Ferramenta("volume", "Muda o volume do PC.",
+            Ferramenta("volume",
+                       "Muda o volume. Com o Spotify tocando, mexe primeiro no volume do Spotify (no máximo, sobe o do "
+                       "Windows); sem ele, no do Windows. O código decide: deixe onde='auto'.",
                        esquema(["acao"], acao={"type": "string", "enum": ["definir", "aumentar", "diminuir", "mudo",
                                                                           "som"]},
-                               nivel=numero("Para 'definir': 0 a 100. Para aumentar/diminuir: quanto (padrão 10)")),
+                               nivel=numero("Para 'definir': 0 a 100. Para aumentar/diminuir: quanto (padrão 10)"),
+                               onde={"type": "string", "enum": ["auto", "spotify", "pc"],
+                                     "description": "auto (padrão). 'pc' só se o Felipe disser PC/Windows/computador; "
+                                                    "'spotify' só se ele disser Spotify."}),
                        self.mudar_volume, escrita=True, grupo="pc", confirmar=False, confirmar_se_externo=True,
                        descrever=_descrever("Vou mudar o volume ({}).", "acao"),
                        prazo_s=10),
@@ -415,6 +477,15 @@ _VOLUME_DESCE = re.compile(_INICIO + r"(?:abaixa|abaixar|diminui|diminuir|baixa|
 _MUDO = re.compile(_INICIO + r"(?:muta|mutar|silencia|silenciar|tira o som|coloca no mudo|poe no mudo)$")
 
 
+# "volume do Spotify em 30", "aumenta o som do PC", "abaixa a música": de quem é o volume. Música = "auto" (com o
+# Spotify tocando já é ele; tocando no navegador, o Windows).
+_DE_QUEM = re.compile(r"\b(volume|som)\s+(?:d[oa]|no|na)\s+(spotify|musica|pc|computador|windows|sistema)\b")
+_A_MUSICA = re.compile(r"\b(aumenta|aumentar|sobe|subir|abaixa|abaixar|diminui|diminuir|baixa|baixar)\s+a\s+musica"
+                       r"(?=\s|$)")
+_ONDE_VOLUME = {"spotify": "spotify", "musica": "auto", "pc": "pc", "computador": "pc", "windows": "pc",
+                "sistema": "pc"}
+
+
 def comando_de_pc(texto: str) -> tuple[str, dict[str, Any]] | None:
     """"pausa a música" → ("midia", {"acao": "tocar_pausar"}); "volume 30" → ("volume", ...). None = não é."""
     t = normalizar(str(texto).replace("%", " por cento "))
@@ -424,13 +495,19 @@ def comando_de_pc(texto: str) -> tuple[str, dict[str, Any]] | None:
     for padrao, acao in _MIDIA:
         if padrao.match(t):
             return "midia", {"acao": acao}
+    onde = "auto"
+    if m := _DE_QUEM.search(t):
+        onde = _ONDE_VOLUME[m.group(2)]
+        t = (t[: m.start()] + m.group(1) + t[m.end():]).strip()
+    t = _A_MUSICA.sub(lambda m: f"{m.group(1)} o volume", t)
+    extra = {} if onde == "auto" else {"onde": onde}
     if m := _VOLUME_NIVEL.match(t):
         nivel = int(m.group(1))
-        return ("volume", {"acao": "definir", "nivel": nivel}) if nivel <= 100 else None
+        return ("volume", {"acao": "definir", "nivel": nivel, **extra}) if nivel <= 100 else None
     if _VOLUME_SOBE.match(t):
-        return "volume", {"acao": "aumentar"}
+        return "volume", {"acao": "aumentar", **extra}
     if _VOLUME_DESCE.match(t):
-        return "volume", {"acao": "diminuir"}
+        return "volume", {"acao": "diminuir", **extra}
     if _MUDO.match(t):
         return "volume", {"acao": "mudo"}
     return None
