@@ -169,7 +169,7 @@ async def test_ler_so_abre_link_que_veio_de_uma_busca(tmp_path):
 
 
 def test_consulta_nao_leva_email_telefone_nem_cpf():
-    assert limpar_consulta("casa aluguel fulano@exemplo.com (35) 99876-5432 123.456.789-09 fusca 1970 1.5") == \
+    assert limpar_consulta("casa aluguel fulano@exemplo.com (11) 90000-0000 123.456.789-09 fusca 1970 1.5") == \
         "casa aluguel fusca 1970 1.5"
 
 
