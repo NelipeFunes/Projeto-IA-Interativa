@@ -45,7 +45,7 @@ PADROES = {
     # Só pedido explícito de pesquisa: "busca minha agenda" é da agenda, não da web.
     "web": re.compile(r"\bpesquis(a|e|ar|ando)\b|\b(na|pela) (internet|web|net)\b|\bno google\b|"
                       r"\b(busc|procur)(a|e|ar) (algumas|alguns|umas|uns|op[cç][oõ]es|pre[cç]os?)\b|"
-                      r"\bquanto (custa|est[aá] custando)\b", re.IGNORECASE),
+                      r"\bquanto (custa|est[aá] custando)\b|\bnot[ií]cias?\b|\bmanchetes?\b", re.IGNORECASE),
     # Só pedido de verdade: "minha rotina hoje" ou "modo de usar" não ligam protocolo (revisão do PR 32).
     "protocolo": re.compile(r"\bprotocolo\b|\b(ativ|lig|inici|rod|execut)\w* (o |a )?(modo|rotina)\b",
                             re.IGNORECASE),

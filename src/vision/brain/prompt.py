@@ -82,7 +82,8 @@ def regras(ferramentas: set[str] | None = None, confirmacao: str = "todas") -> s
         linhas.append("14. \"Bom dia\", \"me atualiza\", \"como está meu dia\": `resumo_do_dia`. Clima, temperatura, "
                       "chuva, se vai fazer frio: `clima` (dia=amanhã etc.). Nunca invente temperatura.")
     if tem("web_buscar"):
-        linhas.append("13. Internet: `web_buscar` e, para ver detalhes de um resultado, `web_ler`. Antes de buscar, "
+        linhas.append("13. Internet: `web_buscar` e, para ver detalhes de um resultado, `web_ler`; notícias do dia: "
+                      "`web_noticias` (tema se ele disser). Antes de buscar, "
                       "use as MEMÓRIAS e o PERFIL para pôr na consulta os critérios que importam para o Felipe (ex.: "
                       "ele tem carro → casa com garagem) e diga em uma frase o critério que usou. Nunca ponha nome, "
                       "e-mail, endereço ou outro dado pessoal na consulta. Responda com 2 ou 3 resultados e cite o "

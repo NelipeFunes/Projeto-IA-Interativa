@@ -62,6 +62,15 @@ class Resultado:
 
 
 @dataclass
+class Noticia:
+    titulo: str
+    url: str
+    fonte: str
+    quando: str  # ISO, do serviço de notícias
+    resumo: str
+
+
+@dataclass
 class Busca:
     consulta: str
     resposta: str = ""  # resumo pronto da Tavily (vazio no DuckDuckGo)
@@ -224,6 +233,7 @@ class Web:
         self.pais = pais
         self._transporte = transporte
         self._buscar_ddg = buscar_ddg or _ddg  # trocável nos testes
+        self._noticias_ddg = _ddg_noticias
         self._publico = _host_publico
         # Só se lê página que veio de uma busca: um texto de página não consegue mandar o Vision abrir
         # "site-do-atacante/?dados=<memórias>" (revisão do PR 23).
@@ -301,6 +311,32 @@ class Web:
             for x in brutos or [] if url_valida(str(x.get("href") or ""))
         ]
         return Busca(consulta, "", resultados, "duckduckgo")
+
+    async def noticias(self, tema: str = "") -> list[Noticia]:
+        """Manchetes das últimas 24 h (DuckDuckGo Notícias: grátis, não gasta a cota da Tavily). Cache de 30 min."""
+        tema = limpar_consulta(tema)[:80]  # como na busca: e-mail, telefone e CPF não saem (revisão do PR 35)
+        chave = "noticias:" + normalizar(tema or "brasil")
+        guardada = self.cache.pegar(chave)
+        itens: list[Noticia] | None = None
+        if guardada and time.time() - float(guardada.get("quando", 0)) < 1800:
+            try:
+                itens = [Noticia(**n) for n in guardada.get("itens", [])]
+            except (TypeError, ValueError):
+                itens = None  # cache de outro formato: busca de novo
+        if itens is None:
+            try:
+                brutos = await asyncio.wait_for(
+                    asyncio.to_thread(self._noticias_ddg, f"notícias de {tema}" if tema else "Brasil", self.max_resultados), 15)
+            except Exception as e:  # noqa: BLE001 - a biblioteca levanta tipos próprios
+                raise ErroWeb(f"as notícias não vieram ({type(e).__name__})") from e
+            itens = [Noticia(str(x.get("title") or "").strip(), str(x.get("url") or ""),
+                             str(x.get("source") or "").strip(), str(x.get("date") or ""),
+                             str(x.get("body") or "").strip())
+                     for x in brutos or [] if url_valida(str(x.get("url") or "")) and x.get("title")]
+            if itens:  # vazio pode ser falha passageira: não fica 30 min respondendo "nenhuma"
+                self.cache.guardar(chave, {"quando": time.time(), "itens": [asdict(n) for n in itens]})
+        self._lembrar_links([Resultado(n.titulo, n.url, n.resumo) for n in itens])  # o web_ler pode abrir
+        return itens
 
     async def ler(self, url: str) -> str:
         """Texto principal da página. Tavily extract (1 crédito) com chave; senão, baixa e limpa o HTML."""
@@ -386,6 +422,23 @@ def _conexao_publica(r: httpx.Response) -> bool:
         return ipaddress.ip_address(str(endereco[0]).split("%")[0]).is_global
     except ValueError:
         return False
+
+
+def _ddg_noticias(tema: str, maximo: int) -> list[dict[str, Any]]:
+    from ddgs import DDGS
+    from ddgs.exceptions import DDGSException
+
+    for periodo in ("d", "w"):  # do dia; sem nada (tema de nicho), da semana
+        try:
+            achadas = list(DDGS().news(tema, region="br-pt", safesearch="moderate", timelimit=periodo,
+                                       max_results=maximo) or [])
+        except DDGSException as e:
+            if "no results" not in str(e).lower():
+                raise
+            achadas = []
+        if achadas:
+            return achadas
+    return []
 
 
 def _ddg(consulta: str, maximo: int) -> list[dict[str, Any]]:

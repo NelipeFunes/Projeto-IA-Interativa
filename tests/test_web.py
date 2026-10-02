@@ -259,3 +259,53 @@ def test_conexao_feita_num_ip_local_e_recusada():
     assert not _conexao_publica(resposta("192.168.0.1"))
     assert _conexao_publica(resposta("8.8.8.8"))
     assert _conexao_publica(httpx.Response(200))  # sem a informação (transporte de teste)
+
+
+async def test_noticias_com_cache_links_e_web_ler(tmp_path):
+    w, _ = criar(tmp_path, Servidor())
+    chamadas = []
+
+    def falsas(tema, maximo):
+        chamadas.append(tema)
+        return [{"title": "Manchete A", "url": "https://noticias.exemplo.com/a", "source": "Jornal X",
+                 "date": "2026-10-02T01:00:00+00:00", "body": "Resumo A"},
+                {"title": "Sem link", "url": "javascript:x", "source": "?", "date": "", "body": ""}]
+
+    w._noticias_ddg = falsas
+    f = FerramentasWeb(w)
+    saida = await f.noticias({"tema": "tecnologia"})
+    assert isinstance(saida, ComDados) and "1. Manchete A (Jornal X" in str(saida) and "Sem link" not in str(saida)
+    assert saida.dados["links"] == [{"titulo": "Manchete A", "url": "https://noticias.exemplo.com/a",
+                                     "site": "Jornal X"}]
+    await f.noticias({"tema": "tecnologia"})
+    assert chamadas == ["notícias de tecnologia"]  # 2ª vez do cache (e o tema vira "notícias de X": fontes em pt)
+    assert "https://noticias.exemplo.com/a" in w._links  # o web_ler pode abrir a manchete
+    w._noticias_ddg = lambda t, m: []
+    assert "Nenhuma notícia" in await f.noticias({"tema": "xyzzy"})
+
+
+
+async def test_noticias_limpam_o_tema_nao_guardam_vazio_e_erro_vira_mensagem(tmp_path):
+    from vision.tools.web import _ha
+
+    w, _ = criar(tmp_path, Servidor())
+    temas = []
+
+    def vazias(tema, maximo):
+        temas.append(tema)
+        return []
+
+    w._noticias_ddg = vazias
+    f = FerramentasWeb(w)
+    assert "Nenhuma notícia recente" in await f.noticias({"tema": "fulano@exemplo.com política"})
+    assert temas == ["notícias de política"]  # o e-mail não saiu
+    await f.noticias({"tema": "política"})
+    assert len(temas) == 2  # vazio não ficou em cache
+
+    def quebra(_t, _m):
+        raise RuntimeError("ratelimit")
+
+    w._noticias_ddg = quebra
+    with pytest.raises(ErroFerramenta, match="não vieram"):
+        await f.noticias({"tema": "economia"})
+    assert _ha("isso não é data") == "" and _ha("2000-01-01T00:00:00Z") == ""
