@@ -389,3 +389,82 @@ def test_motor_piper_nem_tenta_o_xtts(monkeypatch, cfg):
     monkeypatch.setattr(tts, "VozXTTS", nao_chame)
     monkeypatch.setattr(cfg, "get", _get_com(cfg.get, {"voz.motor": "piper"}))
     assert isinstance(tts.carregar_voz(cfg), _Piper)
+
+
+def test_dividir_respeita_o_limite_do_xtts_e_corta_em_fim_de_frase():
+    from vision.voice.tts import LIMITE_XTTS, dividir
+
+    assert dividir("Oi.") == ["Oi."]
+    assert dividir("   ") == []
+    frase = "Encontrei opções no Imovelweb, na MGF Imóveis e no Pedrão, todas com vaga de garagem. "
+    texto = frase * 6
+    partes = dividir(texto)
+    assert all(len(p) <= LIMITE_XTTS for p in partes)
+    assert " ".join(partes) == " ".join(texto.split())  # nada se perde
+    assert all(p.endswith(".") for p in partes)  # cortou no fim de frase
+    sem_ponto = ", ".join(["casa com garagem e quintal"] * 12)
+    assert all(len(p) <= LIMITE_XTTS for p in dividir(sem_ponto))
+    assert all(len(p) <= LIMITE_XTTS for p in dividir("x" * 500))  # uma palavra gigante
+
+
+class _ModeloXTTSFalso:
+    """Imita o Xtts: recusa texto longo com divisão ligada (como sem o spaCy) e anota o que recebeu."""
+
+    def __init__(self):
+        self.recebidos: list[str] = []
+
+    def _checar(self, texto, enable_text_splitting):
+        if enable_text_splitting:
+            raise ImportError("enable_text_splitting=True requires Spacy")
+        assert len(texto) <= 203
+        self.recebidos.append(texto)
+
+    def inference(self, texto, idioma, latente, timbre, speed=1.0, enable_text_splitting=False):
+        self._checar(texto, enable_text_splitting)
+        return {"wav": np.ones(10, dtype=np.float32)}
+
+    def inference_stream(self, texto, idioma, latente, timbre, stream_chunk_size=12, speed=1.0,
+                         enable_text_splitting=False):
+        self._checar(texto, enable_text_splitting)
+        import torch
+
+        yield torch.ones(10)
+
+
+def test_xtts_com_resposta_longa_nao_precisa_do_spacy():
+    """01/10: uma resposta de busca na web com mais de 200 caracteres derrubava a voz."""
+    voz = _xtts_sem_modelo(_Reserva())
+    voz.descansando = False
+    voz.modelo, voz.idioma, voz.latente, voz.timbre = _ModeloXTTSFalso(), "pt", None, None
+    voz.velocidade, voz.pedaco_tokens = 1.0, 12
+    longa = "Encontrei casas no Imovelweb, na MGF Imóveis e no Pedrão, todas com garagem. " * 4
+    assert voz.sintetizar(longa, normalizar=False).size == 10 * len(voz.modelo.recebidos) > 10
+    voz.modelo.recebidos.clear()
+    assert len(list(voz.pedacos(longa, normalizar=False))) == len(voz.modelo.recebidos) > 1
+
+
+class XTTSQueQuebra(XTTSFalso):
+    def pedacos(self, texto: str, normalizar: bool = True):
+        raise ImportError("falha simulada do XTTS")
+        yield  # noqa: B901 - é um gerador
+
+
+async def test_xtts_que_falha_numa_frase_fala_com_o_piper():
+    voz, saida = XTTSQueQuebra(), SaidaLenta(duracao_s=0)
+    await _falar(_laco(voz, saida, piper_ate_caracteres=0), ["Uma frase qualquer.", "Outra."])
+    assert [t[0] for t in saida.tocadas] == [-1, -2]  # a reserva falou as duas, e nada caiu
+
+
+class XTTSQueQuebraNoMeio(XTTSFalso):
+    def pedacos(self, texto: str, normalizar: bool = True):
+        self.sintetizadas.append((texto, time.monotonic()))
+        yield np.full(20, 10.0, dtype=np.float32)
+        raise RuntimeError("CUDA error simulado")
+
+
+async def test_xtts_que_falha_no_meio_nao_repete_o_comeco_e_o_resto_vai_pelo_piper():
+    """Revisão do PR 24: a reserva refazia a frase inteira, e o começo tocava duas vezes."""
+    voz, saida = XTTSQueQuebraNoMeio(), SaidaLenta(duracao_s=0)
+    await _falar(_laco(voz, saida, piper_ate_caracteres=0), ["Primeira frase.", "Segunda.", "Terceira."])
+    assert [t[0] for t in saida.tocadas] == [10, -1, -2]  # o pedaço que já saiu, e as próximas pelo Piper
+    assert len(voz.sintetizadas) == 1  # depois da falha, não tenta o XTTS de novo nesta resposta

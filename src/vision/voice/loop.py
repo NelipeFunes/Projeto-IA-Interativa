@@ -274,7 +274,11 @@ class LoopVoz:
             else:
                 self._mostrar("pensando")
                 self._emitir({"tipo": "nivel", "fonte": "mic", "valor": 0.0})
-                await self._fala_na_conversa(pcm)
+                try:
+                    await self._fala_na_conversa(pcm)
+                except Exception:  # noqa: BLE001 - um pedido que dá erro não pode desligar a voz (caiu em 01/10)
+                    log.exception("erro ao responder; a escuta continua")
+                    self.escrever("(deu erro nessa resposta; veja o log)")
                 if self._retomar is None:  # cortado por você, o áudio que chegou é a sua fala: fica
                     self.entrada.descartar()  # o que tocou enquanto ele falava (a própria voz) não é você
             if self.ativacao is not None:
@@ -496,8 +500,15 @@ class LoopVoz:
         def cortado() -> bool:
             return parar.is_set() or self.interrompido_por is not None
 
+        entregues = [0]
+
+        def entregar_contando(item: tuple[int, np.ndarray]) -> None:
+            entregues[0] += 1
+            entregar(item)
+
         adiante: list[str | None] = []
         primeira = True
+        xtts_falhou = False  # depois de uma falha, o resto da resposta vai direto pela reserva
         try:
             while (frase := adiante.pop(0) if adiante else await fila.get()) is not None:
                 if cortado() or not frase.strip():
@@ -511,7 +522,19 @@ class LoopVoz:
                     if adiante == [None]:  # é a resposta inteira: rapidez vale mais que a voz bonita aqui
                         fonte = reserva
                 primeira = False
-                await asyncio.to_thread(self._gerar, fonte, frase, entregar, cortado)
+                if xtts_falhou and reserva is not None:
+                    fonte = reserva
+                entregues[0] = 0
+                try:
+                    await asyncio.to_thread(self._gerar, fonte, frase, entregar_contando, cortado)
+                except Exception:
+                    if reserva is None or fonte is reserva:
+                        raise
+                    # A voz boa falhou: o resto da resposta sai pela robótica, em vez de ficar mudo (ou cair).
+                    xtts_falhou = True
+                    log.exception("XTTS falhou; o resto desta resposta sai pelo Piper")
+                    if entregues[0] == 0:  # se o começo da frase já tocou, refazer repetiria o começo
+                        await asyncio.to_thread(self._gerar, reserva, frase, entregar, cortado)
         except Exception as e:  # noqa: BLE001 - repassado ao falador
             prontas.put_nowait(e)
             return

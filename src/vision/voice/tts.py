@@ -6,6 +6,7 @@
 from __future__ import annotations
 
 import logging
+import re
 import threading
 import time
 from collections.abc import Iterator
@@ -17,6 +18,29 @@ from vision.config import Config
 from vision.voice.falado import para_fala
 
 log = logging.getLogger(__name__)
+
+# O XTTS aceita até ~203 caracteres de português por vez; acima disso, a divisão dele exige o spaCy (não
+# instalado). Em 01/10 uma resposta de busca na web passou disso e derrubou o laço de voz: a divisão é nossa.
+LIMITE_XTTS = 180
+
+
+def dividir(texto: str, limite: int = LIMITE_XTTS) -> list[str]:
+    """Pedaços de até `limite` caracteres, cortando de preferência em fim de frase, depois em vírgula ou
+    ponto e vírgula, depois em espaço."""
+    texto = " ".join(texto.split())
+    if len(texto) <= limite:
+        return [texto] if texto else []
+    for separador in (r"(?<=[.!?…])\s+", r"(?<=[,;:])\s+", r"\s+"):
+        partes = [p for p in re.split(separador, texto) if p]
+        if len(partes) > 1:
+            pedacos: list[str] = []
+            for parte in partes:
+                if pedacos and len(pedacos[-1]) + 1 + len(parte) <= limite:
+                    pedacos[-1] += " " + parte
+                else:
+                    pedacos.append(parte)
+            return [q for p in pedacos for q in dividir(p, limite)]
+    return [texto[i : i + limite] for i in range(0, len(texto), limite)]  # uma "palavra" gigante (um link)
 
 
 class Voz:
@@ -88,10 +112,13 @@ class VozXTTS:
                 from vision.voice.stt import reamostrar
 
                 return reamostrar(self.reserva.sintetizar(texto, normalizar=False), self.reserva.taxa, self.taxa)
+            partes = []
             with torch.inference_mode():
-                saida = self.modelo.inference(texto, self.idioma, self.latente, self.timbre, speed=self.velocidade,
-                                              enable_text_splitting=len(texto) > 200)
-        return np.asarray(saida["wav"], dtype=np.float32)
+                for pedaco in dividir(texto):
+                    saida = self.modelo.inference(pedaco, self.idioma, self.latente, self.timbre,
+                                                  speed=self.velocidade, enable_text_splitting=False)
+                    partes.append(np.asarray(saida["wav"], dtype=np.float32))
+        return np.concatenate(partes) if partes else np.zeros(0, dtype=np.float32)
 
     def pedacos(self, texto: str, normalizar: bool = True) -> Iterator[np.ndarray]:
         """Streaming: o 1º pedaço sai em ~0,6 s, e o resto vem enquanto ele toca. Consuma na mesma thread e
@@ -108,11 +135,12 @@ class VozXTTS:
                 yield reamostrar(self.reserva.sintetizar(texto, normalizar=False), self.reserva.taxa, self.taxa)
                 return
             with torch.inference_mode():
-                for pedaco in self.modelo.inference_stream(texto, self.idioma, self.latente, self.timbre,
-                                                           stream_chunk_size=self.pedaco_tokens,
-                                                           speed=self.velocidade,
-                                                           enable_text_splitting=len(texto) > 200):
-                    yield pedaco.cpu().numpy().astype(np.float32)
+                for trecho in dividir(texto):
+                    for pedaco in self.modelo.inference_stream(trecho, self.idioma, self.latente, self.timbre,
+                                                               stream_chunk_size=self.pedaco_tokens,
+                                                               speed=self.velocidade,
+                                                               enable_text_splitting=False):
+                        yield pedaco.cpu().numpy().astype(np.float32)
 
     def descansar(self) -> None:
         import torch
