@@ -863,6 +863,9 @@ def preparar_voz(
         for nota in mic.notas:
             escrever(f"  [microfone] {nota}")
         mic.ao_trocar = escrever  # mudo/desligado → o próximo da lista; o preferido voltou → volta (vai ao log)
+        if laco.registrar_ativacao:
+            escrever("[aviso] voz.registrar_ativacao ligado: o começo do que se fala perto do PC vai para o log. "
+                     "Desligue no config.yaml quando terminar.")
         escrever(f"Microfone: {mic.nome} · Saída: {saida.nome}")
         try:
             yield laco, atalho

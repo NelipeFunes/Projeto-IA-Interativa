@@ -180,6 +180,7 @@ SILENCIO_DIGITAL_DB = -85  # headset sem fio desligado/mudo: ~-97 dBFS (zeros co
 TROCAR_APOS_SILENCIO_S = 60.0  # o microfone em uso só deu silêncio digital por 1 min: tenta o próximo da lista
 CONFERIR_PREFERIDO_S = 30.0  # usando um reserva: a cada 30 s confere se o primeiro da lista voltou
 SEM_AUDIO_S = 3.0  # o fluxo parou de entregar blocos (o aparelho sumiu do Windows): reabre
+PRAZO_VIGIA_S = 5.0  # amostrar/abrir um microfone que não responde não prende a escuta mais que isso
 
 
 def silencio_digital(pcm: np.ndarray) -> bool:
@@ -187,12 +188,14 @@ def silencio_digital(pcm: np.ndarray) -> bool:
     return 20 * np.log10(max(rms, 1e-9)) < SILENCIO_DIGITAL_DB
 
 
-def _amostra(disp: int, segundos: float = 0.4) -> np.ndarray:
+def _amostra(disp: int | None, segundos: float = 0.4) -> np.ndarray:
+    """0,4 s de um microfone, num fluxo próprio: sd.rec/sd.wait usam o estado global do sounddevice, o mesmo do
+    sd.play dos bipes (um cortaria o outro; revisão do PR 39)."""
     import sounddevice as sd
 
-    amostra = sd.rec(int(TAXA * segundos), samplerate=TAXA, channels=1, dtype="int16", device=disp)
-    sd.wait()
-    return amostra[:, 0]
+    with sd.InputStream(samplerate=TAXA, channels=1, dtype="int16", device=disp) as fluxo:
+        dados, _ = fluxo.read(int(TAXA * segundos))
+    return dados[:, 0].copy()
 
 
 def escolher_microfone(nomes: list[str]) -> tuple[int | None, str, list[str]]:
@@ -266,15 +269,19 @@ class Microfone:
         self.ao_trocar = None
         self._recebido_em = relogio()  # último bloco que o driver entregou (o callback roda na thread de áudio)
         self._vigia = VigiaMicrofone(relogio(), len(self.nomes) > 1, self._e_o_preferido())
+        self._trava = threading.Lock()  # troca e fechamento nunca ao mesmo tempo (a vigia roda numa thread)
+        self._encerrado = False
+        self._em_andamento: asyncio.Future | None = None
+        self._espera_reabrir = SEM_AUDIO_S  # dobra a cada reabertura sem áudio (até 60 s); volta com o 1º bloco
 
     def _e_o_preferido(self) -> bool:
         return not self.nomes or str(self.nomes[0]).lower() in self.nome.lower()
 
     def __enter__(self) -> Microfone:
-        self._abrir()
+        self._stream = self._criar(self.dispositivo)
         return self
 
-    def _abrir(self) -> None:
+    def _criar(self, disp: int | None):
         import sounddevice as sd
 
         def cb(indata, _frames, _tempo, _status):
@@ -284,34 +291,44 @@ class Microfone:
             except queue.Full:
                 pass
 
-        self._recebido_em = self._relogio()  # o novo tem SEM_AUDIO_S para começar a entregar
-        self._stream = sd.InputStream(
-            samplerate=TAXA, channels=1, dtype="int16", blocksize=BLOCO, device=self.dispositivo, callback=cb
-        )
-        self._stream.start()
+        fluxo = sd.InputStream(samplerate=TAXA, channels=1, dtype="int16", blocksize=BLOCO, device=disp, callback=cb)
+        fluxo.start()
+        self._recebido_em = self._relogio()  # o novo tem um tempo para começar a entregar
+        return fluxo
 
-    def _fechar(self) -> None:
-        stream, self._stream = self._stream, None
-        if stream is not None:
+    @staticmethod
+    def _fechar_fluxo(fluxo) -> None:
+        if fluxo is not None:
             try:
-                stream.stop()
-                stream.close()
-            except Exception:  # noqa: BLE001 - aparelho que sumiu pode falhar ao fechar; o novo abre igual
+                fluxo.stop()
+                fluxo.close()
+            except Exception:  # noqa: BLE001 - aparelho que sumiu pode falhar ao fechar
                 pass
 
     def __exit__(self, *exc: object) -> None:
-        self._fechar()
+        with self._trava:
+            self._encerrado = True  # uma vigia que termine depois não abre fluxo que ninguém fecha
+            fluxo, self._stream = self._stream, None
+        self._fechar_fluxo(fluxo)
 
-    def _trocar_para(self, disp: int | None, nome: str, motivo: str) -> None:
-        antes = self.nome
-        self._fechar()
-        self.dispositivo, self.nome = disp, nome
-        try:
-            self._abrir()
-        except Exception as e:  # noqa: BLE001 - tenta de novo na próxima vigia
-            self._avisar(f"não consegui abrir {nome} ({e})")
-            return
-        self._avisar(f"{motivo}: {antes} → {nome}" if nome != antes else f"{motivo}: {nome} reaberto")
+    def _trocar_para(self, disp: int | None, nome: str, motivo: str, *, avisar: bool = True) -> bool:
+        """Abre o novo ANTES de fechar o atual: se ele não abrir, continua tudo como estava (revisão do PR 39)."""
+        with self._trava:
+            if self._encerrado:
+                return False
+            try:
+                novo = self._criar(disp)
+            except Exception as e:  # noqa: BLE001 - tenta de novo na próxima vigia
+                if avisar:
+                    self._avisar(f"não consegui abrir {nome} ({e}); continua {self.nome}")
+                return False
+            antigo, antes = self._stream, self.nome
+            self._stream, self.dispositivo, self.nome = novo, disp, nome
+        if antigo is not novo:
+            self._fechar_fluxo(antigo)
+        if avisar:
+            self._avisar(f"{motivo}: {antes} → {nome}" if nome != antes else f"{motivo}: {nome} reaberto")
+        return True
 
     def _avisar(self, texto: str) -> None:
         if self.ao_trocar is not None:
@@ -320,8 +337,10 @@ class Microfone:
     def _vigiar(self, acao: str) -> None:
         """Roda numa thread: amostrar um microfone leva 0,4 s e o fluxo atual continua enchendo a fila."""
         if acao == "reabrir":
+            primeira = self._espera_reabrir <= SEM_AUDIO_S  # numa sequência de falhas, só a 1ª vai ao log
             disp, nome, _ = escolher_microfone(self.nomes)
-            self._trocar_para(disp, nome, "o microfone parou de mandar áudio")
+            self._trocar_para(disp, nome, "o microfone parou de mandar áudio", avisar=primeira)
+            self._espera_reabrir = min(self._espera_reabrir * 2, TROCAR_APOS_SILENCIO_S)
         elif acao == "trocar":
             disp, nome, _ = escolher_microfone(self.nomes)
             if disp != self.dispositivo:
@@ -337,11 +356,22 @@ class Microfone:
             if voltou:
                 self._trocar_para(disp, nome, f"{nome} voltou")
 
-    async def _cuidar(self, acao: str) -> None:
+    def _vigiar_seguro(self, acao: str) -> None:
         try:
-            await asyncio.to_thread(self._vigiar, acao)
+            self._vigiar(acao)
         except Exception:  # noqa: BLE001 - a vigia nunca derruba a escuta
             pass
+
+    async def _cuidar(self, acao: str) -> None:
+        """Uma ação por vez e com prazo: um driver que trave ao abrir não congela a escuta (revisão do PR 39).
+        Passado o prazo, a escuta segue no fluxo atual e a thread termina sozinha quando o driver soltar."""
+        if self._em_andamento is not None and not self._em_andamento.done():
+            return
+        self._em_andamento = asyncio.ensure_future(asyncio.to_thread(self._vigiar_seguro, acao))
+        try:
+            await asyncio.wait_for(asyncio.shield(self._em_andamento), PRAZO_VIGIA_S)
+        except TimeoutError:
+            self._avisar(f"a troca de microfone passou de {PRAZO_VIGIA_S:g} s (driver travado?); a escuta continua")
         self._vigia.zerar(self._relogio(), self._e_o_preferido())
 
     def descartar(self) -> None:
@@ -357,10 +387,11 @@ class Microfone:
             try:
                 bloco = self._fila.get_nowait()
             except queue.Empty:
-                if self._relogio() - self._recebido_em >= SEM_AUDIO_S:
+                if self._relogio() - self._recebido_em >= self._espera_reabrir:
                     await self._cuidar("reabrir")
                 await asyncio.sleep(0.01)
                 continue
+            self._espera_reabrir = SEM_AUDIO_S
             if (acao := self._vigia.bloco(bloco, self._relogio())) is not None:
                 await self._cuidar(acao)
             yield bloco
