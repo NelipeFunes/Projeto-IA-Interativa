@@ -16,7 +16,9 @@ export type Comando =
   | { tipo: "desconectar"; servico: string }
   | { tipo: "ligar_conexao"; servico: string; ligado: boolean }
   | { tipo: "cancelar_conexao"; servico: string }
-  | { tipo: "reiniciar" };
+  | { tipo: "reiniciar" }
+  | { tipo: "calibrar_ativacao" }
+  | { tipo: "esquecer_apelidos" };
 
 export interface Conexao {
   enviar: (c: Comando) => void;

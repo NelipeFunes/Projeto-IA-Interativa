@@ -13,7 +13,8 @@ GET    /memorias     lista; DELETE /memorias/{id} apaga (clique na tela = você 
 POST   /janela       {"acao": "mostrar"}: abre a janela (usado quando você roda `vision` com o núcleo já ligado)
 WS     /ws           eventos do núcleo → tela; comandos da tela → núcleo (texto, confirmar, ouvir, parar_fala,
                      ajustes, salvar_ajustes, amostra_voz, conexoes, conectar, desconectar,
-                     ligar_conexao, cancelar_conexao, reiniciar)
+                     ligar_conexao, cancelar_conexao, reiniciar,
+                     calibrar_ativacao, esquecer_apelidos)
 GET    /app/...      a interface (arquivos estáticos de ui/dist, sem segredo)
 """
 
@@ -69,6 +70,9 @@ class Controle:
     ligar_conexao: Callable[[str, bool], Awaitable[None]] | None = None
     cancelar_conexao: Callable[[str], Awaitable[None]] | None = None
     reiniciar: Callable[[], None] | None = None
+    # Calibração do "Hey Vision" (Ajustes): a resposta volta como eventos "calibracao".
+    calibrar_ativacao: Callable[[], Awaitable[None]] | None = None
+    esquecer_apelidos: Callable[[], Awaitable[None]] | None = None
 
 
 def origens_permitidas(porta: int) -> set[str]:
@@ -286,6 +290,10 @@ def _comando(msg: Any, controle: Controle, tarefas: set[asyncio.Task]) -> None:
             tarefa = asyncio.create_task(controle.cancelar_conexao(servico))
     elif tipo == "reiniciar" and controle.reiniciar is not None:
         controle.reiniciar()
+    elif tipo == "calibrar_ativacao" and controle.calibrar_ativacao is not None:
+        tarefa = asyncio.create_task(controle.calibrar_ativacao())
+    elif tipo == "esquecer_apelidos" and controle.esquecer_apelidos is not None:
+        tarefa = asyncio.create_task(controle.esquecer_apelidos())
     if tarefa is not None:
         tarefas.add(tarefa)
         tarefa.add_done_callback(tarefas.discard)

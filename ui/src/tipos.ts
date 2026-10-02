@@ -61,6 +61,21 @@ export interface DadosAjustes {
   erro?: string;
   salvo?: boolean;
   reiniciar?: boolean;
+  /** Como o STT escreve o "Vision" na sua voz, aprendido na calibração. */
+  apelidos?: string[];
+}
+
+/** A calibração do "Hey Vision": o núcleo manda a cada etapa e no fim. */
+export interface DadosCalibracao {
+  rodando: boolean;
+  etapa?: number;
+  de?: number;
+  ouvidos?: { texto: string; acordou: boolean }[];
+  aprendidos?: string[];
+  apelidos?: string[];
+  acertos?: number;
+  dica?: string;
+  erro?: string;
 }
 
 /** Um campo do formulário de conexão. Segredos (tipo "senha") nunca vêm preenchidos do núcleo. */
@@ -116,6 +131,7 @@ export type Evento =
   | { tipo: "aviso"; texto: string | null }
   | ({ tipo: "ajustes" } & DadosAjustes)
   | ({ tipo: "conexoes" } & DadosConexoes)
+  | ({ tipo: "calibracao" } & DadosCalibracao)
   | {
       tipo: "painel";
       nome?: string;

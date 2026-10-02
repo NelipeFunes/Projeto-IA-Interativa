@@ -16,8 +16,11 @@ mas só vale no começo da fala: "visita" ou "visual" no meio de uma frase não 
 from __future__ import annotations
 
 import difflib
+import json
 import re
 import unicodedata
+from collections import Counter
+from pathlib import Path
 
 NOME = "vision"
 # Grafias que o Parakeet já produziu para "Vision" (ou que um sotaque produz).
@@ -59,8 +62,67 @@ def _normalizar(texto: str) -> list[str]:
     return re.findall(r"[a-z0-9]+", sem_acento)
 
 
+# Calibração (02/10: "é o que ele menos entende"): como o STT escreve o "Vision" na voz do Felipe, aprendido nos
+# Ajustes ("Calibrar o Hey Vision") e guardado em data/ativacao.json. Valem como GRAFIAS.
+APELIDOS: set[str] = set()
+ARQUIVO_APELIDOS = "ativacao.json"
+MINIMO_REPETICOES = 2  # uma grafia só é aprendida se sair pelo menos 2 vezes na calibração
+# Palavras comuns não viram apelido, mesmo repetidas: com elas, conversa normal (ou a TV) acordaria o Vision.
+COMUNS = {
+    "yeah", "yes", "hey", "hi", "hello", "the", "you", "your", "this", "that", "with", "what", "when", "where", "have",
+    "just", "like", "know", "okay", "good", "right", "there", "they", "them", "then", "here", "were", "will", "would",
+    "could", "should", "about", "really", "thank", "thanks", "nice", "sorry", "please", "music", "living", "love",
+    "isso", "esse", "essa", "este", "esta", "aqui", "agora", "entao", "tudo", "nada", "sim", "nao", "obrigado",
+    "beleza", "valeu", "certo", "ainda", "depois", "antes", "muito", "pouco", "mais", "menos", "coisa", "gente",
+    "voce", "vamos", "vai", "vou", "tem", "tenho", "quero", "pode", "fala", "falar", "olha", "olhar", "visao",
+    "visita", "visual", "vista", "divisao", "revisao", "televisao", "decisao", "precisa", "preciso",
+}
+
+
+def definir_apelidos(apelidos) -> None:
+    APELIDOS.clear()
+    APELIDOS.update(a for a in apelidos if apelido_valido(a))
+
+
+def ler_apelidos(pasta: Path) -> list[str]:
+    try:
+        dados = json.loads((pasta / ARQUIVO_APELIDOS).read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        return []
+    lista = dados.get("apelidos") if isinstance(dados, dict) else None
+    return [a for a in lista if isinstance(a, str) and apelido_valido(a)] if isinstance(lista, list) else []
+
+
+def gravar_apelidos(pasta: Path, apelidos: list[str]) -> None:
+    pasta.mkdir(parents=True, exist_ok=True)
+    tmp = pasta / (ARQUIVO_APELIDOS + ".tmp")
+    tmp.write_text(json.dumps({"apelidos": sorted(set(apelidos))}, ensure_ascii=False), encoding="utf-8")
+    tmp.replace(pasta / ARQUIVO_APELIDOS)
+
+
+def apelido_valido(palavra: str) -> bool:
+    return (isinstance(palavra, str) and palavra.isascii() and palavra.isalpha() and 4 <= len(palavra) <= 14
+            and palavra not in COMUNS | ANTES | FORTES | FECHAMENTO | DESLIGAR | ENCHIMENTO and palavra != STANDBY)
+
+
+def candidato_do_nome(texto: str) -> str | None:
+    """Onde o nome deveria estar: a 1ª palavra depois dos chamados ("Hey Deliving" → "deliving"; "Deliving" →
+    "deliving"). None se a fala começa com outra coisa demais (aí não dá para saber qual palavra era o nome)."""
+    palavras = _normalizar(texto)
+    for i, p in enumerate(palavras[:3]):
+        if p not in ANTES:
+            return p if all(a in ANTES for a in palavras[:i]) else None
+    return None
+
+
+def aprender_apelidos(ouvidos: list[str]) -> list[str]:
+    """Das falas da calibração que NÃO acordaram, as grafias do nome que se repetem (e não são palavra comum)."""
+    contagem = Counter(c for t in ouvidos if achar_ativacao(t) is None and (c := candidato_do_nome(t)))
+    return sorted(c for c, n in contagem.items() if n >= MINIMO_REPETICOES and apelido_valido(c))
+
+
 def _e_o_nome(palavra: str, chamado_forte: bool) -> bool:
-    if palavra in GRAFIAS:
+    if palavra in GRAFIAS or palavra in APELIDOS:
         return True
     # Grudado num chamado ("heyvision", "valuvision"), mas não "revision" nem "visionario".
     for g in GRAFIAS:

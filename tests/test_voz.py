@@ -568,3 +568,35 @@ async def test_registrar_ativacao_so_escreve_o_que_ouviu_quando_ligado(pecas, re
         assert ativacao == [] and not any("bom dia" in x.lower() for x in linhas)
     else:
         assert len(ativacao) == 2 and "não acordou" in ativacao[0] and ativacao[1].endswith("acordou")
+
+
+
+async def test_calibracao_ouve_cada_vez_e_devolve_o_que_entendeu(pecas, registro, tmp_path):
+    """Calibração (02/10): bipe, uma fala, o começo transcrito; quem não falou vira "" (e conta como não ouvido)."""
+    from vision.voice import comandos
+
+    comandos.definir_apelidos([])
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
+        _silencio(0.3), _chama(pecas), _silencio(1.2), _chama(pecas), _silencio(7.0),
+    ], tmp_path)
+    resultado = {}
+
+    def ao_fim(ouvidos, aprendidos):
+        resultado.update(ouvidos=ouvidos, aprendidos=aprendidos)
+
+    assert laco.pedir_calibracao(3, ao_fim) is None
+    assert laco.pedir_calibracao(3, ao_fim) == "A calibração já está rodando."
+    eventos = []
+    laco.ao_evento = eventos.append
+    await laco.rodar()
+    assert [o["acordou"] for o in resultado["ouvidos"]] == [True, True, False]
+    assert resultado["ouvidos"][2]["texto"] == "" and resultado["aprendidos"] == []
+    etapas = [e["etapa"] for e in eventos if e.get("tipo") == "calibracao"]
+    assert etapas == [1, 2, 3]
+    assert not laco.em_conversa and laco.historico == []  # nada foi tratado como pedido
+
+
+async def test_calibracao_recusa_com_a_escuta_pausada(pecas, registro, tmp_path):
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [_silencio(0.5)], tmp_path)
+    (tmp_path / "dormindo.flag").write_text("1", encoding="utf-8")
+    assert "pausada" in laco.pedir_calibracao(5, lambda *_a: None)

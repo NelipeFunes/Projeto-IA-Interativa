@@ -293,7 +293,56 @@ class Nucleo:
                         salvar_ajustes=self.salvar_ajustes, amostra_voz=self.amostra_voz,
                         ler_conexoes=self.ler_conexoes, conectar=self.conectar, desconectar=self.desconectar,
                         ligar_conexao=self.ligar_conexao, cancelar_conexao=self.cancelar_conexao,
-                        reiniciar=self.reiniciar)
+                        reiniciar=self.reiniciar, calibrar_ativacao=self.calibrar_ativacao,
+                        esquecer_apelidos=self.esquecer_apelidos)
+
+    # ---------- calibração do "Hey Vision" ----------
+
+    VEZES_CALIBRACAO = 5
+
+    async def calibrar_ativacao(self) -> None:
+        if self.laco is None:
+            self.barramento.publicar({"tipo": "calibracao", "rodando": False, "erro": "A voz está desligada."})
+            return
+        motivo = self.laco.pedir_calibracao(self.VEZES_CALIBRACAO, self._fim_calibracao)
+        if motivo:
+            self.barramento.publicar({"tipo": "calibracao", "rodando": False, "erro": motivo})
+            return
+        self.barramento.publicar({"tipo": "calibracao", "rodando": True, "etapa": 0, "de": self.VEZES_CALIBRACAO,
+                                  "ouvidos": []})
+
+    async def _fim_calibracao(self, ouvidos: list[dict[str, Any]], aprendidos: list[str]) -> None:
+        from vision.voice import comandos
+
+        todos = sorted(set(comandos.ler_apelidos(self.cfg.dados)) | set(aprendidos))
+        if aprendidos:
+            await asyncio.to_thread(comandos.gravar_apelidos, self.cfg.dados, todos)
+            comandos.definir_apelidos(todos)
+            log.info("calibração: aprendi %s", ", ".join(aprendidos))
+        acertos = sum(1 for o in ouvidos if o["acordou"])
+        vazios = sum(1 for o in ouvidos if not o["texto"])
+        microfone = self.laco.entrada.nome if self.laco is not None else "?"
+        if vazios * 2 >= len(ouvidos):
+            dica = (f"Quase não ouvi nada no microfone ({microfone}). Confira se ele está ligado e sem mudo; "
+                    "o headset ouve bem melhor que a webcam.")
+        elif acertos == len(ouvidos):
+            dica = "Ele já entende o seu \"Hey Vision\" em todas as vezes."
+        elif aprendidos:
+            dica = f"Aprendi como ele escreve o seu \"Vision\": {', '.join(aprendidos)}. Teste agora."
+        else:
+            dica = ("Saiu diferente a cada vez e não deu para aprender uma grafia segura. Tente de novo, mais perto "
+                    f"do microfone ({microfone}).")
+        self.barramento.publicar({"tipo": "calibracao", "rodando": False, "ouvidos": ouvidos, "aprendidos": aprendidos,
+                                  "apelidos": todos, "acertos": acertos, "dica": dica})
+
+    async def esquecer_apelidos(self) -> None:
+        from vision.voice import comandos
+
+        await asyncio.to_thread(comandos.gravar_apelidos, self.cfg.dados, [])
+        comandos.definir_apelidos([])
+        log.info("calibração: grafias aprendidas esquecidas")
+        self.barramento.publicar({"tipo": "calibracao", "rodando": False, "apelidos": [],
+                                  "dica": "Esqueci as grafias aprendidas."})
 
     # ---------- tela de conexões ----------
 
@@ -398,8 +447,11 @@ class Nucleo:
     # ---------- tela de ajustes ----------
 
     async def ler_ajustes(self, **extra: Any) -> None:
+        from vision.voice.comandos import APELIDOS
+
         dados = await asyncio.to_thread(ajustes.ler, self.cfg)  # a lista de microfones consulta o áudio
         dados["valores"]["inicia_com_windows"] = inicializacao.ativo()
+        dados["apelidos"] = sorted(APELIDOS)  # o que a calibração do "Hey Vision" aprendeu
         self.barramento.publicar({"tipo": "ajustes", **dados, **extra})
 
     async def salvar_ajustes(self, valores: dict[str, Any]) -> None:

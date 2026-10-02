@@ -249,3 +249,29 @@ async def test_no_jogo_o_pre_carregamento_espera_o_jogo_fechar(agente):
     assert not a.llm.carregado
     await a.liberar_modelo()  # o jogo fechou
     assert a.llm.carregado
+
+
+
+def test_comandos_de_calibracao_pelo_websocket(cfg):
+    barramento = Barramento()
+    recebidos = []
+
+    async def calibrar():
+        recebidos.append("calibrar")
+
+    async def esquecer():
+        recebidos.append("esquecer")
+        barramento.publicar({"tipo": "fim"})
+
+    async def painel():
+        return {"tipo": "painel"}
+
+    controle = Controle(painel=painel, calibrar_ativacao=calibrar, esquecer_apelidos=esquecer)
+    c = TestClient(criar_app(cfg, token=TOKEN, barramento=barramento, controle=controle))
+    with c.websocket_connect("/ws", headers={"Origin": ORIGEM}) as ws:
+        ws.send_json({"tipo": "ola", "token": TOKEN})
+        assert ws.receive_json()["tipo"] == "painel"
+        ws.send_json({"tipo": "calibrar_ativacao"})
+        ws.send_json({"tipo": "esquecer_apelidos"})
+        assert ws.receive_json() == {"tipo": "fim"}
+    assert recebidos == ["calibrar", "esquecer"]
