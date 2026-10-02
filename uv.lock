@@ -1872,6 +1872,7 @@ dependencies = [
     { name = "tzdata" },
     { name = "uvicorn" },
     { name = "websockets" },
+    { name = "wyoming" },
 ]
 
 [package.dev-dependencies]
@@ -1913,6 +1914,7 @@ requires-dist = [
     { name = "tzdata" },
     { name = "uvicorn", specifier = ">=0.30" },
     { name = "websockets", specifier = ">=13" },
+    { name = "wyoming", specifier = ">=1.5,<2" },
 ]
 
 [package.metadata.requires-dev]
@@ -1950,6 +1952,15 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/a4/34/4dd12fc8bb7d61c91467ec3efe415ffa7d5456f799954b40c5bbaeae470e/werkzeug-3.1.9.tar.gz", hash = "sha256:55ca7c70a75689be937aa27f8ff4b018f06ff4838fc73045560bf0f5a1291060", size = 940188, upload-time = "2026-09-27T18:33:41.637Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/a1/38/df03f564f43cec2684823f3cccae1a652ee7face1cbaa76fb223096e64d7/werkzeug-3.1.9-py3-none-any.whl", hash = "sha256:6392e50c78460ba618e5b21f08a71f59c99ce99cdc6cf6e3dd7e6ccca8754fab", size = 228700, upload-time = "2026-09-27T18:33:39.685Z" },
+]
+
+[[package]]
+name = "wyoming"
+version = "1.10.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/de/37/bfc5d51c916c4bdab16cb7eb62556d3eaaa8b5f8eba33dbe992780dc4a46/wyoming-1.10.2.tar.gz", hash = "sha256:2a84035d9e51f4be68b27c9791273c5bce29f79f0c37137ea49cc417294f9080", size = 45540, upload-time = "2026-08-27T16:30:49.154Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/08/98/512f8d7d95eeedbf157994c39572822e3f8ae724ccbb5ae027caa09cf707/wyoming-1.10.2-py3-none-any.whl", hash = "sha256:08aec17ccad4d72fc3f919ab741beacf3f23a1df24c8b9a317ebc6e02d2b227c", size = 44869, upload-time = "2026-08-27T16:30:47.72Z" },
 ]
 
 [[package]]
