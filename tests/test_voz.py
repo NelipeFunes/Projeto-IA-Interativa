@@ -550,3 +550,21 @@ async def test_erro_na_voz_numa_resposta_nao_derruba_a_escuta(pecas, registro, t
     laco.voz = VozQueQuebra(pecas["pt"])
     await laco.rodar()
     assert laco.historico[-1]["vision"] == "Agora sim."  # a 2ª pergunta ainda foi ouvida e respondida
+
+
+@pytest.mark.parametrize("ligado", [False, True])
+async def test_registrar_ativacao_so_escreve_o_que_ouviu_quando_ligado(pecas, registro, tmp_path, ligado):
+    """voz.registrar_ativacao (diagnóstico de 02/10): desligado, a fala que não é com ele não vai a lugar nenhum."""
+    linhas = []
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
+        _silencio(0.5), _fala(pecas["pt"], "Bom dia, tudo bem com você?"), _silencio(1.5),
+        _chama(pecas), _silencio(1.5),
+    ], tmp_path, registrar_ativacao=ligado)
+    laco.escrever = linhas.append
+    await laco.rodar()
+    assert laco.em_conversa  # o "Hey Vision" acordou nos dois casos
+    ativacao = [x for x in linhas if x.startswith("(ativação)")]
+    if not ligado:
+        assert ativacao == [] and not any("bom dia" in x.lower() for x in linhas)
+    else:
+        assert len(ativacao) == 2 and "não acordou" in ativacao[0] and ativacao[1].endswith("acordou")

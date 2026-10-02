@@ -119,8 +119,12 @@ class LoopVoz:
         vigia: DetectorFala | None = None,
         interromper_apos_s: float = INTERROMPER_APOS_S,
         piper_ate_caracteres: int = PIPER_ATE_CARACTERES,
+        registrar_ativacao: bool = False,
     ):
         self.agente = agente
+        # Diagnóstico (voz.registrar_ativacao): escreve o que o STT ouviu no começo de cada fala, esperando o
+        # "Hey Vision". Desligado por padrão: ligado, a conversa perto do PC vai para o log.
+        self.registrar_ativacao = registrar_ativacao
         # Com o XTTS: resposta de uma frase só até esse tamanho ("Acendi a luz do quarto.") sai pelo Piper, na hora.
         self.piper_ate_caracteres = piper_ate_caracteres
         self.voz = voz
@@ -357,8 +361,10 @@ class LoopVoz:
         comeco = pcm[: int(TRECHO_ATIVACAO_S * TAXA)]
         texto = await self._transcrever(comeco)
         resto = achar_ativacao(texto)
+        if self.registrar_ativacao:
+            self.escrever(f"(ativação) ouvi {texto!r}: {'acordou' if resto is not None else 'não acordou'}")
         if resto is None:
-            return  # não era com ele: nada é guardado nem mostrado
+            return  # não era com ele: nada é guardado nem mostrado (a não ser com voz.registrar_ativacao)
         if pcm.size > comeco.size:  # a fala continua: o pedido vem inteiro (nunca o trecho cortado em 2,5 s)
             inteiro = await self._transcrever(pcm)
             if inteiro.strip():  # se o STT falhou só aqui, fica o que já foi ouvido no começo
@@ -850,11 +856,16 @@ def preparar_voz(
                        vigia=(DetectorFala(pasta_oww / "silero_vad.onnx", 500, 60)
                               if cfg.get("voz.interromper_por_voz", True) else None),
                        interromper_apos_s=float(cfg.get("voz.interromper_apos_s", INTERROMPER_APOS_S)),
-                       piper_ate_caracteres=int(cfg.get("voz.piper_ate_caracteres", PIPER_ATE_CARACTERES)))
+                       piper_ate_caracteres=int(cfg.get("voz.piper_ate_caracteres", PIPER_ATE_CARACTERES)),
+                       registrar_ativacao=bool(cfg.get("voz.registrar_ativacao", False)))
         loop = asyncio.get_running_loop()
         atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
         for nota in mic.notas:
             escrever(f"  [microfone] {nota}")
+        mic.ao_trocar = escrever  # mudo/desligado → o próximo da lista; o preferido voltou → volta (vai ao log)
+        if laco.registrar_ativacao:
+            escrever("[aviso] voz.registrar_ativacao ligado: o começo do que se fala perto do PC vai para o log. "
+                     "Desligue no config.yaml quando terminar.")
         escrever(f"Microfone: {mic.nome} · Saída: {saida.nome}")
         try:
             yield laco, atalho

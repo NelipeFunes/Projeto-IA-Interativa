@@ -35,6 +35,10 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
 - **Conversa:** "Hey Vision" acorda (um bipe, e ele já ouve); daí tudo o que você fala vai para ele, sem repetir
   o nome, até "Vision, standby" ou 2 minutos de silêncio. Fora da conversa, o que você fala perto do PC
   é transcrito só para achar o nome e descartado (não vai para a tela, o log nem o disco).
+  Para entender por que ele não acorda, `voz.registrar_ativacao: true` no `config.yaml` escreve no log o que ele
+  ouviu no começo de cada fala (desligue depois: com isso ligado, o que se fala perto do PC vai para o log).
+- **Microfone:** usa o primeiro da lista `voz.microfone` que tiver som. Se ele ficar mudo ou desligado por
+  1 minuto (headset sem fio), passa para o próximo; quando o primeiro volta, volta para ele. Fica no log.
 - **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.
 - **Janela fechada:** falando com ele, aparece uma bolha no canto, sem tirar o foco (não aparece no modo jogo).
 - **Conexões (⚙ → Conexões):** Google Agenda, Spotify, Alexa, Wispr Flow, a chave da Tavily e o Orbit, sem

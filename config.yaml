@@ -133,6 +133,9 @@ voz:
   # Como ele acorda: "transcricao" = "Hey Vision" achado no texto do começo de cada fala curta (sem modelo pronto
   # para esse nome); "modelo" = openWakeWord com a palavra abaixo (o "Hey Jarvis" de antes).
   ativacao: transcricao
+  # Diagnóstico do "Hey Vision": true escreve no log (data/logs/nucleo.log) o que foi entendido no começo de cada
+  # fala e se acordou. Desligado por padrão: ligado, o que se fala perto do PC vai para o log. Vale ao reiniciar.
+  registrar_ativacao: false
   palavra_ativacao: hey_jarvis
   # Inglês nativo dá 0,99; vozes sintéticas PT-BR dizendo "Hey Jarvis" deram 0,11–0,75; frases comuns ~0,00.
   # Sua voz (30/09, microfone da webcam, porque o HyperX estava mudo): 0,47 e 0,86. O limiar 0,3 pega as duas.
