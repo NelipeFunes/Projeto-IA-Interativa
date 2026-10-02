@@ -50,6 +50,27 @@ estiver rodando). Dá para fixar na barra de tarefas ou criar um atalho na área
 dentro da pasta do projeto (a que tem o `.venv`), ou usar a variável `VISION_HOME`. Se o Vision não iniciar,
 um aviso aponta para `data\logs\nucleo.log`. Não vai para o git.
 
+### Pacote independente (sem Python instalado)
+
+Uma pasta `dist\Vision\` com o `Vision.exe` de verdade (PyInstaller): o programa tem uns 300 MB, contra 8 GB do
+ambiente de desenvolvimento, porque não leva o torch do XTTS.
+
+```bash
+# 1 vez: um ambiente à parte, só com o necessário (+ PyInstaller)
+$env:UV_PROJECT_ENVIRONMENT=".venv-pacote"; uv sync --no-default-groups --group empacotar
+# sempre que quiser um pacote novo
+.venv-pacote\Scripts\python scripts\empacotar.py --modelos copiar   # ou: ligar (atalhos de pasta) | nenhum
+```
+
+- **Ao lado do `.exe` ficam:** `config.yaml`, `ui\dist`, `modelos\` (só a voz Piper, o Parakeet e a palavra de
+  ativação), `node\` (Google Agenda) e a pasta `data\`, que começa **vazia**: cada instalação refaz os seus
+  logins (`Vision.exe google-login`, `spotify-login`...) e cria a sua memória. Nunca entram `.env`, `data\` do projeto
+  nem os modelos do XTTS.
+- **Usos:** `Vision.exe` abre a janela; `Vision.exe --nucleo` é o núcleo em segundo plano (é o que a pasta
+  Inicializar executa); `Vision.exe <comando>` roda qualquer comando do `vision` (`chat`, `teste`, `wyoming`...).
+- **Ollama** continua sendo instalado à parte (é ele que roda o modelo de IA).
+- O pacote não toma o lugar de um atalho de inicialização que já exista no Windows.
+
 ## Comandos (de qualquer pasta)
 
 ```bash

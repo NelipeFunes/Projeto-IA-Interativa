@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import sys
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
@@ -10,7 +11,8 @@ from typing import Any
 import yaml
 from dotenv import load_dotenv
 
-RAIZ = Path(__file__).resolve().parents[2]
+# Do código-fonte: a pasta do projeto. Empacotado (Vision.exe): a pasta do próprio .exe (ver vision/empacotado.py).
+RAIZ = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) else Path(__file__).resolve().parents[2]
 # O que você muda pela tela de ajustes (vision/ajustes.py): em data/, fora do git, por cima do config.yaml.
 AJUSTES_LOCAIS = "config-local.yaml"
 # Só estas chaves saem do arquivo local (as mesmas de vision/ajustes.py): o resto é ignorado.

@@ -33,7 +33,7 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from vision import ajustes, config, inicializacao
+from vision import ajustes, config, empacotado, inicializacao
 from vision.eventos import Barramento
 from vision.voice.loop import FALA_DE_ERRO
 
@@ -155,7 +155,7 @@ class Janela:
         saida = (self.cfg.dados / "logs" / "janela.log").open("a", encoding="utf-8")
         try:
             self.proc = subprocess.Popen(
-                [sys.executable, "-m", "vision.cli", "interface", "--nucleo"],
+                empacotado.comando_do_vision("interface", "--nucleo"),
                 stdin=subprocess.PIPE, stdout=saida, stderr=subprocess.STDOUT, env=env, cwd=self.cfg.raiz,
                 text=True, encoding="utf-8", creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
             )
