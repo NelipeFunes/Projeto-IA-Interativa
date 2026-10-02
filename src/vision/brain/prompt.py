@@ -74,6 +74,9 @@ def regras(ferramentas: set[str] | None = None, confirmacao: str = "todas") -> s
         linhas.append("12. Música: \"toca X\" é `musica_tocar` com busca=X (ele abre o Spotify sozinho; não use "
                       "programa_abrir antes). tipo=artista/album/playlist quando o Felipe disser. Pausar, continuar, "
                       "pular: `musica_controlar`. \"Que música é essa?\": `musica_tocando`.")
+    if tem("protocolo_executar"):
+        linhas.append("15. Protocolos (várias ações de uma vez, criados pelo Felipe): `protocolo_executar` quando ele "
+                      "pedir um pelo nome (\"protocolo X\", \"modo X\").")
     if tem("web_buscar"):
         linhas.append("13. Internet: `web_buscar` e, para ver detalhes de um resultado, `web_ler`. Antes de buscar, "
                       "use as MEMÓRIAS e o PERFIL para pôr na consulta os critérios que importam para o Felipe (ex.: "

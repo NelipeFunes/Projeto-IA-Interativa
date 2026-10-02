@@ -141,6 +141,13 @@ async def montar(
             cfg.dados / "cache", validade_h=float(cfg.get("web.cache_horas", 6)),
             max_resultados=int(cfg.get("web.resultados", 5)), limite_cota=int(cfg.get("web.cota_mensal", 1000)),
         )).ferramentas())
+    if cfg.get("protocolos.ativo", True):
+        from vision.tools.protocolos import Protocolos
+
+        # Por último: os passos de cada protocolo são conferidos contra as ferramentas que já existem.
+        protocolos = Protocolos(cfg.dados / "protocolos.yaml", registro)
+        registro.adicionar(*protocolos.ferramentas())
+        atalhos.insert(0, protocolos.atalho)  # a frase do protocolo vale antes dos outros atalhos
     agente = Agente(
         llm or criar_llm(cfg),
         registro,

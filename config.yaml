@@ -73,6 +73,11 @@ pc:
   # timers e alarmes, e comando do PowerShell quando nada serve (SEMPRE pede "sim", mostrando o comando).
   ativo: true
 
+protocolos:
+  # Uma frase, várias ações (como o "House Party Protocol" do JARVIS). Ficam em data/protocolos.yaml, criado com
+  # dois exemplos na 1ª vez. Ferramentas que pedem "sim" não podem ser passo.
+  ativo: true
+
 web:
   # Busca na internet (pedido de 01/10). Com TAVILY_API_KEY no .env usa a Tavily (1.000 buscas grátis por mês,
   # já devolve um resumo); sem chave, ou com a cota no fim, usa o DuckDuckGo. Cache e contador em data/cache/.
