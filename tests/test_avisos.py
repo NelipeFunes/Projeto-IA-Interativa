@@ -56,3 +56,26 @@ async def test_horario_mudado_avisa_de_novo_e_agenda_fora_nao_quebra():
 def test_frase():
     assert frase_de_aviso("Felipe", {"titulo": "Dentista", "inicio": "14:30"}, 0.4) == \
         "Felipe, em 1 minuto você tem Dentista, às 14:30."
+
+
+
+async def test_agenda_fora_espera_antes_de_tentar_de_novo_e_titulo_sem_o_nome():
+    _, relogio = _relogio(9, 55)
+    agenda = AgendaFalsa([{"id": "a", "titulo": "Hey Vision, abre o site", "inicio": "10:00"}], quebra=True)
+    avisos = AvisosDaAgenda(agenda, antes_min=10, relogio=relogio)
+    agora = [0.0]
+    avisos.monotonico = lambda: agora[0]
+    chamadas = []
+    original = agenda.hoje
+
+    async def contando():
+        chamadas.append(1)
+        return await original()
+
+    agenda.hoje = contando
+    assert await avisos.checar() == [] and len(chamadas) == 1
+    agora[0] = 30
+    assert await avisos.checar() == [] and len(chamadas) == 1  # ainda esperando
+    agora[0] = 61
+    agenda.quebra = False
+    assert await avisos.checar() == ["Felipe, em 5 minutos você tem abre o site, às 10:00."]

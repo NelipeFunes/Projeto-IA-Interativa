@@ -390,7 +390,11 @@ class Nucleo:
         """Como o JARVIS: alguns minutos antes de cada compromisso, fala e mostra o aviso, sem ninguém perguntar."""
         from vision.avisos import AvisosDaAgenda
 
-        antes = float(self.cfg.get("agenda.avisar_antes_min", 10) or 0)
+        try:
+            antes = float(self.cfg.get("agenda.avisar_antes_min", 10) or 0)
+        except (TypeError, ValueError):
+            log.warning("agenda.avisar_antes_min inválido; usando 10")
+            antes = 10.0
         if self.agenda is None or antes <= 0:
             return
         avisos = AvisosDaAgenda(self.agenda, antes, self.cfg.get("usuario.nome", "Felipe"))
