@@ -13,8 +13,10 @@ from __future__ import annotations
 import asyncio
 import difflib
 import os
+import time
 import unicodedata
 from datetime import date
+from pathlib import Path
 from typing import Any
 from urllib.parse import quote
 
@@ -71,26 +73,58 @@ def _simples(texto: str) -> str:
     return " ".join("".join(c for c in t if not unicodedata.combining(c) and (c.isalnum() or c.isspace())).split())
 
 
-def achar_tarefa(tarefas: list[dict[str, Any]], busca: str) -> dict[str, Any]:
-    """A tarefa que o Felipe disse ("pagar o IPVA" acha "Pagar IPVA"). Ambígua ou ausente: ErroOrbit com as opções,
-    para o modelo perguntar em vez de mexer na tarefa errada."""
-    alvo = _simples(busca)
+# Palavras que não distinguem uma tarefa de outra ("pagar o IPVA" = "Pagar IPVA").
+_VAZIAS = {"o", "a", "os", "as", "de", "do", "da", "dos", "das", "um", "uma", "e", "no", "na", "pra", "para", "tarefa"}
+
+
+def _palavras(texto: str) -> set[str]:
+    return {p for p in _simples(texto).split() if p not in _VAZIAS}
+
+
+def feita(t: dict[str, Any]) -> bool:
+    return campo(t, "concluida") in (True, "done", "completed")
+
+
+def achar_tarefa(tarefas: list[dict[str, Any]], busca: str, estado: str = "aberta") -> dict[str, Any]:
+    """A tarefa que o Felipe disse. `estado`: "aberta" (concluir), "feita" (reabrir) ou "qualquer" (editar/apagar:
+    as abertas primeiro).
+
+    Revisão do PR 40: sem aproximação. Todas as palavras ditas precisam estar no título, e só uma tarefa pode
+    servir: "Pagar IPVA 2025" não acha "Pagar IPVA 2026", e "IPVA do carro" não acha "Carro". Ambígua ou
+    ausente: ErroOrbit com as opções (as parecidas viram sugestão), e nada muda."""
+    alvo = _palavras(busca)
     if not alvo:
         raise ErroOrbit("Qual tarefa? Diga o título.")
-    titulos = [(t, _simples(campo(t, "titulo", ""))) for t in tarefas]
-    exatas = [t for t, s in titulos if s == alvo]
-    if len(exatas) == 1:
-        return exatas[0]
-    contem = [t for t, s in titulos if alvo in s or (s and s in alvo)]
-    if len(contem) == 1:
-        return contem[0]
-    candidatas = contem or [t for t, s in titulos if difflib.SequenceMatcher(None, alvo, s).ratio() >= 0.75]
-    if len(candidatas) == 1:
-        return candidatas[0]
-    if not candidatas:
-        raise ErroOrbit(f"Não achei a tarefa '{busca}' no Orbit.")
-    nomes = "; ".join(str(campo(t, "titulo", "?")) for t in candidatas[:5])
-    raise ErroOrbit(f"Mais de uma tarefa parece com '{busca}': {nomes}. Qual delas?")
+    abertas = [t for t in tarefas if not feita(t)]
+    feitas = [t for t in tarefas if feita(t)]
+    grupos = {"aberta": [abertas], "feita": [feitas], "qualquer": [abertas, feitas]}[estado]
+    for grupo in grupos:
+        exatas = [t for t in grupo if _palavras(campo(t, "titulo", "")) == alvo]
+        servem = exatas or [t for t in grupo if alvo <= _palavras(campo(t, "titulo", ""))]
+        if len(servem) == 1:
+            return servem[0]
+        if len(servem) > 1:
+            nomes = "; ".join(str(campo(t, "titulo", "?")) for t in servem[:5])
+            raise ErroOrbit(f"Mais de uma tarefa serve para '{busca}': {nomes}. Qual delas?")
+    onde = [t for g in grupos for t in g]
+    parecidas = [str(campo(t, "titulo", "?")) for t in onde
+                 if difflib.SequenceMatcher(None, " ".join(sorted(alvo)),
+                                            " ".join(sorted(_palavras(campo(t, "titulo", ""))))).ratio() >= 0.6]
+    qual = {"aberta": " aberta", "feita": " já feita", "qualquer": ""}[estado]
+    sugestao = f" Parecidas: {'; '.join(parecidas[:3])}." if parecidas else ""
+    raise ErroOrbit(f"Não achei uma tarefa{qual} '{busca}' no Orbit.{sugestao}")
+
+
+def _id_seguro(id_tarefa: Any) -> str:
+    """O id vai na URL: vazio, None, "." e ".." mudariam a rota (/todos/tasks/.. vira /todos)."""
+    texto = "" if id_tarefa is None else str(id_tarefa).strip()
+    if texto in ("", ".", "..", "None"):
+        raise ErroOrbit("Tarefa sem id válido no Orbit.")
+    return quote(texto, safe="")
+
+
+ARQUIVO_ENV = Path(__file__).resolve().parents[2] / ".env"
+ESPERA_DEPOIS_DE_FALHA_S = 600  # login recusado ou pedindo código: não tenta de novo a cada fala
 
 
 def campo(obj: dict[str, Any], nome: str, padrao: Any = None) -> Any:
@@ -132,6 +166,7 @@ class OrbitAPI:
         senha: str | None = None,
         cliente: httpx.AsyncClient | None = None,
         timeout_s: float = 90,
+        env_arquivo: Path | None = None,
     ):
         self.url = (url or os.getenv("ORBIT_URL") or URL_PADRAO).rstrip("/")
         self.token = token if token is not None else os.getenv("ORBIT_TOKEN") or None
@@ -139,6 +174,11 @@ class OrbitAPI:
         self.senha = senha if senha is not None else os.getenv("ORBIT_PASSWORD") or None
         self.http = cliente or httpx.AsyncClient(base_url=self.url, timeout=timeout_s)
         self._trava = asyncio.Lock()
+        # Revisão do PR 40: com o token vencido e o Orbit pedindo código, cada fala disparava um login (e um e-mail
+        # de código novo, que podia invalidar o que o Felipe acabou de pedir pela tela). Falhou: espera 10 min.
+        self._sem_login_ate = 0.0
+        self._motivo_sem_login = ""
+        self._ler_env = env_arquivo  # a tela de Conexões grava um token novo no .env com o servidor já rodando
 
     async def fechar(self) -> None:
         await self.http.aclose()
@@ -156,6 +196,38 @@ class OrbitAPI:
             raise ErroOrbit(f"O Orbit respondeu erro {r.status_code} (pode estar acordando no Render).")
         if r.status_code >= 400:
             raise ErroOrbit(f"O Orbit recusou a requisição ({r.status_code}): {r.text[:200]}")
+
+    def _token_novo_do_env(self) -> bool:
+        """Relê o .env: a tela pode ter gravado um login novo depois que este servidor subiu."""
+        if self._ler_env is None:
+            return False
+        try:
+            from dotenv import dotenv_values
+
+            env = dotenv_values(self._ler_env, interpolate=False)
+        except OSError:
+            return False
+        token = (env.get("ORBIT_TOKEN") or "").strip()
+        if token and token != self.token:
+            self.token = token
+            self.email = (env.get("ORBIT_EMAIL") or self.email or "").strip() or None
+            self.senha = env.get("ORBIT_PASSWORD") or self.senha
+            self._sem_login_ate = 0.0
+            return True
+        return False
+
+    async def _relogar(self) -> None:
+        """Login de novo depois de um 401, com freio: uma falha vale por ESPERA_DEPOIS_DE_FALHA_S."""
+        if self._token_novo_do_env():
+            return
+        if time.monotonic() < self._sem_login_ate:
+            raise ErroOrbit(self._motivo_sem_login)
+        try:
+            await self.login()
+        except ErroOrbit as e:
+            self._sem_login_ate = time.monotonic() + ESPERA_DEPOIS_DE_FALHA_S
+            self._motivo_sem_login = str(e)
+            raise
 
     async def login(self) -> str:
         """O accessToken; PrecisaCodigo se o Orbit mandou um código para o e-mail."""
@@ -188,12 +260,14 @@ class OrbitAPI:
     async def _req(self, metodo: str, rota: str, **kw: Any) -> Any:
         async with self._trava:
             if not self.token:
-                await self.login()
+                self._token_novo_do_env()
+            if not self.token:
+                await self._relogar()
         for tentativa in range(2):
             r = await self.http.request(metodo, rota, headers={"Authorization": f"Bearer {self.token}"}, **kw)
-            if r.status_code == 401 and tentativa == 0 and self.email and self.senha:
+            if r.status_code == 401 and tentativa == 0 and (self.email and self.senha or self._ler_env):
                 async with self._trava:
-                    await self.login()
+                    await self._relogar()
                 continue
             if r.status_code == 429 and tentativa == 0:
                 await asyncio.sleep(min(float(r.headers.get("retry-after", 5)), 15))
@@ -236,7 +310,7 @@ class OrbitAPI:
         return await self._req("POST", ROTAS["tarefas"], json=corpo)
 
     async def mudar_tarefa(self, id_tarefa: Any, campos: dict[str, Any]) -> Any:
-        return await self._req("PATCH", f"{ROTAS['tarefas']}/{quote(str(id_tarefa), safe='')}", json=campos)
+        return await self._req("PATCH", f"{ROTAS['tarefas']}/{_id_seguro(id_tarefa)}", json=campos)
 
     async def apagar_tarefa(self, id_tarefa: Any) -> Any:
-        return await self._req("DELETE", f"{ROTAS['tarefas']}/{quote(str(id_tarefa), safe='')}")
+        return await self._req("DELETE", f"{ROTAS['tarefas']}/{_id_seguro(id_tarefa)}")

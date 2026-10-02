@@ -51,7 +51,7 @@ PADROES = {
                             re.IGNORECASE),
     "clima": re.compile(r"\b(clima|temperatura|previs[aã]o do tempo|vai (chover|fazer (frio|calor|sol))|"
                         r"t[aá] (frio|calor)|est[aá] (frio|calor)|quantos graus|guarda-chuva)\b", re.IGNORECASE),
-    "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|fazeres|lista de (?:coisas a fazer|tarefas)|me lembr[ae] de)\b", re.IGNORECASE),
+    "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|fazeres|lista de (?:coisas a fazer|tarefas)|minha lista|risca\w*|j[aá] (?:paguei|fiz|comprei|liguei|resolvi|terminei)|(?:prioridade|vencimento) d[aeo]|me lembr[ae] de)\b", re.IGNORECASE),
     "memoria": re.compile(
         r"(\b(lembr[ae]|anot[ae]|guard[ae]) (que|isso|a[ií])\b|\bn[aã]o esque[cç]a\b|\bvoc[eê] (sabe|lembra)\b|"
         r"\b(esquece|apaga da mem[oó]ria)\b)",

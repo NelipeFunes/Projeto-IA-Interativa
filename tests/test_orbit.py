@@ -189,3 +189,92 @@ async def test_id_da_tarefa_nao_vira_caminho():
         api = OrbitAPI(url=URL, token="jwt", email="", senha="", cliente=httpx.AsyncClient(base_url=URL))
         await api.mudar_tarefa("../users/me", {"done": True})
         assert rota.called
+
+
+
+# ------------------------------------------------------------------ revisão do PR 40
+
+
+def _t(id_, titulo, feita=False):
+    return {"id": id_, "title": titulo, "priority": "medium", "done": feita}
+
+
+@pytest.mark.parametrize("tarefas,busca,estado,esperado", [
+    # Sem aproximação: "2025" não acha "2026" (antes, ratio 0,93 apagava a de 2026).
+    ([_t("a", "Pagar IPVA 2026")], "Pagar IPVA 2025", "qualquer", None),
+    # O título curto dentro da frase não serve: "IPVA do carro" é a tarefa do IPVA, não "Carro".
+    ([_t("a", "Carro"), _t("b", "Pagar IPVA do carro")], "ja paguei o IPVA do carro", "aberta", None),
+    ([_t("a", "Carro"), _t("b", "Pagar IPVA do carro")], "IPVA do carro", "aberta", "b"),
+    # Palavras vazias não contam: "pagar o IPVA" = "Pagar IPVA".
+    ([_t("a", "Pagar IPVA")], "pagar o ipva", "aberta", "a"),
+    # Concluir só olha as abertas; reabrir, só as feitas (uma tarefa anual: a de 2025 feita, a de 2026 aberta).
+    ([_t("a", "Pagar IPVA", feita=True), _t("b", "Pagar IPVA 2026")], "pagar ipva", "aberta", "b"),
+    ([_t("a", "Pagar IPVA", feita=True), _t("b", "Pagar IPVA 2026")], "pagar ipva", "feita", "a"),
+    # Editar/apagar: as abertas primeiro, as feitas só se nenhuma aberta servir.
+    ([_t("a", "Comprar whey", feita=True)], "whey", "qualquer", "a"),
+])
+def test_achar_tarefa_estrito(tarefas, busca, estado, esperado):
+    from orbit_api import ErroOrbit, achar_tarefa
+
+    if esperado is None:
+        with pytest.raises(ErroOrbit):
+            achar_tarefa(tarefas, busca, estado)
+    else:
+        assert achar_tarefa(tarefas, busca, estado)["id"] == esperado
+
+
+def test_tarefa_ausente_sugere_as_parecidas_sem_escolher():
+    from orbit_api import ErroOrbit, achar_tarefa
+
+    with pytest.raises(ErroOrbit, match="Parecidas: Pagar IPVA 2026"):
+        achar_tarefa([_t("a", "Pagar IPVA 2026")], "pagar ipva 2025", "qualquer")
+
+
+async def test_buscar_devolve_o_titulo_real(api_mock):
+    assert texto(await chamar("tarefas_buscar", {"tarefa": "o ipva", "estado": "aberta"})) == "Pagar IPVA"
+
+
+async def test_prioridade_invalida_nao_apaga_a_prioridade(api_mock):
+    r = await chamar_bruto("tarefas_editar", {"tarefa": "IPVA", "prioridade": "urgente"})
+    assert r.is_error and "Prioridade" in texto(r)
+    assert not [c for c in api_mock.calls if c.request.method == "PATCH"]
+
+
+@pytest.mark.parametrize("ruim", [None, "", ".", "..", "None"])
+async def test_id_degenerado_nao_vira_rota(ruim):
+    from orbit_api import ErroOrbit
+
+    api = OrbitAPI(url=URL, token="jwt", email="", senha="", cliente=httpx.AsyncClient(base_url=URL))
+    with pytest.raises(ErroOrbit, match="id"):
+        await api.apagar_tarefa(ruim)
+
+
+async def test_relogin_com_codigo_nao_manda_um_email_por_fala():
+    """Token vencido e o Orbit pedindo código: um login só; as próximas falas esperam 10 min (revisão do PR 40)."""
+    from orbit_api import ErroOrbit
+
+    with respx.mock(base_url=URL) as m:
+        m.get("/todos/tasks").respond(401)
+        login = m.post("/auth/login").respond(json={"challengeToken": "d", "maskedEmail": "e***@x.com"})
+        api = OrbitAPI(url=URL, token="vencido", email="a@b.com", senha="s", cliente=httpx.AsyncClient(base_url=URL))
+        for _ in range(3):
+            with pytest.raises(ErroOrbit, match="código"):
+                await api.tarefas()
+        assert login.call_count == 1
+
+
+async def test_token_novo_gravado_pela_tela_vale_sem_reiniciar(tmp_path):
+    """A tela de Conexões grava o token no .env com o servidor MCP já rodando: num 401, ele relê o arquivo."""
+    env = tmp_path / ".env"
+    env.write_text("ORBIT_TOKEN='jwt-novo'\nORBIT_EMAIL='a@b.com'\n", encoding="utf-8")
+    with respx.mock(base_url=URL, assert_all_called=False) as m:
+        def tarefas(req):
+            ok = req.headers["Authorization"] == "Bearer jwt-novo"
+            return httpx.Response(200, json=[_t("a", "X")]) if ok else httpx.Response(401)
+
+        m.get("/todos/tasks").mock(side_effect=tarefas)
+        login = m.post("/auth/login").respond(json={"accessToken": "nao-devia"})
+        api = OrbitAPI(url=URL, token="vencido", email="", senha="", cliente=httpx.AsyncClient(base_url=URL),
+                       env_arquivo=env)
+        assert [t["title"] for t in await api.tarefas()] == ["X"]
+        assert not login.called

@@ -244,9 +244,10 @@ def _dias_do_token(token: str) -> float | None:
     try:
         meio = token.split(".")[1]
         dados = json.loads(base64.urlsafe_b64decode(meio + "=" * (-len(meio) % 4)))
-        return (float(dados["exp"]) - time.time()) / 86400
+        dias = (float(dados["exp"]) - time.time()) / 86400
     except (IndexError, KeyError, TypeError, ValueError):
         return None
+    return dias if math.isfinite(dias) else None  # exp infinito ou NaN derrubaria a tela inteira (revisão do PR 40)
 
 
 def _orbit(cfg: Config) -> dict[str, Any]:
@@ -254,21 +255,32 @@ def _orbit(cfg: Config) -> dict[str, Any]:
     token = _env("ORBIT_TOKEN")
     desafio = _desafio_valido()
     if desafio is not None:
+        # "Desconectar" aqui só cancela o código (e-mail errado, código que não chegou): o login antigo fica.
         return {"situacao": "atencao", "detalhe": f"O Orbit mandou um código para {desafio['mascarado']}.",
-                "campos": [_campo("codigo", "Código do e-mail", dica="Chega em instantes; vale por alguns minutos.")],
-                "acao": "Confirmar código", "desconectar": False}
+                "campos": [_campo("codigo", "Código do e-mail", dica="Chega em instantes; vale por alguns minutos. "
+                                                                     "Para recomeçar, use Desconectar.")],
+                "acao": "Confirmar código", "desconectar": True}
     tem = bool(token or (email and _env("ORBIT_PASSWORD")))
     situacao, detalhe = ("ok", f"Conectado ({email})." if email else "Conectado.") if tem else ("falta", "Sem login.")
     dias = _dias_do_token(token) if token else None
     if dias is not None and dias <= 0:
-        situacao, detalhe = "atencao", "O acesso venceu: ele entra de novo sozinho (ou peça o código aqui)."
+        situacao, detalhe = "atencao", "O acesso venceu: reconecte aqui (o Orbit pode pedir o código do e-mail)."
     elif dias is not None:
         restam = max(1, math.ceil(dias))
         detalhe = detalhe.rstrip(".") + f" · o acesso vence em {restam} dia{'s' if restam > 1 else ''}."
     return {"situacao": situacao, "detalhe": detalhe,
             "campos": [_campo("email", "E-mail do Orbit", "email", valor=email),
-                       _campo("senha", "Senha do Orbit", "senha", dica="Fica no .env, fora do git.")],
+                       _campo("senha", "Senha do Orbit", "senha",
+                              dica=f"Vai para {_host_orbit()} e fica no .env, fora do git.")],
             "acao": "Trocar login" if tem else "Conectar", "desconectar": tem}
+
+
+def _host_orbit() -> str:
+    """Para onde o e-mail e a senha vão (repositório público: quem clonar vê que o padrão é o Orbit do Felipe)."""
+    from urllib.parse import urlparse
+
+    url = _env("ORBIT_URL") or "https://orbit-fdzy.onrender.com"
+    return urlparse(url).netloc or url
 
 
 def _orbit_api(cfg: Config):
@@ -473,7 +485,9 @@ def desconectar(cfg: Config, servico: str) -> str:
         return "Chave da Tavily apagada: a busca volta para o DuckDuckGo."
     if servico == "orbit":
         global _desafio_orbit
-        _desafio_orbit = None
+        if _desafio_valido() is not None:
+            _desafio_orbit = None  # cancelar o código não apaga o login que já existia
+            return "Código cancelado: entre de novo com e-mail e senha."
         gravar_env(cfg.raiz / ".env", {"ORBIT_EMAIL": None, "ORBIT_PASSWORD": None, "ORBIT_TOKEN": None})
         return "Login do Orbit apagado."
     raise ValueError("esse serviço não tem desconectar pela tela")

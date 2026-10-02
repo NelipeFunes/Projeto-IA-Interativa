@@ -188,3 +188,34 @@ async def test_guardei_depois_de_guardar_memoria_nao_e_mentira():
     llm = LLMFalso([chama("guardar_memoria", fato="Gosta de café."), fala("Guardei.")])
     resp = await Agente(llm, r, None).responder("guarda que eu gosto de café")
     assert resp.texto == "Guardei." and not resp.insistiu
+
+
+
+def test_listar_tarefas_e_conteudo_de_fora(cfg, host):
+    """Título de tarefa é texto de quem tem a conta do Orbit (ou de um convite): como a agenda (revisão do PR 40)."""
+    from vision.tools.orbit import FerramentasOrbit
+
+    f = {x.nome: x for x in FerramentasOrbit(host).ferramentas()}
+    assert f["tarefas_listar"].conteudo_externo and not f["tarefas_listar"].escrita
+
+
+async def test_confirma_mostra_a_tarefa_de_verdade():
+    """O "Confirma?" de apagar busca o título real antes: o "sim" vale para o que está escrito na pergunta."""
+    from vision.tools.mcp_host import ResultadoMCP
+    from vision.tools.orbit import FerramentasOrbit
+
+    class HostFalso:
+        def __init__(self):
+            self.chamadas = []
+
+        async def chamar(self, servidor, ferramenta, args):
+            self.chamadas.append((ferramenta, args))
+            return ResultadoMCP(True, "Pagar IPVA 2026")
+
+    h = HostFalso()
+    f = {x.nome: x for x in FerramentasOrbit(h).ferramentas()}
+    assert await f["tarefas_apagar"].descrever({"tarefa": "o ipva"}) == "Vou apagar a tarefa 'Pagar IPVA 2026' do Orbit."
+    assert await f["tarefas_concluir"].descrever({"tarefa": "o ipva", "desfazer": True}) == \
+        "Vou reabrir a tarefa 'Pagar IPVA 2026'."
+    assert h.chamadas == [("tarefas_buscar", {"tarefa": "o ipva", "estado": "qualquer"}),
+                          ("tarefas_buscar", {"tarefa": "o ipva", "estado": "feita"})]

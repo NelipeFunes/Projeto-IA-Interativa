@@ -38,10 +38,26 @@ class FerramentasOrbit:
         quando = f" no dia {args['data']}" if args.get("data") else ""
         return f"Vou lançar {_reais(args.get('valor', 0))} de {args['descricao']}{cat}{quando}."
 
-    async def descrever_apagar(self, args: dict[str, Any]) -> str:
+    async def _titulo_real(self, args: dict[str, Any], estado: str) -> str:
+        """A tarefa que vai mesmo mudar, achada antes do "Confirma?" (revisão do PR 40: a pergunta mostrava a frase
+        do modelo, e o "sim" valia para outra tarefa). Ambígua ou ausente: o erro já sai aqui, sem pergunta."""
         if not args.get("tarefa"):
             raise ErroFerramenta("Qual tarefa? Diga o título.")
-        return f"Vou apagar a tarefa '{args['tarefa']}' do Orbit."
+        r = await self.host.chamar(self.servidor, "tarefas_buscar", {"tarefa": args["tarefa"], "estado": estado})
+        if not r.ok:
+            raise ErroFerramenta(f"Orbit: {r.texto[:300]}")
+        return r.texto.strip()[:200]
+
+    async def descrever_apagar(self, args: dict[str, Any]) -> str:
+        return f"Vou apagar a tarefa '{await self._titulo_real(args, 'qualquer')}' do Orbit."
+
+    async def descrever_concluir(self, args: dict[str, Any]) -> str:
+        if args.get("desfazer"):
+            return f"Vou reabrir a tarefa '{await self._titulo_real(args, 'feita')}'."
+        return f"Vou marcar como feita a tarefa '{await self._titulo_real(args, 'aberta')}'."
+
+    async def descrever_editar(self, args: dict[str, Any]) -> str:
+        return f"Vou mudar a tarefa '{await self._titulo_real(args, 'qualquer')}'."
 
     async def descrever_tarefa(self, args: dict[str, Any]) -> str:
         if not args.get("titulo"):
@@ -89,6 +105,9 @@ class FerramentasOrbit:
                                                 "description": "true para mostrar também as já feitas"}),
                 self._chamar("tarefas_listar"),
                 grupo="tarefas",
+                # Títulos escritos por quem tem a conta do Orbit (ou criados a partir de um convite): texto de fora,
+                # como o da agenda. Depois de ler, guardar memória e o modo "todas" pedem "sim" (revisão do PR 40).
+                conteudo_externo=True,
             ),
             Ferramenta(
                 "tarefas_criar",
@@ -111,7 +130,7 @@ class FerramentasOrbit:
                         desfazer={"type": "boolean", "description": "true para reabrir uma tarefa já feita"}),
                 self._chamar("tarefas_concluir"),
                 escrita=True,
-                descrever=_descrever_tarefa("Vou marcar como feita a tarefa '{}'."),
+                descrever=self.descrever_concluir,
                 grupo="tarefas",
             ),
             Ferramenta(
@@ -123,7 +142,7 @@ class FerramentasOrbit:
                         sem_vencimento={"type": "boolean", "description": "true para tirar a data"}),
                 self._chamar("tarefas_editar"),
                 escrita=True,
-                descrever=_descrever_tarefa("Vou mudar a tarefa '{}'."),
+                descrever=self.descrever_editar,
                 grupo="tarefas",
             ),
             Ferramenta(
@@ -137,12 +156,3 @@ class FerramentasOrbit:
                 grupo="tarefas",
             ),
         ]
-
-
-def _descrever_tarefa(modelo: str):
-    async def descrever(args: dict[str, Any]) -> str:
-        if not args.get("tarefa"):
-            raise ErroFerramenta("Qual tarefa? Diga o título.")
-        return modelo.format(args["tarefa"])
-
-    return descrever

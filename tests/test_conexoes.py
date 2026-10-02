@@ -566,3 +566,35 @@ async def test_nucleo_mostra_o_passo_do_codigo_sem_cara_de_erro(cfg_conexoes, mo
     await _esperar_fim(n, "orbit")
     assert n.andamento["orbit"] == {"texto": "O Orbit mandou um código para e***@x.com: digite ele aqui.",
                                     "rodando": False, "ok": None}
+
+
+
+def test_exp_infinito_nao_derruba_a_tela(cfg_conexoes):
+    import base64
+
+    for exp in ("1e999", "NaN"):
+        corpo = base64.urlsafe_b64encode(f'{{"exp": {exp}}}'.encode()).decode().rstrip("=")
+        assert conexoes._dias_do_token(f"a.{corpo}.b") is None
+    conexoes.gravar_env(cfg_conexoes.raiz / ".env", {"ORBIT_TOKEN": "a.eyJleHAiOiAxZTk5OX0.b"})
+    cfg_conexoes.bruto["mcp"].setdefault("orbit", {})["ativo"] = True
+    assert _por_id(cfg_conexoes)["orbit"]["situacao"] == "ok"
+
+
+def test_cancelar_o_codigo_nao_apaga_o_login_que_existia(cfg_conexoes, monkeypatch):
+    import time as _time
+
+    conexoes.gravar_env(cfg_conexoes.raiz / ".env", {"ORBIT_EMAIL": "eu@x.com", "ORBIT_PASSWORD": "velha"})
+    monkeypatch.setattr(conexoes, "_desafio_orbit", {"desafio": "d", "mascarado": "e***", "email": "eu@x.com",
+                                                     "senha": "nova", "quando": _time.monotonic()})
+    cfg_conexoes.bruto["mcp"].setdefault("orbit", {})["ativo"] = True
+    assert _por_id(cfg_conexoes)["orbit"]["desconectar"] is True
+    assert conexoes.desconectar(cfg_conexoes, "orbit") == "Código cancelado: entre de novo com e-mail e senha."
+    assert dotenv_values(cfg_conexoes.raiz / ".env", interpolate=False)["ORBIT_PASSWORD"] == "velha"
+    assert [c["nome"] for c in _por_id(cfg_conexoes)["orbit"]["campos"]] == ["email", "senha"]
+
+
+def test_tela_diz_para_onde_a_senha_vai(cfg_conexoes, monkeypatch):
+    monkeypatch.setenv("ORBIT_URL", "https://meu-orbit.exemplo")
+    cfg_conexoes.bruto["mcp"].setdefault("orbit", {})["ativo"] = True
+    senha = [c for c in _por_id(cfg_conexoes)["orbit"]["campos"] if c["nome"] == "senha"][0]
+    assert "meu-orbit.exemplo" in senha["dica"]
