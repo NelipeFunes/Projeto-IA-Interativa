@@ -171,6 +171,9 @@ async def test_ler_so_abre_link_que_veio_de_uma_busca(tmp_path):
 def test_consulta_nao_leva_email_telefone_nem_cpf():
     assert limpar_consulta("casa aluguel fulano@exemplo.com (11) 90000-0000 123.456.789-09 fusca 1970 1.5") == \
         "casa aluguel fusca 1970 1.5"
+    for normal in ("fusca 1970 1975 1980 motor", "peça 12345678901", "iphone 15 pro 256gb", "rua 1500-2000"):
+        assert limpar_consulta(normal) == normal
+    assert limpar_consulta("ligar 99876-5432 hoje") == "ligar hoje"
 
 
 async def test_consulta_limpa_e_a_que_sai(tmp_path):
@@ -212,8 +215,10 @@ async def test_sem_tavily_baixa_a_pagina_e_bloqueia_redirecionamento_para_rede_l
 
 
 def test_html_vira_texto():
-    t = _texto_de_html("<nav>menu</nav><h1>T&iacute;tulo</h1><style>a{}</style><p>Um<br>Dois</p>")
+    t = _texto_de_html("<h1>T&iacute;tulo</h1><style>a{}</style><p>Um<br>Dois</p>")
     assert t.split("\n") == ["Título", "Um", "Dois"]
+    # <nav> sem fechar (HTML velho) não apaga o resto da página.
+    assert "Preço" in _texto_de_html("<nav><a>Início</a><p>Preço: 900</p>")
 
 
 def test_html_hostil_nao_trava():

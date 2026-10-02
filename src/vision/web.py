@@ -37,10 +37,12 @@ MAX_PAGINA = 1_500_000  # bytes baixados de uma página no máximo (o texto úti
 MAX_HTML = 400_000  # caracteres de HTML analisados
 LINKS_LEMBRADOS = 300
 # O que nunca sai do PC dentro de uma consulta: e-mail, telefone, CPF (a regra do prompt é a 1ª barreira).
+# Telefone e CPF só com a pontuação de sempre: "2005 2010 2015" ou um código de 11 dígitos passam intactos.
 DADO_PESSOAL = re.compile(
     r"[\w.+-]+@[\w-]+\.[\w.]+"
-    r"|\b\d{3}\.?\d{3}\.?\d{3}-?\d{2}\b"
-    r"|(?:\+?55\s?)?\(?\d{2}\)?\s?9?\d{4}[-\s]?\d{4}\b"
+    r"|(?<!\d)\d{3}\.\d{3}\.\d{3}-\d{2}(?!\d)"
+    r"|(?<![\d)])(?:\+?55\s?)?\(\d{2}\)\s?9?\d{4}-?\d{4}(?!\d)"
+    r"|(?<![\d-])9\d{4}-\d{4}(?![\d-])"  # sem DDD, só celular: "1500-2000" é faixa, não telefone
 )
 
 
@@ -177,7 +179,7 @@ def limpar_consulta(consulta: str) -> str:
 class _Extrator(HTMLParser):
     """HTML → texto numa passada só (sem regex com retrocesso: página hostil não trava o Vision)."""
 
-    PULAR = {"script", "style", "noscript", "nav", "header", "footer", "svg", "template", "iframe"}
+    PULAR = {"script", "style", "noscript", "svg", "template", "iframe"}
     BLOCO = {"p", "div", "li", "br", "tr", "h1", "h2", "h3", "h4", "h5", "h6", "section", "article", "table"}
 
     def __init__(self):
@@ -235,7 +237,8 @@ class Web:
             self._links.popitem(last=False)
 
     def _cliente(self) -> httpx.AsyncClient:
-        return httpx.AsyncClient(timeout=15, transport=self._transporte,
+        # Sem proxy do sistema: com ele, o IP da conexão seria o do proxy e a trava de rede local não valeria.
+        return httpx.AsyncClient(timeout=15, transport=self._transporte, trust_env=False,
                                  headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) Vision"})
 
     async def buscar(self, consulta: str) -> Busca:
