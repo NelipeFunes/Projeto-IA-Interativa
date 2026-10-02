@@ -17,4 +17,5 @@ ui/dist/
 # Executáveis gerados (lançador, pacote independente): nunca vão para o git, em pasta nenhuma.
 *.exe
 /build/
+.venv-*/
 /dist/

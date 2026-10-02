@@ -35,6 +35,9 @@ def comando_do_vision(*args: str) -> list[str]:
 
 def principal(argv: list[str] | None = None) -> int:
     """Ponto de entrada do .exe: escolhe entre o núcleo e os comandos do `vision`."""
+    import multiprocessing
+
+    multiprocessing.freeze_support()  # bibliotecas que criam processos (joblib/loky) não reabrem o programa inteiro
     argv = list(sys.argv[1:] if argv is None else argv)
     # Sem console (janela), stdout e stderr não existem: o que escreve neles não pode derrubar o programa.
     for nome in ("stdout", "stderr"):

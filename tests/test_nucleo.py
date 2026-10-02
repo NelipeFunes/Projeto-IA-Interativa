@@ -292,3 +292,19 @@ def test_icone_do_app_existe():
     assert interface.ICONE.exists() and inicializacao.ICONE == interface.ICONE
     tamanhos = Image.open(interface.ICONE).info["sizes"]
     assert {(16, 16), (32, 32), (256, 256)} <= set(tamanhos)
+
+
+def test_se_o_atalho_falhar_a_proxima_execucao_tenta_de_novo(tmp_path, monkeypatch):
+    """Revisão do PR 37: o marcador só vale depois que o atalho foi criado."""
+    from vision import inicializacao
+
+    monkeypatch.setattr(inicializacao, "pasta_inicializar", lambda: tmp_path / "Startup")
+
+    def quebra(*a, **k):
+        raise OSError("antivírus bloqueou")
+
+    monkeypatch.setattr(inicializacao.subprocess, "run", quebra)
+    marcador = tmp_path / "data" / "inicializacao.txt"
+    with pytest.raises(OSError):
+        inicializacao.primeira_vez(marcador, tmp_path)
+    assert not marcador.exists()  # a próxima vez tenta de novo

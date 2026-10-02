@@ -121,3 +121,35 @@ def test_refazer_o_pacote_nao_apaga_o_que_esta_atras_dos_atalhos(tmp_path):
     empacotar.desfazer_atalhos(saida)
     assert not (saida / "modelos" / "piper").exists() and not (saida / "node").exists()
     assert (raiz / "modelos" / "piper" / "arquivo.bin").exists() and (raiz / "node" / "node_modules").exists()
+
+
+def test_copiar_leva_o_node_exe_e_o_config_do_pacote_aponta_para_ele(tmp_path):
+    """Revisão do PR 37: sem isso, o Google Agenda dependia do Node instalado na outra máquina."""
+    import yaml
+
+    raiz, saida = _projeto_falso(tmp_path / "projeto"), tmp_path / "dist" / "Vision"
+    saida.mkdir(parents=True)
+    (raiz / "config.yaml").write_text(
+        'mcp:\n  google-calendar:\n    comando: "%LOCALAPPDATA%\\\\Programs\\\\nodejs\\\\node.exe"\n', encoding="utf-8")
+    node = tmp_path / "node.exe"
+    node.write_bytes(b"MZ-falso")
+    assert not empacotar.montar_pasta("copiar", saida, raiz, node_exe=node)
+    assert (saida / "node" / "node.exe").read_bytes() == b"MZ-falso"
+    comando = yaml.safe_load((saida / "config.yaml").read_text(encoding="utf-8"))["mcp"]["google-calendar"]["comando"]
+    assert comando == "node\\node.exe"  # uma barra de verdade (e não "\\n" virando quebra de linha)
+    assert (saida / comando).is_file()  # e o Vision resolve a partir da pasta do pacote
+    assert not (raiz / "node" / "node.exe").exists()  # nada escrito no projeto
+    sem_node = tmp_path / "dist2" / "Vision"
+    sem_node.mkdir(parents=True)
+    avisos = empacotar.montar_pasta("copiar", sem_node, raiz, node_exe=Path("nao-existe.exe"))
+    assert any("node.exe" in a for a in avisos) and not (sem_node / "node" / "node.exe").exists()
+
+
+def test_tamanho_nao_entra_em_atalhos_de_pasta(tmp_path):
+    if sys.platform != "win32":
+        pytest.skip("junction do Windows")
+    raiz, saida = _projeto_falso(tmp_path / "projeto"), tmp_path / "dist" / "Vision"
+    saida.mkdir(parents=True)
+    (raiz / "modelos" / "piper" / "grande.bin").write_bytes(b"0" * 3_000_000)
+    empacotar.montar_pasta("ligar", saida, raiz)
+    assert empacotar.tamanho_mb(saida) < 1  # os 3 MB do modelo ligado não entram

@@ -68,7 +68,11 @@ $env:UV_PROJECT_ENVIRONMENT=".venv-pacote"; uv sync --no-default-groups --group 
   nem os modelos do XTTS.
 - **Usos:** `Vision.exe` abre a janela; `Vision.exe --nucleo` é o núcleo em segundo plano (é o que a pasta
   Inicializar executa); `Vision.exe <comando>` roda qualquer comando do `vision` (`chat`, `teste`, `wyoming`...).
-- **Ollama** continua sendo instalado à parte (é ele que roda o modelo de IA).
+- **Ollama** continua sendo instalado à parte (é ele que roda o modelo de IA). O Node vai junto no pacote
+  (`--modelos copiar` leva o `node.exe` e aponta o `config.yaml` para ele).
+- **Onde pôr a pasta:** num lugar só seu (`%LOCALAPPDATA%` ou `Program Files`). O `config.yaml` ao lado do `.exe`
+  diz o que o Vision executa, então uma pasta que outros usuários podem alterar (`C:\Users\Public`, `C:\Temp`)
+  não é um bom lugar. O `.exe` não é assinado: o Windows pode avisar na primeira vez.
 - O pacote não toma o lugar de um atalho de inicialização que já exista no Windows.
 
 ## Comandos (de qualquer pasta)
