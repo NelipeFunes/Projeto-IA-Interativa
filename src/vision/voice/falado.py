@@ -49,6 +49,46 @@ def _reais(m: re.Match[str]) -> str:
     return texto
 
 
+# Unidades depois de um número (vêm muito em resposta de busca na web): (singular, plural). Ordem importa: km/h
+# antes de km.
+UNIDADES = [
+    (r"km/h", ("quilômetro por hora", "quilômetros por hora")),
+    (r"km/l", ("quilômetro por litro", "quilômetros por litro")),
+    (r"km", ("quilômetro", "quilômetros")),
+    (r"kg", ("quilo", "quilos")),
+    (r"cm", ("centímetro", "centímetros")),
+    (r"mm", ("milímetro", "milímetros")),
+    (r"m²|m2", ("metro quadrado", "metros quadrados")),
+    (r"ml", ("mililitro", "mililitros")),
+    (r"[lL]", ("litro", "litros")),
+    (r"cv", ("cavalo", "cavalos")),
+    (r"kWh", ("quilowatt-hora", "quilowatts-hora")),
+    (r"GB", ("giga", "gigas")),
+    (r"MB", ("mega", "megas")),
+    (r"°\s?C|ºC", ("grau", "graus")),
+    (r"°|º(?!\w)", ("grau", "graus")),
+    (r"min", ("minuto", "minutos")),
+]
+
+
+def _unidade(singular: str, plural: str):
+    def troca(m: re.Match[str]) -> str:
+        valor = float(m.group(1).replace(",", "."))
+        return f"{m.group(1)} {singular if valor < 2 else plural}"  # "1,7 litro", "2 litros"
+
+    return troca
+
+
+def unidades(t: str) -> str:
+    t = re.sub(r"(\d)\.(\d{1,2})(?!\d)", r"\1,\2", t)       # 1.7 (decimal em inglês) → 1,7; 1.250 fica
+    t = re.sub(r"(\d)\s?%", r"\1 por cento", t)
+    t = re.sub(r"(\d)\s*[xX×]\s*(\d)", r"\1 vezes \2", t)   # 12 x 8
+    t = re.sub(r"\bn[ºo°]\s?(?=\d)", "número ", t)
+    for padrao, (singular, plural) in UNIDADES:
+        t = re.sub(r"(\d+(?:,\d+)?)\s?(?:" + padrao + r")(?![\w/])", _unidade(singular, plural), t)
+    return t
+
+
 def para_fala(texto: str) -> str:
     t = texto
     t = re.sub(r"\(\s*id:[^)]*\)|\bid:\s*\S+", "", t)            # ids de evento
@@ -58,6 +98,7 @@ def para_fala(texto: str) -> str:
     t = EMOJIS.sub("", t)
     t = re.sub(r"^\s*[-•]\s*", "", t, flags=re.MULTILINE)         # marcadores de lista
     t = re.sub(r"R\$\s*([\d.]+)(?:,(\d{2}))?", _reais, t)
+    t = unidades(t)
     t = re.sub(r"\b(seg|ter|qua|qui|sex|sáb|dom)\s+(?=\d{1,2}/\d{1,2})", lambda m: DIAS_POR_EXTENSO[m.group(1)] + ", ", t)
     t = re.sub(r"\b(?:dia\s+)?(\d{1,2})/(\d{1,2})(?:/\d{2,4})?\b", _data, t)
     t = re.sub(r"\b(\d{1,2})[:h](\d{2})\b", lambda m: hora_falada(int(m.group(1)), int(m.group(2))), t)
