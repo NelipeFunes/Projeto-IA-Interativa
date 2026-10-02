@@ -198,3 +198,44 @@ async def test_que_musica_e_essa_pergunta_ao_spotify(com_login):
     resp = await agente.responder("Que música é essa?", "voz", "t")
     assert resp.texto == "Tocando: Bohemian Rhapsody, de Queen."
     await sp.fechar()
+
+
+# ---------------------------------------------------------------------- revisão do PR 21
+
+@pytest.mark.parametrize("frase", ["toca a próxima", "toca a música anterior", "toca a campainha",
+                                   "toca o telefone", "toca a seguinte"])
+def test_atalho_nao_confunde_pular_nem_campainha(frase):
+    assert comando_de_musica(frase) is None
+
+
+@pytest.mark.parametrize("frase,musica", [
+    ("Toca Bohemian Rhapsody", True), ("Vision, toca Anitta", True), ("coloca Thriller no Spotify", True),
+    ("Isso me toca bastante", False), ("o sino toca às 7", False), ("o álbum caiu no chão", False),
+    ("que música está tocando?", True),
+])
+def test_intencao_de_musica_so_em_pedido(frase, musica):
+    from vision.brain import intencao
+
+    assert ("musica" in intencao.detectar(frase)) is musica
+
+
+async def test_sem_internet_na_renovacao_vira_mensagem_no_atalho(cfg):
+    spotify.gravar(cfg, {"client_id": "cid", "access_token": "velho", "refresh_token": "r0", "expira": 0})
+
+    def sem_rede(req):
+        raise httpx.ConnectError("offline", request=req)
+
+    sp = spotify.Spotify(cfg, abrir_app=lambda _x: None, transporte=httpx.MockTransport(sem_rede))
+    agente = Agente(LLMFalso([]), Registro(), None)
+    agente.atalhos = [Musica(sp).atalho]
+    resp = await agente.responder("toca Bohemian Rhapsody", "voz", "t")
+    assert "não respondeu" in resp.texto
+    await sp.fechar()
+
+
+async def test_tipo_com_acento(com_login):
+    api = ApiFalsa(dispositivos_depois=0)
+    sp = _sp(com_login, api)
+    await Musica(sp).tocar({"busca": "foco", "tipo": "Playlist"})
+    assert ("PUT", "/v1/me/player/play", {"context_uri": "spotify:playlist:9"}) in api.chamadas
+    await sp.fechar()

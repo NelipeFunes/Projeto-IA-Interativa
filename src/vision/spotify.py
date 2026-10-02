@@ -66,7 +66,7 @@ def ler(cfg: Config) -> dict[str, Any]:
 def gravar(cfg: Config, dados: dict[str, Any]) -> None:
     destino = arquivo(cfg)
     destino.parent.mkdir(parents=True, exist_ok=True)
-    tmp = destino.with_suffix(".tmp")
+    tmp = destino.with_suffix(f".{os.getpid()}.tmp")  # o login e o núcleo podem gravar ao mesmo tempo
     with tmp.open("w", encoding="utf-8") as f:
         f.write(json.dumps(dados, ensure_ascii=False))
         f.flush()
@@ -148,18 +148,26 @@ async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open
             return 1
     finally:
         servidor.close()
-    async with httpx.AsyncClient(timeout=20) as http:
-        r = await http.post(f"{URL_CONTAS}/api/token", data={
-            "grant_type": "authorization_code", "code": codigo, "redirect_uri": RETORNO,
-            "client_id": client_id, "code_verifier": verificador})
-    if r.status_code != 200:
+    try:
+        async with httpx.AsyncClient(timeout=20) as http:
+            r = await http.post(f"{URL_CONTAS}/api/token", data={
+                "grant_type": "authorization_code", "code": codigo, "redirect_uri": RETORNO,
+                "client_id": client_id, "code_verifier": verificador})
+    except httpx.HTTPError as e:
+        print(f"Não consegui falar com o Spotify ({type(e).__name__}). Confira a internet e tente de novo.")
+        return 1
+    t = r.json() if r.status_code == 200 else {}
+    if not t.get("access_token") or not t.get("refresh_token"):
         print(f"O Spotify não aceitou o código ({r.status_code}): {r.text[:200]}")
         return 1
-    t = r.json()
     gravar(cfg, {"client_id": client_id, "access_token": t["access_token"], "refresh_token": t["refresh_token"],
                  "expira": time.time() + int(t.get("expires_in", 3600)) - 60})
-    async with Spotify(cfg) as sp:
-        dispositivos = await sp.dispositivos()
+    try:
+        async with Spotify(cfg) as sp:
+            dispositivos = await sp.dispositivos()
+    except (ErroSpotify, SemLogin) as e:
+        dispositivos = []
+        print(f"(login guardado, mas não consegui listar os dispositivos agora: {e})")
     print(f"Spotify ligado. Login guardado em {arquivo(cfg)}.")
     print("Dispositivos agora:", ", ".join(d.get("name", "?") for d in dispositivos) or "nenhum (abra o Spotify)")
     print("Reinicie o Vision (bandeja → Sair, e abrir de novo) para ele usar.")
@@ -173,7 +181,7 @@ class Spotify:
                  transporte: httpx.AsyncBaseTransport | None = None, dormir=asyncio.sleep):
         self.cfg = cfg
         self.http = httpx.AsyncClient(timeout=httpx.Timeout(10, connect=5), transport=transporte)
-        self._abrir_app = abrir_app if abrir_app is not None else os.startfile
+        self._abrir_app = abrir_app if abrir_app is not None else getattr(os, "startfile", lambda _uri: None)
         self._dormir = dormir
         self._trava = asyncio.Lock()
 
@@ -195,12 +203,16 @@ class Spotify:
                 raise SemLogin("O Spotify não está ligado. Diga ao Felipe para rodar `vision spotify-login`.")
             if not forcar and d.get("access_token") and time.time() < float(d.get("expira", 0)):
                 return d["access_token"]
-            r = await self.http.post(f"{URL_CONTAS}/api/token", data={
-                "grant_type": "refresh_token", "refresh_token": d["refresh_token"], "client_id": d["client_id"]})
+            try:
+                r = await self.http.post(f"{URL_CONTAS}/api/token", data={
+                    "grant_type": "refresh_token", "refresh_token": d["refresh_token"], "client_id": d["client_id"]})
+            except httpx.HTTPError as e:  # sem internet: mensagem, não exceção crua (revisão do PR 21)
+                raise ErroSpotify(f"O Spotify não respondeu ({type(e).__name__}).") from e
             if r.status_code in (400, 401):
                 raise SemLogin("O login do Spotify expirou ou foi revogado. Diga ao Felipe para rodar "
                                "`vision spotify-login`.")
-            r.raise_for_status()
+            if r.status_code != 200:
+                raise ErroSpotify(f"O Spotify não renovou o acesso agora ({r.status_code}). Tente de novo.")
             t = r.json()
             d.update(access_token=t["access_token"], expira=time.time() + int(t.get("expires_in", 3600)) - 60)
             if t.get("refresh_token"):

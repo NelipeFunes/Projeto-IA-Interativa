@@ -23,10 +23,12 @@ class Musica:
             return await coro
         except (ErroSpotify, SemLogin) as e:
             raise ErroFerramenta(str(e)) from e
+        except Exception as e:  # noqa: BLE001 - pelo atalho ninguém captura: vira mensagem, não um turno quebrado
+            raise ErroFerramenta(f"O Spotify deu erro ({type(e).__name__}). Tente de novo.") from e
 
     async def tocar(self, args: dict[str, Any]) -> str:
         busca = " ".join(str(args.get("busca") or "").split())[:120]
-        tipo = str(args.get("tipo") or "musica").lower()
+        tipo = normalizar(str(args.get("tipo") or "musica"))  # "álbum" → "album"
         if not busca:
             raise ErroFerramenta("Tocar o quê? Diga a música, o artista, o álbum ou a playlist.")
         if tipo not in TIPOS:
@@ -73,7 +75,8 @@ class Musica:
                        descrever=self.descrever_tocar, prazo_s=PRAZO_PC_S),
             Ferramenta("musica_controlar", "Pausa, continua, pula ou volta a música do Spotify.",
                        esquema(["acao"], acao={"type": "string", "enum": ACOES}),
-                       self.controlar, escrita=True, grupo="musica", confirmar=False, prazo_s=PRAZO_PC_S),
+                       self.controlar, escrita=True, grupo="musica", confirmar=False, confirmar_se_externo=True,
+                       prazo_s=PRAZO_PC_S),
             Ferramenta("musica_tocando", "Diz que música está tocando no Spotify agora.", esquema([]),
                        self.tocando, grupo="musica", prazo_s=PRAZO_PC_S),
         ]
@@ -86,6 +89,8 @@ _COLOCAR = re.compile(_INICIO + r"(?:coloca|colocar|bota|botar|poe|por)\s+(.+?)\
                       r"(?:\s+(?:por favor|pf))?$")
 _VAGO = {"musica", "uma musica", "a musica", "algo", "alguma coisa", "alguma musica", "som", "um som", "de novo",
          "outra", "outra musica", "isso", "ai", "aquela", "aquela musica"}
+_NAO_E_MUSICA = {"proxima", "anterior", "seguinte", "campainha", "telefone", "celular", "sino", "alarme", "interfone",
+                 "buzina"}
 _NAO_E_PEDIDO = {"nao", "amanha", "depois", "quando", "daqui", "minutos", "horas", "se", "porque", "que horas"}
 
 
@@ -118,5 +123,7 @@ def comando_de_musica(frase: str) -> dict[str, Any] | None:
             break
     if not resto or resto in _VAGO or len(resto) < 2 or resto.split()[0] in {"no", "na", "nos", "nas", "em"}:
         return None  # "toca no assunto da reunião" não é música
-        return None
+    primeira = next((p for p in resto.split() if p not in {"a", "o", "as", "os"}), "")
+    if primeira in _NAO_E_MUSICA:
+        return None  # "toca a próxima" é pular; "toca a campainha" não é Spotify (revisão do PR 21)
     return {"busca": resto, "tipo": tipo}
