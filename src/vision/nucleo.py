@@ -298,9 +298,14 @@ class Nucleo:
             if self.laco is not None:
                 self.laco.ajustar_silencio(float(self.cfg.get("voz.conversa_silencio_max_s", 120)))
                 if (self.cfg.get("voz.voz_piper"), self.cfg.get("voz.velocidade_fala")) != voz_antes:
-                    from vision.voice.tts import carregar_voz
+                    from vision.voice.tts import VozXTTS, carregar_piper, carregar_voz
 
-                    self.laco.voz = await asyncio.to_thread(carregar_voz, self.cfg)
+                    voz = self.laco.voz
+                    if isinstance(voz, VozXTTS):  # a voz do Piper é só a reserva: não recarrega o XTTS (14 s)
+                        voz.reserva = await asyncio.to_thread(carregar_piper, self.cfg)
+                        voz.velocidade = 1.0 / max(float(self.cfg.get("voz.velocidade_fala", 1.0)), 0.1)
+                    else:
+                        self.laco.voz = await asyncio.to_thread(carregar_voz, self.cfg)
         except Exception as e:  # noqa: BLE001
             log.exception("não consegui aplicar os ajustes")
             erros.append(f"voz: {e}")
@@ -510,10 +515,14 @@ class Nucleo:
 
     async def _subir_voz(self, pilha: contextlib.ExitStack, tarefas: list[asyncio.Task]) -> None:
         from vision.voice.loop import preparar_voz, vigiar_jogos_se_ligado
+        from vision.voice.tts import carregar_voz
 
         try:
+            # O XTTS leva 15–30 s para carregar: numa thread, para a tela e a bandeja não travarem.
+            voz = await asyncio.to_thread(carregar_voz, self.cfg)
             self.laco, _ = pilha.enter_context(preparar_voz(
-                self.cfg, self.j.agente, escrever=escritor_do_log(self.nome), ao_evento=self.barramento.publicar))
+                self.cfg, self.j.agente, escrever=escritor_do_log(self.nome), ao_evento=self.barramento.publicar,
+                voz=voz))
         except Exception as e:  # noqa: BLE001 - sem voz, a tela e a bandeja continuam
             log.exception("voz indisponível")
             self.barramento.publicar({"tipo": "aviso", "texto": f"Voz desligada: {e}"})

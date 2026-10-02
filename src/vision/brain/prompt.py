@@ -9,8 +9,9 @@ from vision import tempo
 ESTILO = {
     "texto": "Canal: texto no terminal. Seja breve; listas simples são ok. Evite emojis.",
     "voz": (
-        "Canal: VOZ. Sua resposta vai ser falada em voz alta: no máximo 3 frases curtas, "
-        "sem markdown, sem listas, sem emojis, sem ids. Diga horários como '14h' ou '14h30'."
+        "Canal: VOZ. Sua resposta vai ser falada em voz alta: frases curtas e simples, só o essencial para passar "
+        "a mensagem (de preferência 1 ou 2, no máximo 3). Sem markdown, sem listas, sem emojis, sem ids. Diga "
+        "horários como '14h' ou '14h30'."
     ),
     "alexa": (
         "Canal: ALEXA (voz). No máximo 2 frases curtas, sem markdown, sem listas, sem emojis, sem ids. "

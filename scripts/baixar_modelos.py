@@ -1,6 +1,6 @@
 """Baixa os modelos de voz para `modelos/` (idempotente: pula o que já existe).
 
-Uso: uv run python scripts/baixar_modelos.py [--sem-ptbr]
+Uso: uv run python scripts/baixar_modelos.py [--sem-ptbr] [--xtts]
 """
 
 from __future__ import annotations
@@ -64,14 +64,27 @@ def baixar_wakeword() -> None:
     print("openwakeword ok:", sorted(p.name for p in destino.iterdir()))
 
 
+def baixar_xtts() -> None:
+    # Voz natural (voz.motor: xtts), ~1,9 GB. Licença Coqui Public Model License: só uso não comercial.
+    # Revisão fixa (a última, de 12/2023): o repositório da Coqui está parado, mas não é nosso.
+    snapshot_download("coqui/XTTS-v2", revision="6c2b0d75eae4b7047358e3b6bd9325f857d43f77",
+                      local_dir=MODELOS / "xtts_v2",
+                      allow_patterns=["model.pth", "config.json", "vocab.json", "speakers_xtts.pth"])
+    print("xtts-v2 ok")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sem-ptbr", action="store_true", help="não baixa o Parakeet PT-BR de 2,5 GB")
+    ap.add_argument("--xtts", action="store_true",
+                    help="baixa também o XTTS-v2 (1,9 GB; licença CPML, só uso não comercial)")
     args = ap.parse_args()
     MODELOS.mkdir(exist_ok=True)
     baixar_piper()
     baixar_wakeword()
     baixar_parakeet(incluir_ptbr=not args.sem_ptbr)
+    if args.xtts:
+        baixar_xtts()
     return 0
 
 
