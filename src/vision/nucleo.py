@@ -305,6 +305,8 @@ class Nucleo:
         if self.laco is None:
             self.barramento.publicar({"tipo": "calibracao", "rodando": False, "erro": "A voz está desligada."})
             return
+        if not self.laco.calibrando:
+            self._sugestoes = []  # uma calibração nova (mesmo que cancelada depois) invalida as sugestões da anterior
         motivo = self.laco.pedir_calibracao(self.VEZES_CALIBRACAO, self._fim_calibracao)
         if motivo:
             if motivo != "A calibração já está rodando.":  # o 2º clique não apaga a tela da que está rodando
@@ -366,6 +368,7 @@ class Nucleo:
         """Um só (o × da tela) ou todos."""
         from vision.voice import comandos
 
+        self._sugestoes = []
         todos = [] if apelido is None else [a for a in comandos.ler_apelidos(self.cfg.dados) if a != apelido]
         await asyncio.to_thread(comandos.gravar_apelidos, self.cfg.dados, todos)
         comandos.definir_apelidos(todos)

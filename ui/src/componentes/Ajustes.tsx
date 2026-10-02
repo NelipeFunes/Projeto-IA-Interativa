@@ -168,7 +168,10 @@ function Calibracao({ dados, apelidos, aoCalibrar, aoEsquecer, aoAceitar }: {
       {!rodando && dados?.erro && <p className="ajustes-msg erro">{dados.erro}</p>}
       {sugeridos.length > 0 && (
         <div className="conexao-botoes">
-          <span>Usar {sugeridos.map((a) => `"${a}"`).join(", ")} como "Vision"?</span>
+          <span>
+            Usar {sugeridos.map((a) => `"${a}"`).join(", ")} como "Vision"? Só aceite se não for uma palavra que se
+            fala no dia a dia (senão a TV ou uma conversa também acordam o Vision).
+          </span>
           <button type="button" className="botao botao-sim" onClick={() => aoAceitar(sugeridos)}>Aceitar</button>
         </div>
       )}

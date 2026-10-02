@@ -219,10 +219,10 @@ class LoopVoz:
         """Bipe, uma fala sua, o que o STT entendeu no começo dela (como no "Hey Vision"); `vezes` vezes. No fim, as
         grafias que se repetiram e não acordaram (comandos.aprender_apelidos) vão para `ao_fim`."""
         # (`calibrando` já vem True do `rodar`: um 2º pedido durante o _fechar_conversa é recusado; revisão do PR 43)
-        if self.em_conversa:
-            await self._fechar_conversa(falar=False)
         ouvidos: list[dict[str, Any]] = []
         try:
+            if self.em_conversa:  # dentro do try: um bipe que falhe aqui não deixa `calibrando` preso (2ª revisão)
+                await self._fechar_conversa(falar=False)
             for i in range(vezes):
                 if self._pausado():  # pausou na bandeja ou abriu o jogo no meio: pausa é pausa (revisão do PR 43)
                     self._emitir({"tipo": "calibracao", "rodando": False,
