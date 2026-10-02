@@ -39,15 +39,19 @@ def planejar(acao: str, nivel: float | None, *, onde: str, spotify: dict | None,
         return Plano(spotify=int(max(0, min(100, nivel or 0))))
     passo = PASSO_PADRAO if nivel is None else max(0.0, float(nivel))
     if acao == "aumentar":
+        if atual >= 100 and onde == "spotify":
+            return Plano(motivo="spotify_ja_no_maximo")  # "volume do Spotify": não é para mexer no Windows
         if atual >= 100:
             if windows >= 100 and not windows_mudo:
                 return Plano(motivo="tudo_no_maximo")
             return Plano(windows=("aumentar", passo), tirar_mudo=windows_mudo, motivo="spotify_no_maximo")
         sobra = atual + passo - 100
-        if sobra > 0 and windows < 100:
+        if sobra > 0 and windows < 100 and onde != "spotify":
             return Plano(spotify=100, windows=("aumentar", sobra), tirar_mudo=windows_mudo)
         return Plano(spotify=int(min(100, atual + passo)), tirar_mudo=windows_mudo)
     if acao == "diminuir":
+        if atual <= 0 and onde == "spotify":
+            return Plano(motivo="spotify_ja_no_zero")
         if atual <= 0:
             return Plano(windows=("diminuir", passo), motivo="spotify_no_zero")
         return Plano(spotify=int(max(0, atual - passo)))

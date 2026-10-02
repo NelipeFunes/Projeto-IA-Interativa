@@ -294,10 +294,22 @@ class PC:
                 log.warning("não consegui ler o volume do Spotify: %s", e)
         if onde == "spotify" and spotify is None:
             raise ErroFerramenta("O Spotify não está tocando em nenhum aparelho que deixe mudar o volume.")
-        windows, mudo = await asyncio.to_thread(self._ler_volume) if spotify is not None else (0, False)
+        if spotify is not None and onde == "auto" and spotify.get("tipo") not in (None, "Computer"):
+            # Tocando no Echo ou no celular: "aumenta o volume" dito no PC não mexe lá sem pedido (revisão do PR 41)
+            spotify = None
+        windows, mudo = 0, False
+        if spotify is not None and acao == "aumentar":  # só o "aumenta" precisa saber do Windows
+            try:
+                windows, mudo = await asyncio.to_thread(self._ler_volume)
+            except Exception as e:  # noqa: BLE001 - sem alto-falante padrão: o Spotify segue sozinho
+                log.warning("não consegui ler o volume do Windows: %s", e)
         plano = planejar(acao, nivel, onde=onde, spotify=spotify, windows=windows, windows_mudo=mudo)
         if plano.motivo == "tudo_no_maximo":
             return "O Spotify e o Windows já estão no máximo."
+        if plano.motivo == "spotify_ja_no_maximo":
+            return "O Spotify já está no máximo."
+        if plano.motivo == "spotify_ja_no_zero":
+            return "O Spotify já está no zero."
         partes = []
         if plano.spotify is not None:
             try:
@@ -305,11 +317,19 @@ class PC:
             except Exception as e:  # noqa: BLE001 - ErroSpotify traz a frase; o resto vira mensagem também
                 raise ErroFerramenta(str(e) or "O Spotify não mudou o volume.") from e
             partes.append(f"Spotify em {plano.spotify}%")
-        if plano.tirar_mudo:
-            await asyncio.to_thread(self._volume, "som", None)
+        try:
+            if plano.tirar_mudo:
+                await asyncio.to_thread(self._volume, "som", None)
+                if plano.windows is None:
+                    partes.append("tirei o Windows do mudo")
+            if plano.windows is not None:
+                acao_w, nivel_w = plano.windows
+                final = await asyncio.to_thread(self._volume, acao_w, nivel_w)
+        except Exception as e:  # noqa: BLE001 - com o Spotify já mudado, a frase diz o que foi feito
+            if partes:
+                return f"{partes[0]}, mas não consegui mexer no Windows."
+            raise ErroFerramenta(f"Não consegui mexer no volume do Windows ({type(e).__name__}).") from e
         if plano.windows is not None:
-            acao_w, nivel_w = plano.windows
-            final = await asyncio.to_thread(self._volume, acao_w, nivel_w)
             if acao_w == "mudo":
                 return "Som mudo."
             if spotify is None:
@@ -495,8 +515,9 @@ def comando_de_pc(texto: str) -> tuple[str, dict[str, Any]] | None:
     for padrao, acao in _MIDIA:
         if padrao.match(t):
             return "midia", {"acao": acao}
-    onde = "auto"
+    onde, com_dono = "auto", False
     if m := _DE_QUEM.search(t):
+        com_dono = True
         onde = _ONDE_VOLUME[m.group(2)]
         t = (t[: m.start()] + m.group(1) + t[m.end():]).strip()
     t = _A_MUSICA.sub(lambda m: f"{m.group(1)} o volume", t)
@@ -509,5 +530,6 @@ def comando_de_pc(texto: str) -> tuple[str, dict[str, Any]] | None:
     if _VOLUME_DESCE.match(t):
         return "volume", {"acao": "diminuir", **extra}
     if _MUDO.match(t):
-        return "volume", {"acao": "mudo"}
+        # "tira o som do Spotify" não é mudo do Windows inteiro: com dono, o modelo decide (revisão do PR 41)
+        return None if com_dono else ("volume", {"acao": "mudo"})
     return None

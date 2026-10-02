@@ -316,9 +316,14 @@ class Spotify:
         """Espera o que foi pedido aparecer tocando. Carregado e parado: um play de novo (uma vez)."""
         esperado = item.get("uri")
         deu_play_de_novo = False
+        agora: dict[str, Any] | None = None
         for _ in range(max(1, round(CONFERIR_TOCAR_S / INTERVALO_CONFERIR_S))):
             await self._dormir(INTERVALO_CONFERIR_S)
-            agora = await self._player()
+            try:
+                agora = await self._player()
+            except ErroSpotify as e:  # a conferência é um extra: um 502 nela não desfaz o play que já foi
+                log.warning("não consegui conferir se o Spotify tocou: %s", e)
+                continue
             atual = (agora or {}).get("item") or {}
             contexto = ((agora or {}).get("context") or {}).get("uri")
             # A faixa pode vir "religada" para outra versão do mercado (linked_from guarda a pedida).
@@ -329,6 +334,11 @@ class Spotify:
             if agora and e_o_pedido and not deu_play_de_novo:
                 deu_play_de_novo = True
                 await self._api("PUT", "/me/player/play", params={"device_id": aparelho})
+        if agora is None or agora.get("is_playing"):
+            # Tocando algo que não deu para casar com o pedido (álbum sem `context`, faixa trocada pelo Spotify), ou
+            # sem conseguir conferir: fica o "Tocando" (revisão do PR 41: não transformar sucesso em erro).
+            log.info("tocar: não deu para confirmar que é %s, mas o Spotify está tocando", tocando)
+            return
         raise ErroSpotify(f"Mandei tocar {tocando}, mas o Spotify não começou. Tente de novo ou dê play no "
                           "app do Spotify.")
 
@@ -350,7 +360,7 @@ class Spotify:
         if not disp or not disp.get("supports_volume", True) or disp.get("volume_percent") is None:
             return None
         return {"volume": int(disp["volume_percent"]), "tocando": bool(agora.get("is_playing")),
-                "aparelho": disp.get("name") or "Spotify", "id": disp.get("id")}
+                "aparelho": disp.get("name") or "Spotify", "id": disp.get("id"), "tipo": disp.get("type")}
 
     async def mudar_volume(self, nivel: int, aparelho: str | None = None) -> None:
         params: dict[str, Any] = {"volume_percent": max(0, min(100, int(nivel)))}

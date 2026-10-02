@@ -386,10 +386,42 @@ async def test_volume_do_spotify_le_e_muda(com_login):
     async with _sp(com_login, api) as sp:
         assert await sp.volume_atual() is None  # nada ativo na conta
         await sp.tocar("bohemian rhapsody")
-        assert await sp.volume_atual() == {"volume": 40, "tocando": True, "aparelho": "DESKTOP", "id": "pc1"}
+        assert await sp.volume_atual() == {"volume": 40, "tocando": True, "aparelho": "DESKTOP", "id": "pc1",
+                                           "tipo": "Computer"}
         await sp.mudar_volume(130, "pc1")  # fora da faixa: vira 100
         assert api.volume == 100
     api = ApiFalsa(dispositivos_depois=0, suporta_volume=False)
     async with _sp(com_login, api) as sp:
         await sp.tocar("bohemian rhapsody")
         assert await sp.volume_atual() is None  # aparelho que não deixa mudar volume pela API
+
+
+
+async def test_falha_ao_conferir_nao_vira_erro_com_a_musica_tocando(com_login):
+    """Revisão do PR 41: um 502 no /me/player depois do play não desfaz o "Tocando"."""
+    api = ApiFalsa(dispositivos_depois=0)
+    original = api.__call__
+
+    class Instavel:
+        def __call__(self, req):
+            if req.url.path == "/v1/me/player":
+                return httpx.Response(502)
+            return original(req)
+
+    async with _sp(com_login, Instavel()) as sp:
+        assert await sp.tocar("bohemian rhapsody") == "Bohemian Rhapsody, de Queen"
+
+
+async def test_album_tocando_sem_context_nao_vira_erro(com_login):
+    api = ApiFalsa(dispositivos_depois=0)
+    original = api.__call__
+
+    def sem_contexto(req):
+        r = original(req)
+        if req.url.path == "/v1/me/player" and api.player:
+            api.player["context"] = None  # o Spotify às vezes não informa o contexto
+            return httpx.Response(200, json=api.player)
+        return r
+
+    async with _sp(com_login, sem_contexto) as sp:
+        await sp.tocar("foco", "playlist")  # tocando, só não dá para casar: fica o "Tocando"

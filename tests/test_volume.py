@@ -118,3 +118,58 @@ async def test_spotify_fora_do_ar_nao_quebra_o_volume(tmp_path):
 ])
 def test_atalhos_de_volume(frase, esperado):
     assert comando_de_pc(frase) == esperado
+
+
+
+# ------------------------------------------------------------------ revisão do PR 41
+
+
+def test_volume_do_spotify_nao_mexe_no_windows():
+    no_max = {"volume": 100, "tocando": True}
+    assert planejar("aumentar", None, onde="spotify", spotify=no_max, windows=40, windows_mudo=False) == \
+        Plano(motivo="spotify_ja_no_maximo")
+    assert planejar("aumentar", 20, onde="spotify", spotify={"volume": 95, "tocando": True}, windows=40,
+                    windows_mudo=False) == Plano(spotify=100)
+    assert planejar("diminuir", None, onde="spotify", spotify={"volume": 0, "tocando": True}, windows=40,
+                    windows_mudo=False) == Plano(motivo="spotify_ja_no_zero")
+
+
+async def test_spotify_tocando_no_echo_nao_e_mexido_sem_pedido(tmp_path):
+    sp = SpotifyFalso({"volume": 60, "tocando": True, "id": "echo", "tipo": "Speaker"})
+    pc, feitos = _pc(tmp_path, sp)
+    assert await pc.mudar_volume({"acao": "diminuir"}) == "Volume em 40%."
+    assert sp.mudou == [] and feitos == [("diminuir", None)]
+    assert await pc.mudar_volume({"acao": "diminuir", "onde": "spotify"}) == "Spotify em 50%."  # pedido: vai
+
+
+async def test_windows_sem_alto_falante_nao_impede_o_spotify(tmp_path):
+    def quebra():
+        raise OSError("sem alto-falante padrão")
+
+    sp = SpotifyFalso({"volume": 60, "tocando": True, "id": "pc1", "tipo": "Computer"})
+    pc = PC(tmp_path, ler_volume=quebra, mudar_volume=lambda *_a: 0)
+    pc.spotify = sp
+    assert await pc.mudar_volume({"acao": "aumentar"}) == "Spotify em 70%."
+    assert await pc.mudar_volume({"acao": "definir", "nivel": 30}) == "Spotify em 30%."
+
+
+async def test_falha_no_windows_depois_do_spotify_diz_o_que_foi_feito(tmp_path):
+    def falha(*_a):
+        raise OSError("COM")
+
+    sp = SpotifyFalso({"volume": 95, "tocando": True, "id": "pc1", "tipo": "Computer"})
+    pc = PC(tmp_path, ler_volume=lambda: (40, False), mudar_volume=falha)
+    pc.spotify = sp
+    assert await pc.mudar_volume({"acao": "aumentar", "nivel": 20}) == "Spotify em 100%, mas não consegui mexer no Windows."
+
+
+async def test_tirar_do_mudo_aparece_na_resposta(tmp_path):
+    sp = SpotifyFalso({"volume": 60, "tocando": True, "id": "pc1", "tipo": "Computer"})
+    pc, feitos = _pc(tmp_path, sp, windows=50, mudo=True)
+    assert await pc.mudar_volume({"acao": "aumentar"}) == "Spotify em 70% e tirei o Windows do mudo."
+    assert feitos == [("som", None)]
+
+
+@pytest.mark.parametrize("frase", ["tira o som do Spotify", "tira o som da música"])
+def test_mudo_com_dono_fica_para_o_modelo(frase):
+    assert comando_de_pc(frase) is None  # não muta o Windows inteiro
