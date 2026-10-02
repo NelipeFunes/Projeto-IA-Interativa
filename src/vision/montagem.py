@@ -111,6 +111,10 @@ async def montar(
         temporizador = Temporizador(timers)
         registro.adicionar(*temporizador.ferramentas())
         atalhos.append(temporizador.atalho)
+        from vision.tools import sistema as ferramentas_sistema
+
+        registro.adicionar(*ferramentas_sistema.ferramentas())
+        atalhos.append(ferramentas_sistema.atalho)
     spotify = None
     if cfg.get("pc.ativo", True) and cfg.get("spotify.ativo", True):
         from vision import spotify as modulo_spotify

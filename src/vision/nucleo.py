@@ -42,6 +42,7 @@ log = logging.getLogger("vision.nucleo")
 NOME_MUTEX = "Local\\VisionNucleo"
 # A agenda muda por fora (celular): a cada 5 min o cache dela é refeito e a tela recebe uma foto nova.
 ATUALIZAR_PAINEL_S = 300
+VIGIAR_SISTEMA_S = 120  # placa quente, memória ou disco no fim: avisa (uma vez por hora cada um)
 CHECAR_AVISOS_S = 30  # compromisso chegando: olha o cache da agenda a cada 30 s
 
 
@@ -386,6 +387,28 @@ class Nucleo:
             except Exception:  # noqa: BLE001 - uma foto que falha não pode parar as próximas
                 log.exception("não consegui atualizar o painel")
 
+    async def _vigiar_sistema(self) -> None:
+        """Como o JARVIS avisando da armadura: placa de vídeo quente, memória ou disco no fim viram aviso."""
+        from vision import sistema
+
+        if not self.cfg.get("sistema.alertas", True):
+            return
+        vigia = sistema.Vigia()
+        while True:
+            await asyncio.sleep(VIGIAR_SISTEMA_S)
+            if self.laco is not None and self.laco.jogando:
+                continue  # no jogo, nem um processo a mais: o CS2 já disputa o processador
+            try:
+                novos = vigia.novos(await sistema.estado())
+            except Exception:  # noqa: BLE001 - sem leitura agora, tenta na próxima
+                log.exception("não consegui ler o estado do PC")
+                continue
+            if novos:
+                frase = f"{self.cfg.get('usuario.nome', 'Felipe')}, atenção: " + " ".join(novos)
+                log.warning("alerta do sistema: %s", frase)
+                self.barramento.publicar({"tipo": "aviso", "texto": frase})
+                if self.laco is not None:
+                    self.laco.pedir_fala(frase)  # no jogo, fica só na tela
     async def _avisar_compromissos(self) -> None:
         """Como o JARVIS: alguns minutos antes de cada compromisso, fala e mostra o aviso, sem ninguém perguntar."""
         from vision.avisos import AvisosDaAgenda
@@ -515,6 +538,7 @@ class Nucleo:
                 self.janela = Janela(self.cfg, f"http://127.0.0.1:{self.porta}", self.token, self.abrir_ao_subir)
                 tarefas.append(asyncio.create_task(self.janela.supervisionar()))
                 tarefas.append(asyncio.create_task(self._atualizar_painel()))
+                tarefas.append(asyncio.create_task(self._vigiar_sistema()))
                 tarefas.append(asyncio.create_task(self._avisar_compromissos()))
                 atalho = Atalho(self.cfg.get("nucleo.atalho_janela", "ctrl+alt+k"),
                                 lambda: self._no_loop(self.abrir_janela))
