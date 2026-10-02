@@ -28,6 +28,9 @@ MAX_VOLTAS = 5
 # Grupos cuja escrita não exige que a fala tenha "cara de pedido" daquele tipo (a trava acima): a memória já tem a
 # própria regra (guardar fato contado), e "geral" é o que não tem grupo.
 SEM_TRAVA_DE_PEDIDO = {"memoria", "geral"}
+# Grupos que se cobrem na trava: "pausa a música" é detectado como "pc" (teclas de mídia), mas o modelo pode usar o
+# Spotify, e vice-versa (revisão do PR 32).
+GRUPOS_IRMAOS = {"musica": {"pc"}, "pc": {"musica"}}
 MAX_DIRETAS = 8  # escritas sem confirmação num mesmo pedido
 MODOS_CONFIRMACAO = ("todas", "sensiveis", "nenhuma")
 CORTE_TOOL_ANTIGO = 600
@@ -332,6 +335,7 @@ class Agente:
         if s.turnos:
             anterior = next((m["content"] for m in s.turnos[-1] if m.get("role") == "user"), "")
             pedidos |= set(intencao.detectar(anterior))
+        pedidos |= {irmao for g in list(pedidos) for irmao in GRUPOS_IRMAOS.get(g, ())}
         # Só um pedido de ação (não pergunta, nem resposta a uma pendência que acabou de ser descartada) pode ter
         # um "Feito." de mentira: "já marquei a prova?" → "Marquei sim, dia 5" é resposta legítima.
         pedido_de_acao = bool(grupos) and not texto.strip().endswith("?") and not nota
@@ -409,7 +413,7 @@ class Agente:
                         ok, resultado = False, "Só uma alteração por vez; esta foi ignorada."
                     else:
                         try:
-                            descricao = await f.descrever(c.args) if f.descrever else f"Vou executar {c.nome}."
+                            descricao = await f.descrever(c.args) if f.descrever else _descricao_padrao(f, c.args)
                             nova_pendente = Pendente(c.nome, c.args, descricao, f"p{next(self._ids_pendente)}")
                             ok, resultado = True, f"AGUARDANDO CONFIRMAÇÃO DO {self.nome.upper()}: {descricao}"
                         except ErroFerramenta as e:
@@ -552,3 +556,11 @@ def _no_passado(descricao: str) -> str:
         if descricao.startswith(futuro):
             return "Feito. " + passado + descricao[len(futuro) :]
     return "Feito."
+
+
+def _descricao_padrao(f: Ferramenta, args: dict[str, Any]) -> str:
+    """Para quem não tem `descrever`: a descrição da própria ferramenta, falável ("Vou executar musica_controlar"
+    soava como código; revisão do PR 32)."""
+    detalhe = ", ".join(f"{v}" for v in args.values() if isinstance(v, str | int | float) and str(v).strip())[:80]
+    acao = f.descricao.split(".")[0].strip().rstrip(":") or f.nome.replace("_", " ")
+    return f"Vou fazer isto: {acao[:1].lower()}{acao[1:]}" + (f" ({detalhe})." if detalhe else ".")
