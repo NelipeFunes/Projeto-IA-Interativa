@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import json
 from functools import partial
 
 import numpy as np
@@ -92,3 +93,22 @@ async def test_descreve_transcreve_e_fala_pelo_protocolo():
 def test_int16_e_limite():
     assert para_int16(np.array([2.0, -2.0, 0.0], np.float32)) == np.array([32767, -32767, 0], "<i2").tobytes()
     assert MAX_AUDIO_S == 30
+
+
+async def test_evento_grande_demais_ou_quebrado_encerra_a_conexao():
+    from vision.voice.wyoming import MAX_PAYLOAD, ler_evento
+
+    def leitor(bruto: bytes) -> asyncio.StreamReader:
+        r = asyncio.StreamReader()
+        r.feed_data(bruto)
+        r.feed_eof()
+        return r
+
+    gigante = json.dumps({"type": "audio-chunk", "payload_length": 4_000_000_000}).encode() + b"\n"
+    assert await ler_evento(leitor(gigante)) is None
+    assert await ler_evento(leitor(b"isso nao e json\n")) is None
+    ok = json.dumps({"type": "audio-chunk", "data": {"rate": 16000}, "payload_length": 4}).encode() + b"\n" + b"abcd"
+    ev = await ler_evento(leitor(ok))
+    assert ev.type == "audio-chunk" and ev.payload == b"abcd" and ev.data["rate"] == 16000
+    curto = json.dumps({"type": "audio-chunk", "payload_length": MAX_PAYLOAD}).encode() + b"\n" + b"ab"
+    assert await ler_evento(leitor(curto)) is None  # prometeu mais do que mandou

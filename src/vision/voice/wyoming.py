@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import ipaddress
+import json
 import logging
 from functools import partial
 from typing import Any
@@ -25,9 +26,38 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 TAXA_STT = 16000
-MAX_AUDIO_S = 30  # fala mais longa que isso é cortada (um satélite travado não enche a memória)
+MAX_AUDIO_S = 30  # fala mais longa que isso é cortada
 MAX_TEXTO = 1000
 PEDACO_AMOSTRAS = 2048
+# Revisão do PR 33: a leitura da biblioteca confia no tamanho que o cliente declara. Aqui cada evento é lido com teto,
+# e a conexão cai se passar dele, se ficar parada, ou se já houver conexões demais.
+MAX_DADOS = 64 * 1024  # JSON de um evento
+MAX_PAYLOAD = 512 * 1024  # áudio de um pedaço (~16 s a 16 kHz; os satélites mandam pedaços de ~30 ms)
+OCIOSO_S = 60
+MAX_CONEXOES = 8
+
+
+async def ler_evento(reader: asyncio.StreamReader):
+    """Como `wyoming.event.async_read_event`, mas recusando tamanhos acima do teto. None = encerrar a conexão."""
+    from wyoming.event import Event
+
+    try:
+        linha = await asyncio.wait_for(reader.readline(), OCIOSO_S)
+        if not linha:
+            return None
+        cabecalho = json.loads(linha)
+        tamanho_dados = int(cabecalho.get("data_length") or 0)
+        tamanho_payload = int(cabecalho.get("payload_length") or 0)
+        if not (0 <= tamanho_dados <= MAX_DADOS and 0 <= tamanho_payload <= MAX_PAYLOAD):
+            log.warning("Wyoming: evento grande demais; conexão encerrada")
+            return None
+        dados = cabecalho.get("data") or {}
+        if tamanho_dados:
+            dados = {**dados, **json.loads(await asyncio.wait_for(reader.readexactly(tamanho_dados), OCIOSO_S))}
+        payload = await asyncio.wait_for(reader.readexactly(tamanho_payload), OCIOSO_S) if tamanho_payload else None
+        return Event(type=str(cabecalho["type"]), data=dados if isinstance(dados, dict) else {}, payload=payload)
+    except (TimeoutError, ValueError, KeyError, TypeError, asyncio.IncompleteReadError, asyncio.LimitOverrunError):
+        return None
 
 
 def endereco_seguro(uri: str, permitir_rede: bool) -> str:
@@ -74,12 +104,32 @@ def criar_atendente(transcritor: Any, voz: Any, nome_stt: str, nome_voz: str):
 
     descricao = info(nome_stt, nome_voz).event()
     limite = MAX_AUDIO_S * TAXA_STT * 2  # bytes de int16 mono
+    vez = asyncio.Semaphore(1)  # uma transcrição ou síntese por vez (o Piper não é seguro em várias threads)
+    conexoes = [0]
 
     class Atendente(AsyncEventHandler):
         def __init__(self, *args: Any, **kwargs: Any) -> None:
             super().__init__(*args, **kwargs)
             self.conversor = AudioChunkConverter(rate=TAXA_STT, width=2, channels=1)
             self.audio = bytearray()
+
+        async def run(self) -> None:
+            if conexoes[0] >= MAX_CONEXOES:
+                log.warning("Wyoming: conexões demais; recusada")
+                self.writer.close()
+                return
+            conexoes[0] += 1
+            try:
+                while (evento := await ler_evento(self.reader)) is not None:
+                    try:
+                        if not await self.handle_event(evento):
+                            break
+                    except (ValueError, KeyError, TypeError) as e:  # evento malformado: encerra só esta conexão
+                        log.warning("Wyoming: evento inválido (%s); conexão encerrada", type(e).__name__)
+                        break
+            finally:
+                conexoes[0] -= 1
+                self.writer.close()
 
         async def handle_event(self, event: Event) -> bool:
             if Describe.is_type(event.type):
@@ -93,11 +143,15 @@ def criar_atendente(transcritor: Any, voz: Any, nome_stt: str, nome_voz: str):
             elif AudioStop.is_type(event.type):
                 pcm = np.frombuffer(bytes(self.audio), dtype="<i2")
                 self.audio.clear()
-                texto = await asyncio.to_thread(transcritor.transcrever, pcm, TAXA_STT) if pcm.size else ""
+                texto = ""
+                if pcm.size:
+                    async with vez:
+                        texto = await asyncio.to_thread(transcritor.transcrever, pcm, TAXA_STT)
                 await self.write_event(Transcript(text=texto).event())
             elif Synthesize.is_type(event.type):
                 texto = " ".join(Synthesize.from_event(event).text.split())[:MAX_TEXTO]
-                audio = await asyncio.to_thread(voz.sintetizar, texto)
+                async with vez:
+                    audio = await asyncio.to_thread(voz.sintetizar, texto)
                 taxa = int(voz.taxa)
                 await self.write_event(AudioStart(rate=taxa, width=2, channels=1).event())
                 bruto = para_int16(audio)
