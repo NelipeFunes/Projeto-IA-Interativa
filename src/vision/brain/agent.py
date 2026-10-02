@@ -18,13 +18,19 @@ from typing import Any
 
 from vision import tempo
 from vision.brain import confirmacao as classificador, intencao, prompt
-from vision.brain.llm import LLM, RespostaLLM
+from vision.brain.llm import LLM, Interrompido, RespostaLLM
 from vision.memory.store import Memorias
 from vision.tools.base import ErroFerramenta, Ferramenta, Registro
 
 log = logging.getLogger(__name__)
 
 MAX_VOLTAS = 5
+# Grupos cuja escrita não exige que a fala tenha "cara de pedido" daquele tipo (a trava acima): a memória já tem a
+# própria regra (guardar fato contado), e "geral" é o que não tem grupo.
+SEM_TRAVA_DE_PEDIDO = {"memoria", "geral"}
+# Grupos que se cobrem na trava: "pausa a música" é detectado como "pc" (teclas de mídia), mas o modelo pode usar o
+# Spotify, e vice-versa (revisão do PR 32).
+GRUPOS_IRMAOS = {"musica": {"pc"}, "pc": {"musica"}}
 MAX_DIRETAS = 8  # escritas sem confirmação num mesmo pedido
 MODOS_CONFIRMACAO = ("todas", "sensiveis", "nenhuma")
 CORTE_TOOL_ANTIGO = 600
@@ -67,6 +73,7 @@ class Resposta:
     aguardando_confirmacao: bool = False
     segundos: float = 0.0
     insistiu: bool = False
+    interrompido: bool = False  # o Felipe falou por cima e a geração parou no meio
 
 
 
@@ -168,9 +175,13 @@ class Agente:
         sessao: str = "padrao",
         ao_texto: Callable[[str], None] | None = None,
         pendente_esperada: str | None = None,
+        parar: Callable[[], bool] | None = None,
     ) -> Resposta:
         """`pendente_esperada`: o "sim"/"não" é a resposta a ESSA confirmação (clique na tela). Conferido dentro
-        da trava: se a voz resolveu ou trocou a pendência enquanto isso, o clique não vale para a nova."""
+        da trava: se a voz resolveu ou trocou a pendência enquanto isso, o clique não vale para a nova.
+
+        `parar`: quando ficar verdadeiro (o Felipe falou por cima), a geração para no próximo pedaço de texto ou
+        antes da próxima volta do modelo. Uma ferramenta que já está rodando termina; nenhuma nova começa."""
         s = self.sessao(canal, sessao)
         self._emitir("fala_usuario", texto=texto, canal=canal)
         if self.ao_evento is not None:
@@ -189,7 +200,11 @@ class Agente:
                 r = (await self._tratar_confirmacao(s, texto, ao_texto, estrito=canal == "voz")
                      if s.pendente is not None else None)
                 if r is None:
-                    r = await self._pensar(s, texto, canal, ao_texto)
+                    rastro: dict[str, Any] = {}
+                    try:
+                        r = await self._pensar(s, texto, canal, ao_texto, parar, rastro)
+                    except Interrompido:
+                        r = self._fechar_interrompido(s, texto, rastro)
                 self._registrar(canal, sessao, texto, r)
             r.segundos = time.perf_counter() - inicio
         self._emitir("resposta", texto=r.texto, aguardando_confirmacao=r.aguardando_confirmacao)
@@ -306,7 +321,23 @@ class Agente:
                 msgs.append(m)
         return msgs
 
-    async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None) -> Resposta:
+    def _fechar_interrompido(self, s: Sessao, texto: str, rastro: dict[str, Any]) -> Resposta:
+        """O turno cortado entra no histórico como foi: as ferramentas que já rodaram (o modelo não repete nem
+        nega o que fez) e o que ele chegou a dizer, marcado [interrompido]. Nenhuma pendência nasce de um corte."""
+        if s.pendente is not None and s.pendente.id == rastro.get("pendente_nova"):
+            s.pendente = None  # defensivo: o corte é antes de criar a pendência, mas não pode sobrar uma não ouvida
+            self._emitir("pendente_resolvido", id=rastro["pendente_nova"], resultado="cancelada")
+        turno = rastro.get("turno") or [{"role": "user", "content": texto}]
+        usadas = rastro.get("usadas") or []
+        dito = "".join(rastro.get("parcial") or []).strip()
+        turno.append({"role": "assistant", "content": (dito + " [interrompido]").strip()})
+        s.turnos.append(turno)
+        if any((f := self.registro.get(u["nome"])) is not None and f.conteudo_externo for u in usadas):
+            s.externo_ate_turno = len(s.turnos) - 1 + self.turnos_historico
+        return Resposta(dito, usadas, s.pendente is not None, interrompido=True)
+
+    async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None,
+                      parar: Callable[[], bool] | None = None, rastro: dict[str, Any] | None = None) -> Resposta:
         # No modo "todas", depois de ler texto de fora quem decide é o caminho normal. Luz nunca é sensível.
         if self.confirmacao != "todas" or (not self._ainda_tem_externo(s) and not s.nota):
             for atalho in self.atalhos:
@@ -320,9 +351,27 @@ class Agente:
         mensagens = [{"role": "system", "content": sistema}, *self._historico(s), *nota, *turno]
         ferramentas = self.registro.para_ollama()
         usadas: list[dict[str, Any]] = []
+        parcial: list[str] = []
+        if rastro is not None:
+            rastro.update(turno=turno, usadas=usadas, parcial=parcial)
+
+        def cortavel(parte: str) -> None:
+            """Só o texto que o modelo está transmitindo pode ser cortado (a conexão fecha e ele para)."""
+            if parar is not None and parar():
+                raise Interrompido
+            parcial.append(parte)
+            if ao_texto:
+                ao_texto(parte)
         leu_de_fora = self.confirmacao != "nenhuma" and self._ainda_tem_externo(s)
         diretas = 0
         grupos = [g for g in intencao.detectar(texto) if self.registro.nomes_do_grupo(g)]
+        # Que tipo de ação foi PEDIDA (nesta fala ou na anterior, para "e a da sala também?"). Visto em 02/10:
+        # "estou cansado" fez o modelo acender as luzes a 40% por conta própria.
+        pedidos = set(intencao.detectar(texto))
+        if s.turnos:
+            anterior = next((m["content"] for m in s.turnos[-1] if m.get("role") == "user"), "")
+            pedidos |= set(intencao.detectar(anterior))
+        pedidos |= {irmao for g in list(pedidos) for irmao in GRUPOS_IRMAOS.get(g, ())}
         # Só um pedido de ação (não pergunta, nem resposta a uma pendência que acabou de ser descartada) pode ter
         # um "Feito." de mentira: "já marquei a prova?" → "Marquei sim, dia 5" é resposta legítima.
         pedido_de_acao = bool(grupos) and not texto.strip().endswith("?") and not nota
@@ -332,8 +381,12 @@ class Agente:
         final = ""
 
         for volta in range(MAX_VOLTAS):
-            transmitir = ao_texto if volta > 0 else None  # a 1ª volta decide ferramentas; não fala antes
+            if parar is not None and parar():
+                raise Interrompido  # cortado entre uma volta e outra: as ferramentas pedidas depois nem rodam
+            transmitir = cortavel if volta > 0 and (ao_texto or parar) else None  # a 1ª volta decide ferramentas
             r: RespostaLLM = await self.llm.conversar(mensagens, ferramentas, transmitir)
+            if parar is not None and parar():
+                raise Interrompido  # ele falou enquanto o modelo decidia: o que foi pedido agora não roda
             transmitido = transmitir is not None
 
             escreveu = any(self._mudou_algo(u) for u in usadas)
@@ -383,6 +436,8 @@ class Agente:
                     c.args = f.normalizar_args(c.args)
                 self._emitir("ferramenta_inicio", nome=c.nome, args=c.args)
                 pergunta = f is not None and self._pede_confirmacao(f, leu_de_fora)
+                if f is not None and f.escrita and not pergunta and f.grupo not in pedidos | SEM_TRAVA_DE_PEDIDO:
+                    pergunta = True  # ação que ninguém pediu: vira "Confirma?" em vez de acontecer sozinha
                 limite = f is not None and f.escrita and not pergunta and diretas >= MAX_DIRETAS
                 if limite and self.confirmacao == "todas":
                     pergunta, limite = True, False  # modo antigo: o excesso vira pendência
@@ -398,7 +453,7 @@ class Agente:
                         ok, resultado = False, "Só uma alteração por vez; esta foi ignorada."
                     else:
                         try:
-                            descricao = await f.descrever(c.args) if f.descrever else f"Vou executar {c.nome}."
+                            descricao = await f.descrever(c.args) if f.descrever else _descricao_padrao(f, c.args)
                             nova_pendente = Pendente(c.nome, c.args, descricao, f"p{next(self._ids_pendente)}")
                             ok, resultado = True, f"AGUARDANDO CONFIRMAÇÃO DO {self.nome.upper()}: {descricao}"
                         except ErroFerramenta as e:
@@ -416,6 +471,8 @@ class Agente:
                 turno.append(msg_tool)
 
             if nova_pendente is not None:
+                if rastro is not None:
+                    rastro["pendente_nova"] = nova_pendente.id
                 s.pendente = nova_pendente
                 self._emitir("pendente", pendente=self._pendente_para_tela(nova_pendente))
                 final = f"{nova_pendente.descricao} Confirma?"
@@ -541,3 +598,11 @@ def _no_passado(descricao: str) -> str:
         if descricao.startswith(futuro):
             return "Feito. " + passado + descricao[len(futuro) :]
     return "Feito."
+
+
+def _descricao_padrao(f: Ferramenta, args: dict[str, Any]) -> str:
+    """Para quem não tem `descrever`: a descrição da própria ferramenta, falável ("Vou executar musica_controlar"
+    soava como código; revisão do PR 32)."""
+    detalhe = ", ".join(f"{v}" for v in args.values() if isinstance(v, str | int | float) and str(v).strip())[:80]
+    acao = f.descricao.split(".")[0].strip().rstrip(":") or f.nome.replace("_", " ")
+    return f"Vou fazer isto: {acao[:1].lower()}{acao[1:]}" + (f" ({detalhe})." if detalhe else ".")

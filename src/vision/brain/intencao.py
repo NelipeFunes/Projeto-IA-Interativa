@@ -37,13 +37,20 @@ PADROES = {
     # "toca" só como pedido, no começo da frase: "isso me toca", "o sino toca às 7" não (revisão do PR 21).
     "musica": re.compile(r"^\W*(?:(?:vision|vis[aã]o|hey|ei|ok|pode|por favor|a[ií]|e|ent[aã]o|agora|j[aá]|me)\W+)*"
                          r"(?:toca|tocar|toque|d[aá] play)\s+\w|\bno spotify\s*\W*$|"
-                         r"\b(que|qual) m[uú]sica (est[aá] |t[aá] )?tocando\b", re.IGNORECASE),
+                         r"\b(que|qual) m[uú]sica (est[aá] |t[aá] )?tocando\b|"
+                         r"\b(pul[ae]|pular|volt[ae]|continu[ae]|paus[ae]|repet[ei])\w* (essa |esta |a |o )?"
+                         r"(m[uú]sica|faixa|som|spotify)\b", re.IGNORECASE),
     "timer": re.compile(r"\b(timer|alarme|cron[oô]metro|temporizador|me avis[ae] (daqui|em|às|as|quando der))\b",
                         re.IGNORECASE),
     # Só pedido explícito de pesquisa: "busca minha agenda" é da agenda, não da web.
     "web": re.compile(r"\bpesquis(a|e|ar|ando)\b|\b(na|pela) (internet|web|net)\b|\bno google\b|"
                       r"\b(busc|procur)(a|e|ar) (algumas|alguns|umas|uns|op[cç][oõ]es|pre[cç]os?)\b|"
                       r"\bquanto (custa|est[aá] custando)\b", re.IGNORECASE),
+    # Só pedido de verdade: "minha rotina hoje" ou "modo de usar" não ligam protocolo (revisão do PR 32).
+    "protocolo": re.compile(r"\bprotocolo\b|\b(ativ|lig|inici|rod|execut)\w* (o |a )?(modo|rotina)\b",
+                            re.IGNORECASE),
+    "clima": re.compile(r"\b(clima|temperatura|previs[aã]o do tempo|vai (chover|fazer (frio|calor|sol))|"
+                        r"t[aá] (frio|calor)|est[aá] (frio|calor)|quantos graus|guarda-chuva)\b", re.IGNORECASE),
     "tarefas": re.compile(r"\b(tarefa\w*|to-?do|pend[eê]ncia\w*|afazer\w*|me lembr[ae] de)\b", re.IGNORECASE),
     "memoria": re.compile(
         r"(\b(lembr[ae]|anot[ae]|guard[ae]) (que|isso|a[ií])\b|\bn[aã]o esque[cç]a\b|\bvoc[eê] (sabe|lembra)\b|"

@@ -468,3 +468,35 @@ async def test_xtts_que_falha_no_meio_nao_repete_o_comeco_e_o_resto_vai_pelo_pip
     await _falar(_laco(voz, saida, piper_ate_caracteres=0), ["Primeira frase.", "Segunda.", "Terceira."])
     assert [t[0] for t in saida.tocadas] == [10, -1, -2]  # o pedaço que já saiu, e as próximas pelo Piper
     assert len(voz.sintetizadas) == 1  # depois da falha, não tenta o XTTS de novo nesta resposta
+
+
+def test_acabamento_tira_silencio_iguala_volume_e_suaviza_as_bordas():
+    from vision.voice.tts import LIMITE_PICO, VOLUME_ALVO_RMS, acabamento
+
+    taxa = 1000
+    t = np.arange(400) / taxa
+    baixo = np.concatenate([np.zeros(300), 0.02 * np.sin(2 * np.pi * 50 * t), np.zeros(300)]).astype(np.float32)
+    alto = (0.9 * np.sin(2 * np.pi * 50 * t)).astype(np.float32)
+    a, b = acabamento(baixo, taxa), acabamento(alto, taxa)
+    assert a.size < baixo.size  # o silêncio das pontas saiu
+    rms = [float(np.sqrt(np.mean(x**2))) for x in (a, b)]
+    assert all(abs(r - VOLUME_ALVO_RMS) < 0.02 for r in rms)  # as duas no mesmo volume
+    assert np.max(np.abs(b)) <= LIMITE_PICO + 1e-6
+    assert abs(a[0]) < 1e-6 and abs(a[-1]) < 1e-6  # começa e termina em zero: sem estalo
+    assert acabamento(np.zeros(100, np.float32), taxa).size == 0
+
+
+def test_piper_poe_a_pausa_depois_de_cada_frase():
+    """Revisão do PR 26: o laço sintetiza uma frase por vez, então a pausa tem que vir no fim de cada uma."""
+    from pathlib import Path
+
+    from vision.voice.tts import Voz
+
+    modelo = Path(__file__).resolve().parents[1] / "modelos" / "piper" / "pt_BR-faber-medium.onnx"
+    if not modelo.exists():
+        pytest.skip("sem o modelo do Piper")
+    sem = Voz(modelo, deterministico=True, pausa_s=0.0).sintetizar("Bom dia.")
+    com = Voz(modelo, deterministico=True, pausa_s=0.3).sintetizar("Bom dia.")
+    taxa = 22050
+    assert abs((com.size - sem.size) / taxa - 0.3) < 0.02 and not np.any(com[-int(0.25 * taxa):])
+    assert Voz(modelo, deterministico=True, pausa_s=-5).pausa.size == 0  # valor ruim não derruba
