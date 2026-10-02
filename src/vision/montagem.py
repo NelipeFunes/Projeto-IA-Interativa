@@ -153,6 +153,11 @@ async def montar(
             cfg.dados / "cache", validade_h=float(cfg.get("web.cache_horas", 6)),
             max_resultados=int(cfg.get("web.resultados", 5)), limite_cota=int(cfg.get("web.cota_mensal", 1000)),
         )).ferramentas())
+    from vision.tools.ajuda import Ajuda
+
+    ajuda = Ajuda(registro)  # por último: lista o que estiver ligado
+    registro.adicionar(*ajuda.ferramentas())
+    atalhos.append(ajuda.atalho)
     if cfg.get("protocolos.ativo", True):
         from vision.tools.protocolos import Protocolos
 
