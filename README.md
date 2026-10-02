@@ -36,8 +36,9 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   o nome, até "Vision, standby" ou 2 minutos de silêncio. Fora da conversa, o que você fala perto do PC
   é transcrito só para achar o nome e descartado (não vai para a tela, o log nem o disco).
   Se ele não entende o seu "Hey Vision", use **⚙ → Geral → Calibrar**: a cada bipe, diga "Hey Vision" (5 vezes).
-  Ele aprende como o STT escreve o seu "Vision" (só o que se repete e não é palavra comum) e guarda em
-  `data/ativacao.json`; "Esquecer o aprendido" desfaz.
+  Ele mostra como o STT escreveu o seu "Vision" (só fala curta que se repete na maioria das vezes e não é palavra
+  comum) e pergunta se pode usar; aceitando, guarda em `data/ativacao.json` (até 5; o × tira uma). O que você fala
+  na calibração aparece só na tela; no log, só se acordou ou não.
   Para entender por que ele não acorda, `voz.registrar_ativacao: true` no `config.yaml` escreve no log o que ele
   ouviu no começo de cada fala (desligue depois: com isso ligado, o que se fala perto do PC vai para o log).
 - **Microfone:** usa o primeiro da lista `voz.microfone` que tiver som. Se ele ficar mudo ou desligado por

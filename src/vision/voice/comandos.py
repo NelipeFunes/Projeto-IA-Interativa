@@ -64,61 +64,85 @@ def _normalizar(texto: str) -> list[str]:
 
 # Calibração (02/10: "é o que ele menos entende"): como o STT escreve o "Vision" na voz do Felipe, aprendido nos
 # Ajustes ("Calibrar o Hey Vision") e guardado em data/ativacao.json. Valem como GRAFIAS.
+#
+# Revisão do PR 43: uma grafia errada faz conversa normal (ou a TV) acordar o Vision, e o que vem depois vai ao
+# modelo, que tem ferramentas. Por isso, além da lista de palavras comuns: só fala curta (o "Hey X" que foi pedido;
+# frase de TV fica de fora), maioria das vezes (3 de 5), no máximo MAX_APELIDOS guardadas, e a tela pergunta antes
+# de gravar ("Usar 'deliving' como 'Vision'?").
 APELIDOS: set[str] = set()
 ARQUIVO_APELIDOS = "ativacao.json"
-MINIMO_REPETICOES = 2  # uma grafia só é aprendida se sair pelo menos 2 vezes na calibração
+MAX_APELIDOS = 5
+MAX_PALAVRAS_CALIBRACAO = 3  # "Hey Deliving", "E vision", "Deliving": mais que isso não é alguém só chamando
 # Palavras comuns não viram apelido, mesmo repetidas: com elas, conversa normal (ou a TV) acordaria o Vision.
 COMUNS = {
     "yeah", "yes", "hey", "hi", "hello", "the", "you", "your", "this", "that", "with", "what", "when", "where", "have",
     "just", "like", "know", "okay", "good", "right", "there", "they", "them", "then", "here", "were", "will", "would",
     "could", "should", "about", "really", "thank", "thanks", "nice", "sorry", "please", "music", "living", "love",
+    "well", "stop", "wait", "come", "look", "make", "take", "want", "need", "time", "people", "thing", "think",
     "isso", "esse", "essa", "este", "esta", "aqui", "agora", "entao", "tudo", "nada", "sim", "nao", "obrigado",
     "beleza", "valeu", "certo", "ainda", "depois", "antes", "muito", "pouco", "mais", "menos", "coisa", "gente",
     "voce", "vamos", "vai", "vou", "tem", "tenho", "quero", "pode", "fala", "falar", "olha", "olhar", "visao",
     "visita", "visual", "vista", "divisao", "revisao", "televisao", "decisao", "precisa", "preciso",
+    "para", "porque", "quando", "como", "onde", "qual", "quem", "sobre", "entre", "brasil", "hoje", "ontem", "amanha",
+    "casa", "tempo", "dia", "noite", "jogo", "time", "gol", "cara", "mano", "galera", "pessoal", "senhor", "senhora",
 }
+
+
+def _limpo(palavra: str) -> str:
+    return palavra.strip().lower() if isinstance(palavra, str) else ""
 
 
 def definir_apelidos(apelidos) -> None:
     APELIDOS.clear()
-    APELIDOS.update(a for a in apelidos if apelido_valido(a))
+    APELIDOS.update(sorted({_limpo(a) for a in apelidos if apelido_valido(_limpo(a))})[:MAX_APELIDOS])
 
 
 def ler_apelidos(pasta: Path) -> list[str]:
     try:
-        dados = json.loads((pasta / ARQUIVO_APELIDOS).read_text(encoding="utf-8"))
-    except (OSError, ValueError):
+        caminho = pasta / ARQUIVO_APELIDOS
+        if caminho.stat().st_size > 10_000:  # é uma lista de 5 palavras: maior que isso não é nosso
+            return []
+        dados = json.loads(caminho.read_text(encoding="utf-8"))
+    except (OSError, ValueError, RecursionError):
         return []
     lista = dados.get("apelidos") if isinstance(dados, dict) else None
-    return [a for a in lista if isinstance(a, str) and apelido_valido(a)] if isinstance(lista, list) else []
+    if not isinstance(lista, list):
+        return []
+    return sorted({_limpo(a) for a in lista if apelido_valido(_limpo(a))})[:MAX_APELIDOS]
 
 
 def gravar_apelidos(pasta: Path, apelidos: list[str]) -> None:
     pasta.mkdir(parents=True, exist_ok=True)
+    validos = sorted({_limpo(a) for a in apelidos if apelido_valido(_limpo(a))})[:MAX_APELIDOS]
     tmp = pasta / (ARQUIVO_APELIDOS + ".tmp")
-    tmp.write_text(json.dumps({"apelidos": sorted(set(apelidos))}, ensure_ascii=False), encoding="utf-8")
+    tmp.write_text(json.dumps({"apelidos": validos}, ensure_ascii=False), encoding="utf-8")
     tmp.replace(pasta / ARQUIVO_APELIDOS)
 
 
 def apelido_valido(palavra: str) -> bool:
-    return (isinstance(palavra, str) and palavra.isascii() and palavra.isalpha() and 4 <= len(palavra) <= 14
+    return (isinstance(palavra, str) and palavra.isascii() and palavra.isalpha() and palavra.islower()
+            and 4 <= len(palavra) <= 14
             and palavra not in COMUNS | ANTES | FORTES | FECHAMENTO | DESLIGAR | ENCHIMENTO and palavra != STANDBY)
 
 
 def candidato_do_nome(texto: str) -> str | None:
-    """Onde o nome deveria estar: a 1ª palavra depois dos chamados ("Hey Deliving" → "deliving"; "Deliving" →
-    "deliving"). None se a fala começa com outra coisa demais (aí não dá para saber qual palavra era o nome)."""
+    """Onde o nome deveria estar numa fala CURTA: a 1ª palavra depois dos chamados ("Hey Deliving" → "deliving";
+    "Deliving" → "deliving"). None se a fala é longa (frase da TV) ou começa com outra coisa."""
     palavras = _normalizar(texto)
-    for i, p in enumerate(palavras[:3]):
+    if not palavras or len(palavras) > MAX_PALAVRAS_CALIBRACAO:
+        return None
+    for i, p in enumerate(palavras):
         if p not in ANTES:
             return p if all(a in ANTES for a in palavras[:i]) else None
     return None
 
 
 def aprender_apelidos(ouvidos: list[str]) -> list[str]:
-    """Das falas da calibração que NÃO acordaram, as grafias do nome que se repetem (e não são palavra comum)."""
+    """Das falas da calibração que NÃO acordaram, as grafias do nome que saíram na MAIORIA das vezes (3 de 5) e não
+    são palavra comum. É uma sugestão: a tela pergunta antes de gravar."""
+    minimo = max(2, len(ouvidos) // 2 + 1)
     contagem = Counter(c for t in ouvidos if achar_ativacao(t) is None and (c := candidato_do_nome(t)))
-    return sorted(c for c, n in contagem.items() if n >= MINIMO_REPETICOES and apelido_valido(c))
+    return sorted(c for c, n in contagem.items() if n >= minimo and apelido_valido(c))
 
 
 def _e_o_nome(palavra: str, chamado_forte: bool) -> bool:

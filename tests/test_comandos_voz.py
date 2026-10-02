@@ -200,3 +200,27 @@ def test_stand_you_by_tambem_interrompe():
 
     assert e_interrupcao("Stand you by.") == "standby"
     assert e_interrupcao("Toca Stand by Me") is None
+
+
+
+# ------------------------------------------------------------------ revisão do PR 43
+
+
+@pytest.mark.parametrize("ouvidos", [
+    ["E o Brasil venceu ontem", "E o Brasil perdeu", "Hey Vision", "x", "y"],  # frase longa da TV
+    ["E o Brasil", "E o Brasil", "E o Brasil", "a", "b"],  # palavra comum, mesmo curta e repetida
+    ["Como está o tempo hoje, gente", "Como fazer isso", "Como", "", ""],
+    ["Deliving", "Deliving", "Hey Vision", "Hey Vision", ""],  # 2 de 5: não é maioria
+])
+def test_tv_e_minoria_nao_ensinam(sem_apelidos, ouvidos):
+    assert sem_apelidos.aprender_apelidos(ouvidos) == []
+
+
+def test_no_maximo_cinco_grafias_minusculas(sem_apelidos, tmp_path):
+    c = sem_apelidos
+    c.definir_apelidos(["Deliving", "bijon", "vixon", "vijom", "bision", "vezion", "vishion"])
+    assert len(c.APELIDOS) == 5 and "deliving" in c.APELIDOS
+    c.gravar_apelidos(tmp_path, ["Deliving", "bijon", "vixon", "vijom", "bision", "vezion"])
+    assert len(c.ler_apelidos(tmp_path)) == 5
+    (tmp_path / c.ARQUIVO_APELIDOS).write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+    assert c.ler_apelidos(tmp_path) == []  # grande demais (ou aninhado demais): não derruba a voz

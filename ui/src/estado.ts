@@ -202,10 +202,11 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
     }
 
     case "calibracao": {
+      // Não mexe em `ajustes`: trocar a referência dele reiniciaria o formulário e apagaria o que você editou e
+      // ainda não salvou (revisão do PR 43). As grafias atuais vêm daqui, na própria seção da calibração.
       const { tipo: _tipo, ...dados } = ev;
-      // As grafias aprendidas também valem para a tela de ajustes já aberta.
-      const ajustes = s.ajustes && dados.apelidos ? { ...s.ajustes, apelidos: dados.apelidos } : s.ajustes;
-      return { ...s, seq, calibracao: dados, ajustes };
+      const apelidos = dados.apelidos ?? s.calibracao?.apelidos;
+      return { ...s, seq, calibracao: { ...dados, ...(apelidos ? { apelidos } : {}) } };
     }
 
     case "painel":

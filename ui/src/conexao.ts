@@ -18,7 +18,8 @@ export type Comando =
   | { tipo: "cancelar_conexao"; servico: string }
   | { tipo: "reiniciar" }
   | { tipo: "calibrar_ativacao" }
-  | { tipo: "esquecer_apelidos" };
+  | { tipo: "esquecer_apelidos"; apelido?: string }
+  | { tipo: "aceitar_apelidos"; apelidos: string[] };
 
 export interface Conexao {
   enviar: (c: Comando) => void;

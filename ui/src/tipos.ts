@@ -71,7 +71,8 @@ export interface DadosCalibracao {
   etapa?: number;
   de?: number;
   ouvidos?: { texto: string; acordou: boolean }[];
-  aprendidos?: string[];
+  /** Grafias novas do nome que a calibração achou: só valem se você aceitar. */
+  sugeridos?: string[];
   apelidos?: string[];
   acertos?: number;
   dica?: string;

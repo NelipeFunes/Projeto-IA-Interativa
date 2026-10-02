@@ -254,6 +254,7 @@ class Nucleo:
         self.conexoes_inicio = conexoes.assinatura(cfg)
         self.logins: dict[str, tuple[asyncio.Task, threading.Event]] = {}
         self.andamento: dict[str, dict[str, Any]] = {}
+        self._sugestoes: list[str] = []  # grafias do nome que a última calibração sugeriu (a tela aceita ou não)
         # Desconectados nesta sessão: a Alexa e o Wispr do núcleo ainda têm a sessão na memória e a regravariam
         # no disco (revisão do PR 38). Ficam no aviso de reiniciar até o Vision reiniciar.
         self.desconectados: set[str] = set()
@@ -294,7 +295,7 @@ class Nucleo:
                         ler_conexoes=self.ler_conexoes, conectar=self.conectar, desconectar=self.desconectar,
                         ligar_conexao=self.ligar_conexao, cancelar_conexao=self.cancelar_conexao,
                         reiniciar=self.reiniciar, calibrar_ativacao=self.calibrar_ativacao,
-                        esquecer_apelidos=self.esquecer_apelidos)
+                        esquecer_apelidos=self.esquecer_apelidos, aceitar_apelidos=self.aceitar_apelidos)
 
     # ---------- calibração do "Hey Vision" ----------
 
@@ -306,43 +307,71 @@ class Nucleo:
             return
         motivo = self.laco.pedir_calibracao(self.VEZES_CALIBRACAO, self._fim_calibracao)
         if motivo:
-            self.barramento.publicar({"tipo": "calibracao", "rodando": False, "erro": motivo})
+            if motivo != "A calibração já está rodando.":  # o 2º clique não apaga a tela da que está rodando
+                self.barramento.publicar({"tipo": "calibracao", "rodando": False, "erro": motivo})
             return
         self.barramento.publicar({"tipo": "calibracao", "rodando": True, "etapa": 0, "de": self.VEZES_CALIBRACAO,
                                   "ouvidos": []})
+        await asyncio.sleep(8)  # o laço pega no próximo bloco do microfone; se não pegou, ele está parado
+        if self.laco is not None and self.laco.calibracao_agendada():
+            self.laco.cancelar_calibracao_agendada()
+            self.barramento.publicar({"tipo": "calibracao", "rodando": False,
+                                      "erro": "A escuta não respondeu (o microfone parou?). Tente de novo."})
 
     async def _fim_calibracao(self, ouvidos: list[dict[str, Any]], aprendidos: list[str]) -> None:
+        """Nada é gravado aqui: as grafias novas são SUGESTÕES, e a tela pergunta (revisão do PR 43: a TV ou outra
+        pessoa na calibração podia ensinar "brasil", e "e o brasil..." acordaria o Vision)."""
         from vision.voice import comandos
 
-        todos = sorted(set(comandos.ler_apelidos(self.cfg.dados)) | set(aprendidos))
-        if aprendidos:
-            await asyncio.to_thread(comandos.gravar_apelidos, self.cfg.dados, todos)
-            comandos.definir_apelidos(todos)
-            log.info("calibração: aprendi %s", ", ".join(aprendidos))
+        atuais = comandos.ler_apelidos(self.cfg.dados)
+        cabem = max(0, comandos.MAX_APELIDOS - len(atuais))
+        self._sugestoes = [a for a in aprendidos if a not in atuais][:cabem]
+        sugeridos = self._sugestoes
         acertos = sum(1 for o in ouvidos if o["acordou"])
         vazios = sum(1 for o in ouvidos if not o["texto"])
         microfone = self.laco.entrada.nome if self.laco is not None else "?"
         if vazios * 2 >= len(ouvidos):
             dica = (f"Quase não ouvi nada no microfone ({microfone}). Confira se ele está ligado e sem mudo; "
                     "o headset ouve bem melhor que a webcam.")
+            if sugeridos:
+                dica += f" Mesmo assim, ele escreveu o seu \"Vision\" como: {', '.join(sugeridos)}."
         elif acertos == len(ouvidos):
             dica = "Ele já entende o seu \"Hey Vision\" em todas as vezes."
+        elif sugeridos:
+            dica = (f"Ele escreve o seu \"Vision\" como: {', '.join(sugeridos)}. Se foi mesmo você chamando, aceite "
+                    "para ele passar a acordar com isso.")
         elif aprendidos:
-            dica = f"Aprendi como ele escreve o seu \"Vision\": {', '.join(aprendidos)}. Teste agora."
+            dica = f"Já são {comandos.MAX_APELIDOS} grafias guardadas: tire uma antes de aceitar outra."
         else:
             dica = ("Saiu diferente a cada vez e não deu para aprender uma grafia segura. Tente de novo, mais perto "
                     f"do microfone ({microfone}).")
-        self.barramento.publicar({"tipo": "calibracao", "rodando": False, "ouvidos": ouvidos, "aprendidos": aprendidos,
-                                  "apelidos": todos, "acertos": acertos, "dica": dica})
+        self.barramento.publicar({"tipo": "calibracao", "rodando": False, "ouvidos": ouvidos, "sugeridos": sugeridos,
+                                  "apelidos": atuais, "acertos": acertos, "dica": dica})
 
-    async def esquecer_apelidos(self) -> None:
+    async def aceitar_apelidos(self, apelidos: list[str]) -> None:
+        """O clique em "Aceitar": só vale o que a última calibração sugeriu (a tela não inventa grafia)."""
         from vision.voice import comandos
 
-        await asyncio.to_thread(comandos.gravar_apelidos, self.cfg.dados, [])
-        comandos.definir_apelidos([])
-        log.info("calibração: grafias aprendidas esquecidas")
-        self.barramento.publicar({"tipo": "calibracao", "rodando": False, "apelidos": [],
-                                  "dica": "Esqueci as grafias aprendidas."})
+        novos = [a for a in apelidos if a in self._sugestoes]
+        todos = (comandos.ler_apelidos(self.cfg.dados) + novos)[: comandos.MAX_APELIDOS]
+        if novos:
+            await asyncio.to_thread(comandos.gravar_apelidos, self.cfg.dados, todos)
+            comandos.definir_apelidos(todos)
+            log.info("calibração: %d grafia(s) nova(s) do nome aceitas", len(novos))
+        self._sugestoes = []
+        self.barramento.publicar({"tipo": "calibracao", "rodando": False, "apelidos": sorted(comandos.APELIDOS),
+                                  "dica": "Pronto: teste o \"Hey Vision\" agora." if novos else ""})
+
+    async def esquecer_apelidos(self, apelido: str | None = None) -> None:
+        """Um só (o × da tela) ou todos."""
+        from vision.voice import comandos
+
+        todos = [] if apelido is None else [a for a in comandos.ler_apelidos(self.cfg.dados) if a != apelido]
+        await asyncio.to_thread(comandos.gravar_apelidos, self.cfg.dados, todos)
+        comandos.definir_apelidos(todos)
+        log.info("calibração: grafia(s) do nome esquecida(s)")
+        self.barramento.publicar({"tipo": "calibracao", "rodando": False, "apelidos": sorted(comandos.APELIDOS),
+                                  "dica": "Esqueci." if apelido else "Esqueci as grafias aprendidas."})
 
     # ---------- tela de conexões ----------
 

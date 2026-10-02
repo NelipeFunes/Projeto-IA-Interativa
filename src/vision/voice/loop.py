@@ -70,6 +70,7 @@ def fatiar(texto: str, primeira: bool) -> tuple[list[str], str]:
     *completas, resto = FIM_DE_FRASE.split(texto)
     return prontas + completas, resto
 BLOCO_S = 0.08
+PRAZO_FALA_CALIBRACAO_S = 14.0  # 6 s esperando a voz + 4 s de fala + folga: em relógio, se o microfone parar
 TRECHO_ATIVACAO_S = 2.5  # para achar o nome, basta transcrever o começo da fala (mais leve para a CPU)
 MAXIMO_CANDIDATO_S = 12.0  # fala mais longa que isso, esperando, não é alguém chamando: nem transcreve
 ALARME = object()  # marca, na fila de falas de fora, um aviso de fim de timer
@@ -201,29 +202,52 @@ class LoopVoz:
             return "A calibração já está rodando."
         if self._pausado():
             return "A escuta está pausada (bandeja ou modo jogo): retome antes de calibrar."
+        if not self.ativacao_por_texto:
+            return "A calibração é para o \"Hey Vision\" por transcrição (voz.ativacao: transcricao)."
         self._calibracao = (max(1, min(10, int(vezes))), ao_fim)
         return None
+
+    def calibracao_agendada(self) -> bool:
+        """Pedida e ainda não começada (o núcleo cancela se o laço não pegar a tempo)."""
+        return self._calibracao is not None and not self.calibrando
+
+    def cancelar_calibracao_agendada(self) -> None:
+        if not self.calibrando:
+            self._calibracao = None
 
     async def _calibrar(self, vezes: int, ao_fim) -> None:
         """Bipe, uma fala sua, o que o STT entendeu no começo dela (como no "Hey Vision"); `vezes` vezes. No fim, as
         grafias que se repetiram e não acordaram (comandos.aprender_apelidos) vão para `ao_fim`."""
+        # (`calibrando` já vem True do `rodar`: um 2º pedido durante o _fechar_conversa é recusado; revisão do PR 43)
         if self.em_conversa:
             await self._fechar_conversa(falar=False)
-        self.calibrando = True
         ouvidos: list[dict[str, Any]] = []
         try:
             for i in range(vezes):
+                if self._pausado():  # pausou na bandeja ou abriu o jogo no meio: pausa é pausa (revisão do PR 43)
+                    self._emitir({"tipo": "calibracao", "rodando": False,
+                                  "erro": "Calibração cancelada: a escuta foi pausada (bandeja ou modo jogo)."})
+                    return
                 self._emitir({"tipo": "calibracao", "rodando": True, "etapa": i + 1, "de": vezes, "ouvidos": ouvidos})
                 self._mostrar("ouvindo")
                 await self._bipe(subindo=True)
                 self.entrada.descartar()  # o bipe que saiu na caixa de som não é você
-                pcm = await self._uma_fala()
+                try:
+                    pcm = await asyncio.wait_for(self._uma_fala(), PRAZO_FALA_CALIBRACAO_S)
+                except TimeoutError:  # o microfone parou de entregar: a vez fica vazia, a calibração não trava
+                    pcm = np.zeros(0, np.int16)
                 texto = await self._transcrever(pcm[: int(TRECHO_ATIVACAO_S * TAXA)]) if pcm.size else ""
-                ouvidos = [*ouvidos, {"texto": texto.strip(), "acordou": achar_ativacao(texto) is not None}]
-                self.escrever(f"[calibração] {i + 1}/{vezes}: {texto.strip()!r}")
+                acordou = achar_ativacao(texto) is not None
+                ouvidos = [*ouvidos, {"texto": texto.strip(), "acordou": acordou}]
+                # No log só se acordou: o que se fala na sala não vai para o log (revisão do PR 43).
+                self.escrever(f"[calibração] {i + 1}/{vezes}: {'acordou' if acordou else 'não acordou'}")
         finally:
             self.calibrando = False
             self._mostrar("ocioso")
+            # Nada de antes vaza para depois: o atalho apertado no meio, o começo de fala guardado.
+            self.pre_fala.clear()
+            self.voz_seguida = 0
+            self.acionar.clear()
         aprendidos = aprender_apelidos([o["texto"] for o in ouvidos])
         resultado = ao_fim(ouvidos, aprendidos)
         if asyncio.iscoroutine(resultado):
@@ -281,6 +305,7 @@ class LoopVoz:
         async for bloco in self.entrada.blocos():
             if self.estado == "ocioso" and self._calibracao is not None and self._retomar is None:
                 vezes, ao_fim = self._calibracao
+                self.calibrando = True  # antes de qualquer await: um 2º pedido agora é recusado
                 self._calibracao = None
                 try:
                     await self._calibrar(vezes, ao_fim)

@@ -9,7 +9,7 @@ export type Aba = "geral" | "conexoes";
 /** Tela de ajustes: o núcleo manda os valores e as opções; aqui só se escolhe e manda o que mudou.
  *  A aba "Conexões" (Google, Spotify, Alexa…) vem pronta de fora, em `conexoes`. */
 export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir, conexoes, aba, aoTrocarAba, calibracao, aoCalibrar,
-  aoEsquecerApelidos }: {
+  aoEsquecerApelidos, aoAceitarApelidos }: {
   dados: DadosAjustes | null;
   aoFechar: () => void;
   aoSalvar: (valores: Record<string, ValorAjuste>) => void;
@@ -19,7 +19,8 @@ export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir, conexoes, aba, aoT
   aoTrocarAba: (aba: Aba) => void;
   calibracao: DadosCalibracao | null;
   aoCalibrar: () => void;
-  aoEsquecerApelidos: () => void;
+  aoEsquecerApelidos: (apelido?: string) => void;
+  aoAceitarApelidos: (apelidos: string[]) => void;
 }) {
   const [form, setForm] = useState<Record<string, ValorAjuste>>(dados?.valores ?? {});
   useEffect(() => {
@@ -76,8 +77,8 @@ export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir, conexoes, aba, aoT
               <input type="checkbox" checked={form[INICIO] === true} onChange={(e) => mudar(INICIO, e.target.checked)} />
               <span>Iniciar com o Windows</span>
             </label>
-            <Calibracao dados={calibracao} apelidos={dados.apelidos ?? []} aoCalibrar={aoCalibrar}
-              aoEsquecer={aoEsquecerApelidos} />
+            <Calibracao dados={calibracao} apelidos={calibracao?.apelidos ?? dados.apelidos ?? []} aoCalibrar={aoCalibrar}
+              aoEsquecer={aoEsquecerApelidos} aoAceitar={aoAceitarApelidos} />
             <Mensagem dados={dados} />
             <div className="ajustes-botoes">
               <button type="button" className="botao botao-nao" onClick={aoFechar}>Fechar</button>
@@ -132,13 +133,15 @@ function Campo({ campo, valor, opcoes, aoMudar, aoOuvir }: {
 }
 
 /** "Calibrar o Hey Vision": 5 vezes, com bipe; o núcleo aprende como o STT escreve o seu "Vision". */
-function Calibracao({ dados, apelidos, aoCalibrar, aoEsquecer }: {
+function Calibracao({ dados, apelidos, aoCalibrar, aoEsquecer, aoAceitar }: {
   dados: DadosCalibracao | null;
   apelidos: string[];
   aoCalibrar: () => void;
-  aoEsquecer: () => void;
+  aoEsquecer: (apelido?: string) => void;
+  aoAceitar: (apelidos: string[]) => void;
 }) {
   const rodando = dados?.rodando === true;
+  const sugeridos = !rodando ? (dados?.sugeridos ?? []) : [];
   return (
     <div className="ajuste calibracao">
       <span>"Hey Vision"</span>
@@ -163,15 +166,29 @@ function Calibracao({ dados, apelidos, aoCalibrar, aoEsquecer }: {
       )}
       {!rodando && dados?.dica && <p className="ajustes-msg">{dados.dica}</p>}
       {!rodando && dados?.erro && <p className="ajustes-msg erro">{dados.erro}</p>}
+      {sugeridos.length > 0 && (
+        <div className="conexao-botoes">
+          <span>Usar {sugeridos.map((a) => `"${a}"`).join(", ")} como "Vision"?</span>
+          <button type="button" className="botao botao-sim" onClick={() => aoAceitar(sugeridos)}>Aceitar</button>
+        </div>
+      )}
       {apelidos.length > 0 && (
-        <span className="conexao-dica">Grafias aprendidas: {apelidos.join(", ")}</span>
+        <div className="calibracao-apelidos">
+          <span className="conexao-dica">Grafias aprendidas:</span>
+          {apelidos.map((a) => (
+            <button type="button" key={a} className="calibracao-apelido" disabled={rodando} title="Esquecer esta"
+              onClick={() => aoEsquecer(a)}>
+              {a} ×
+            </button>
+          ))}
+        </div>
       )}
       <div className="conexao-botoes">
         <button type="button" className="botao botao-sim" disabled={rodando} onClick={aoCalibrar}>
           {rodando ? "Calibrando…" : "Calibrar"}
         </button>
-        {apelidos.length > 0 && !rodando && (
-          <button type="button" className="botao botao-nao" onClick={aoEsquecer}>Esquecer o aprendido</button>
+        {apelidos.length > 1 && !rodando && (
+          <button type="button" className="botao botao-nao" onClick={() => aoEsquecer()}>Esquecer todas</button>
         )}
       </div>
     </div>

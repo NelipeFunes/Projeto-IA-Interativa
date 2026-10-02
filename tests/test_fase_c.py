@@ -259,8 +259,8 @@ def test_comandos_de_calibracao_pelo_websocket(cfg):
     async def calibrar():
         recebidos.append("calibrar")
 
-    async def esquecer():
-        recebidos.append("esquecer")
+    async def esquecer(apelido=None):
+        recebidos.append(("esquecer", apelido))
         barramento.publicar({"tipo": "fim"})
 
     async def painel():
@@ -272,6 +272,28 @@ def test_comandos_de_calibracao_pelo_websocket(cfg):
         ws.send_json({"tipo": "ola", "token": TOKEN})
         assert ws.receive_json()["tipo"] == "painel"
         ws.send_json({"tipo": "calibrar_ativacao"})
+        ws.send_json({"tipo": "esquecer_apelidos", "apelido": 5})  # não é texto: ignorado
         ws.send_json({"tipo": "esquecer_apelidos"})
         assert ws.receive_json() == {"tipo": "fim"}
-    assert recebidos == ["calibrar", "esquecer"]
+    assert recebidos == ["calibrar", ("esquecer", None)]
+
+
+
+async def test_calibracao_so_grava_o_que_foi_sugerido_e_aceito(cfg):
+    """Revisão do PR 43: o fim da calibração só SUGERE; gravar é o clique em Aceitar, e só do que foi sugerido."""
+    from vision.nucleo import Nucleo
+    from vision.voice import comandos
+
+    comandos.definir_apelidos([])
+    n = Nucleo(cfg, com_voz=False)
+    eventos = []
+    n.barramento.publicar = eventos.append
+    ouvidos = [{"texto": t, "acordou": False} for t in ("Deliving", "Deliving", "Hey deliving", "", "")]
+    await n._fim_calibracao(ouvidos, ["deliving"])
+    assert eventos[-1]["sugeridos"] == ["deliving"] and comandos.ler_apelidos(cfg.dados) == []
+    await n.aceitar_apelidos(["brasil", "deliving"])  # "brasil" não foi sugerido: fica de fora
+    assert comandos.ler_apelidos(cfg.dados) == ["deliving"] and comandos.APELIDOS == {"deliving"}
+    await n.aceitar_apelidos(["deliving"])  # a sugestão já foi usada: não aceita de novo
+    await n.esquecer_apelidos("deliving")
+    assert comandos.ler_apelidos(cfg.dados) == [] and comandos.APELIDOS == set()
+    comandos.definir_apelidos([])

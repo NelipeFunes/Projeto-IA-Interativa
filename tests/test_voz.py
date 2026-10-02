@@ -600,3 +600,30 @@ async def test_calibracao_recusa_com_a_escuta_pausada(pecas, registro, tmp_path)
     laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [_silencio(0.5)], tmp_path)
     (tmp_path / "dormindo.flag").write_text("1", encoding="utf-8")
     assert "pausada" in laco.pedir_calibracao(5, lambda *_a: None)
+
+
+
+async def test_pausar_no_meio_cancela_a_calibracao(pecas, registro, tmp_path):
+    """Revisão do PR 43: pausa é pausa, mesmo no meio da calibração."""
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [
+        _silencio(0.3), _chama(pecas), _silencio(1.2), _chama(pecas), _silencio(2.0),
+    ], tmp_path)
+    fim = []
+    eventos = []
+    laco.ao_evento = eventos.append
+    assert laco.pedir_calibracao(3, lambda o, a: fim.append(o)) is None
+
+    class SttQuePausa:  # depois da 1ª vez, alguém pausa a escuta na bandeja
+        def transcrever(self, _pcm, _taxa=None):
+            (tmp_path / "dormindo.flag").write_text("1", encoding="utf-8")
+            return "Hey Vision"
+
+    laco.stt = SttQuePausa()  # próprio do teste: o STT de `pecas` é compartilhado
+    await laco.rodar()
+    assert fim == [] and not laco.calibrando
+    assert any("cancelada" in (e.get("erro") or "") for e in eventos if e.get("tipo") == "calibracao")
+
+
+async def test_calibracao_so_com_ativacao_por_transcricao(pecas, registro, tmp_path):
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [_silencio(0.5)], tmp_path, ativacao_por_texto=False)
+    assert "transcrição" in laco.pedir_calibracao(5, lambda *_a: None)
