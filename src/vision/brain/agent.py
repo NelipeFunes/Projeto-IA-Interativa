@@ -33,6 +33,7 @@ SEM_TRAVA_DE_PEDIDO = {"memoria", "geral"}
 # Spotify, e vice-versa (revisão do PR 32).
 GRUPOS_IRMAOS = {"musica": {"pc"}, "pc": {"musica"}}
 MAX_DIRETAS = 8  # escritas sem confirmação num mesmo pedido
+MAX_PALAVRAS_DESPEDIDA_TEXTO = 6  # "pode ficar em standby, Vision" sim; um pedido junto com o standby, não
 MODOS_CONFIRMACAO = ("todas", "sensiveis", "nenhuma")
 CORTE_TOOL_ANTIGO = 600
 
@@ -340,10 +341,14 @@ class Agente:
     async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None,
                       parar: Callable[[], bool] | None = None, rastro: dict[str, Any] | None = None) -> Resposta:
         # No modo "todas", depois de ler texto de fora quem decide é o caminho normal. Luz nunca é sensível.
-        if canal != "voz" and e_despedida(texto):
+        if canal != "voz" and len(texto.split()) <= MAX_PALAVRAS_DESPEDIDA_TEXTO and e_despedida(texto):
             # "Entra em standby" digitado na janela: na voz o laço já fecha a conversa; aqui o modelo achava que era
-            # para suspender o PC (02/10). Uma despedida nunca vira ação.
+            # para suspender o PC (02/10). Só frase curta: "apaga a luz e entra em standby" vai ao modelo, senão o
+            # pedido da luz se perdia (revisão do PR 42); a descrição do pc_energia segura o standby nele.
             resposta = "Certo, fico em standby. É só me chamar."
+            if s.nota:  # a frase descartou um "Confirma?" neste turno: a nota não fica para o próximo
+                s.nota = None
+                resposta = "Certo, cancelei o que estava pendente e fico em standby. É só me chamar."
             s.turnos.append([{"role": "user", "content": texto}, {"role": "assistant", "content": resposta}])
             if ao_texto:
                 ao_texto(resposta)
