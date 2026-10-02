@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -49,13 +50,11 @@ def manter_carregado(cfg: Config) -> str | int:
     valor = cfg.get("modelo.manter_carregado", "30m")
     if isinstance(valor, bool):
         return "30m"
-    if isinstance(valor, int | float):
-        return int(valor)
-    texto = str(valor).strip()
     try:
-        return int(float(texto))
+        numero = float(valor) if isinstance(valor, int | float) else float(str(valor).strip())
     except ValueError:
-        return texto or "30m"
+        return str(valor).strip() or "30m"
+    return int(numero) if math.isfinite(numero) else -1  # "inf" = sempre (int(inf) levantaria OverflowError)
 
 
 def carregar(arquivo: Path | None = None, sobrescrever: dict[str, Any] | None = None) -> Config:

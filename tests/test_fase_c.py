@@ -299,9 +299,9 @@ async def test_calibracao_so_grava_o_que_foi_sugerido_e_aceito(cfg):
     comandos.definir_apelidos([])
 
 
-
 @pytest.mark.parametrize("valor,esperado", [
     ("-1m", "-1m"), ("30m", "30m"), (-1, -1), ("-1", -1), ("600", 600), (1.5, 1), (None, "30m"), (True, "30m"),
+    ("inf", -1), (float("inf"), -1), (float("nan"), -1),
 ])
 def test_manter_carregado_no_formato_do_ollama(cfg, valor, esperado):
     """O Ollama recusa "-1" como texto ("missing unit"): número puro vira int (02/10)."""
@@ -314,3 +314,40 @@ def test_manter_carregado_no_formato_do_ollama(cfg, valor, esperado):
 def test_config_deixa_o_modelo_sempre_carregado():
     c = config.carregar(config.Path(__file__).resolve().parents[1] / "config.yaml")
     assert config.manter_carregado(c) == "-1m"
+
+
+
+async def test_no_modo_jogo_a_resposta_nao_prende_o_modelo():
+    """Revisão do PR 44: com "-1m", uma pergunta pelo atalho no jogo deixava o modelo na VRAM até o jogo fechar."""
+    from types import SimpleNamespace
+
+    from vision.brain.llm import MANTER_NO_JOGO, OllamaLLM
+
+    class ClienteFalso:
+        def __init__(self):
+            self.chamadas = []
+            self.ao_chat = None
+
+        async def chat(self, **kw):
+            self.chamadas.append(("chat", kw["keep_alive"]))
+            if self.ao_chat:
+                await self.ao_chat()
+            return SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=None), eval_count=1,
+                                   total_duration=1)
+
+        async def generate(self, **kw):
+            self.chamadas.append(("generate", kw["keep_alive"]))
+
+    llm = OllamaLLM("m", "http://x", False, 8192, 0.3, "-1m")
+    llm.cliente = c = ClienteFalso()
+    await llm.conversar([], None)
+    await llm.descarregar()  # o CS2 abriu
+    await llm.conversar([], None)  # pergunta pelo atalho no jogo
+    await llm.carregar()  # o jogo fechou
+    await llm.conversar([], None)
+    assert c.chamadas == [("chat", "-1m"), ("generate", 0), ("chat", MANTER_NO_JOGO), ("generate", "-1m"),
+                          ("chat", "-1m")]
+    c.chamadas.clear()
+    c.ao_chat = llm.descarregar  # o jogo abre NO MEIO de uma resposta
+    await llm.conversar([], None)
+    assert c.chamadas == [("chat", "-1m"), ("generate", 0), ("generate", 0)]  # o fim dela não desfaz o descarregar
