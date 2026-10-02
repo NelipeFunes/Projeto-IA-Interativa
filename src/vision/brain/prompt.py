@@ -75,6 +75,9 @@ def regras(ferramentas: set[str] | None = None, confirmacao: str = "todas") -> s
                       "programa_abrir antes). Toca SEMPRE no PC; `onde` só se ele disser o aparelho (\"na Alexa\"). "
                       "tipo=artista/album/playlist quando o Felipe disser. Pausar, continuar, "
                       "pular: `musica_controlar`. \"Que música é essa?\": `musica_tocando`.")
+    if tem("protocolo_executar"):
+        linhas.append("15. Protocolos (várias ações de uma vez, criados pelo Felipe): `protocolo_executar` quando ele "
+                      "pedir um pelo nome (\"protocolo X\", \"modo X\").")
     if tem("resumo_do_dia"):
         linhas.append("14. \"Bom dia\", \"me atualiza\", \"como está meu dia\": `resumo_do_dia`. Clima, temperatura, "
                       "chuva, se vai fazer frio: `clima` (dia=amanhã etc.). Nunca invente temperatura.")

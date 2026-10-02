@@ -74,6 +74,10 @@ pc:
   # timers e alarmes, e comando do PowerShell quando nada serve (SEMPRE pede "sim", mostrando o comando).
   ativo: true
 
+protocolos:
+  # Uma frase, várias ações (como o "House Party Protocol" do JARVIS). Ficam em data/protocolos.yaml, criado com
+  # dois exemplos na 1ª vez. Ferramentas que pedem "sim" não podem ser passo.
+  ativo: true
 clima:
   # Clima pela Open-Meteo (grátis, sem chave) e o "bom dia" (resumo: hora, clima, agenda de hoje, timers).
   # A cidade fica em data/config-local.yaml (clima.cidade: "Sua Cidade"), fora do git.
