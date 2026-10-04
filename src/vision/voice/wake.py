@@ -11,19 +11,42 @@ import numpy as np
 log = logging.getLogger(__name__)
 
 
-class PalavraAtivacao:
-    def __init__(self, pasta: Path, nome: str = "hey_jarvis", limiar: float = 0.5):
-        from openwakeword.model import Model
+# O verificador da sua voz (scripts/ativacao/gravar_minha_voz.py): `<modelo>_verificador.pkl` ao lado do .onnx.
+SUFIXO_VERIFICADOR = "_verificador.pkl"
+# Nota do modelo a partir da qual o verificador é consultado (e passa a dar a nota no lugar dele). Baixa de propósito:
+# com o seu sotaque o modelo (treinado com vozes sintéticas) pode dar 0,2 para um "Hey Vision" seu, e o verificador,
+# que conhece a sua voz, decide se foi você chamando.
+LIMIAR_VERIFICADOR = 0.1
 
+
+def abrir_modelo(pasta: Path, modelo: Path, verificador: Path | None = None, limiar_verificador: float = LIMIAR_VERIFICADOR):
+    """O openWakeWord com os arquivos locais de `pasta` (sem baixar nada)."""
+    from openwakeword.model import Model
+
+    extra = {}
+    if verificador is not None:
+        # O .pkl é um pickle (scikit-learn): só o que foi gerado aqui, em modelos/, que fica fora do git.
+        extra = {"custom_verifier_models": {modelo.stem: str(verificador)},
+                 "custom_verifier_threshold": limiar_verificador}
+    return Model(
+        wakeword_models=[str(modelo)],
+        inference_framework="onnx",
+        melspec_model_path=str(pasta / "melspectrogram.onnx"),
+        embedding_model_path=str(pasta / "embedding_model.onnx"),
+        **extra,
+    )
+
+
+class PalavraAtivacao:
+    def __init__(self, pasta: Path, nome: str = "hey_jarvis", limiar: float = 0.5,
+                 limiar_verificador: float = LIMIAR_VERIFICADOR):
         modelo = next(pasta.glob(f"{nome}*.onnx"), None)
         if modelo is None:
             raise FileNotFoundError(f"modelo de ativação '{nome}' não encontrado em {pasta}")
-        self.modelo = Model(
-            wakeword_models=[str(modelo)],
-            inference_framework="onnx",
-            melspec_model_path=str(pasta / "melspectrogram.onnx"),
-            embedding_model_path=str(pasta / "embedding_model.onnx"),
-        )
+        verificador = pasta / f"{modelo.stem}{SUFIXO_VERIFICADOR}"
+        self.com_verificador = verificador.is_file()
+        self.modelo = abrir_modelo(pasta, modelo, verificador if self.com_verificador else None, limiar_verificador)
+        self.nome = modelo.stem
         self.limiar = limiar
         self.ultimo_score = 0.0
 

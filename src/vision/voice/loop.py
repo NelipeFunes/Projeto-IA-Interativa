@@ -34,7 +34,7 @@ import numpy as np
 from vision.brain.agent import Agente
 from vision.voice.audio import TAXA, alarme, bipe, bipe_desligar
 from vision.voice.comandos import achar_ativacao, aprender_apelidos, e_despedida, e_interrupcao
-from vision.voice.wake import DetectorFala, PalavraAtivacao
+from vision.voice.wake import LIMIAR_VERIFICADOR, DetectorFala, PalavraAtivacao
 
 log = logging.getLogger(__name__)
 
@@ -349,6 +349,19 @@ class LoopVoz:
                 continue
 
             gravado.append(bloco)
+            if (origem == "candidato" and self.ativacao is not None and self.escuta_ligada()
+                    and self.ativacao.ouvir(bloco)):
+                # Modo "ambos": o VAD começa a gravar em 160 ms e o "Hey Vision" leva ~1 s, então quase sempre é aqui,
+                # no meio da fala, que o modelo reconhece o nome. O que veio até aqui é o chamado ("Hey Deliving", como
+                # o STT escreveria): fica de fora; o que vier depois é o pedido (ou nada, e a conversa fica aberta).
+                # Só o bipe, nunca a `voz.saudacao`: você já está falando, e a saudação atropelaria o pedido.
+                self._acordou_pelo_modelo()
+                await self._bipe(subindo=True)  # o microfone guarda o que você falar durante o bipe: nada se perde
+                gravado, origem = [], "modelo"
+                self.detector.zerar()
+                self.escrever("…ouvindo")
+                self._mostrar("ouvindo")
+                continue
             if origem == "candidato" and self.acionar.is_set():
                 # Atalho no meio de uma fala qualquer: vira gravação para ele, sem perder o que você já disse.
                 self.acionar.clear()
@@ -412,19 +425,24 @@ class LoopVoz:
             return "conversa" if self._comecou_a_falar(bloco) else ""
         if not self.escuta_ligada():
             return ""
-        if not self.ativacao_por_texto:  # openWakeWord ("Hey Jarvis")
-            if self.ativacao is not None and self.ativacao.ouvir(bloco):
-                self.agente.cancelar_pendente("voz", "voz")  # como no "Hey Vision": nada de antes é confirmado
-                self.pergunta_em = None
-                self._abrir_conversa()
-                if self.saudacao.strip():  # sem saudação, o bipe é o do laço (origem "atalho"): um só
-                    await self._dizer(self.saudacao)
-                    if self._retomar is not None:
-                        return ""  # falou por cima da saudação: o próximo bloco retoma a sua fala (ver rodar)
-                    self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
-                return "atalho"
+        # openWakeWord (voz.ativacao "modelo" ou "ambos"): ouve todo bloco, e acorda pelo som do "Hey Vision".
+        if self.ativacao is not None and self.ativacao.ouvir(bloco):
+            self._acordou_pelo_modelo()
+            if self.saudacao.strip():  # sem saudação, o bipe é o do laço (origem "atalho"): um só
+                await self._dizer(self.saudacao)
+                if self._retomar is not None:
+                    return ""  # falou por cima da saudação: o próximo bloco retoma a sua fala (ver rodar)
+                self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
+            return "atalho"
+        if not self.ativacao_por_texto:  # só o modelo ("Hey Jarvis" de antes)
             return ""
         return "candidato" if self._comecou_a_falar(bloco) else ""
+
+    def _acordou_pelo_modelo(self) -> None:
+        self.escrever(f"(ativação pelo modelo: nota {self.ativacao.ultimo_score:.2f})")
+        self.agente.cancelar_pendente("voz", "voz")  # como no "Hey Vision": nada de antes é confirmado
+        self.pergunta_em = None
+        self._abrir_conversa()
 
     def _comecou_a_falar(self, bloco: np.ndarray) -> bool:
         self.voz_seguida = self.voz_seguida + 1 if self.detector.tem_voz(bloco) else 0
@@ -920,6 +938,26 @@ class LoopVoz:
                 log.warning("voz ainda fora da placa (%d tentativas): %s", self._falhas_placa, e)
 
 
+def carregar_ativacao(cfg, escrever: Callable[[str], None]) -> tuple[PalavraAtivacao | None, bool]:
+    """Como ele acorda (voz.ativacao): (modelo openWakeWord ou None, se também acha o nome na transcrição).
+    "transcricao" e "ambos" acham o nome no texto; "modelo" e "ambos" usam o modelo. Sem o arquivo do modelo, "ambos"
+    fica só com a transcrição, e "modelo", só com o atalho."""
+    modo = str(cfg.get("voz.ativacao", "transcricao"))
+    por_texto = modo != "modelo"
+    if modo not in ("modelo", "ambos"):
+        return None, por_texto
+    try:
+        ativacao = PalavraAtivacao(cfg.modelos / "openwakeword", cfg.get("voz.palavra_ativacao", "hey_vision"),
+                                   float(cfg.get("voz.limiar_ativacao", 0.5)),
+                                   float(cfg.get("voz.limiar_verificador", LIMIAR_VERIFICADOR)))
+    except Exception as e:  # noqa: BLE001
+        escrever(f"[aviso] modelo de ativação indisponível ({e}); {'fica só a transcrição' if por_texto else 'use o atalho'}.")
+        return None, por_texto
+    escrever(f"Ativação pelo modelo {ativacao.nome}" + (" com o verificador da sua voz" if ativacao.com_verificador else "")
+             + (" e pela transcrição" if por_texto else ""))
+    return ativacao, por_texto
+
+
 @contextmanager
 def preparar_voz(
     cfg,
@@ -946,14 +984,7 @@ def preparar_voz(
     voz = voz or carregar_voz(cfg)  # o núcleo carrega antes, numa thread: o XTTS leva 15–30 s
     stt = carregar_transcritor(cfg)
     pasta_oww = cfg.modelos / "openwakeword"
-    ativacao = None
-    por_texto = cfg.get("voz.ativacao", "transcricao") != "modelo"
-    if com_ativacao and not por_texto:
-        try:
-            ativacao = PalavraAtivacao(pasta_oww, cfg.get("voz.palavra_ativacao", "hey_jarvis"),
-                                       float(cfg.get("voz.limiar_ativacao", 0.3)))
-        except Exception as e:  # noqa: BLE001
-            escrever(f"[aviso] palavra de ativação indisponível ({e}); use o atalho.")
+    ativacao, por_texto = carregar_ativacao(cfg, escrever) if com_ativacao else (None, False)
     detector = DetectorFala(pasta_oww / "silero_vad.onnx", int(cfg.get("voz.silencio_fim_ms", 800)),
                             float(cfg.get("voz.maximo_fala_s", 20)))
     saida = Saida(cfg)
@@ -961,7 +992,7 @@ def preparar_voz(
     with Microfone(cfg) as mic:
         laco = LoopVoz(agente, voz, stt, mic, saida, detector, ativacao,
                        flag_dormindo=cfg.dados / "dormindo.flag", escrever=escrever, ao_evento=ao_evento,
-                       ativacao_por_texto=com_ativacao and por_texto,
+                       ativacao_por_texto=por_texto,
                        silencio_max_s=float(cfg.get("voz.conversa_silencio_max_s", 120)),
                        prazo_confirmacao_s=float(cfg.get("voz.confirmacao_prazo_s", 30)),
                        saudacao=cfg.get("voz.saudacao") or "",
