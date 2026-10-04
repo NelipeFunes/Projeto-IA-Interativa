@@ -59,7 +59,7 @@ def _loop(pecas, agente, audios, tmp_path, **opcoes):
     return LoopVoz(
         agente, pecas["pt"], pecas["stt"], ArquivoComoMicrofone(audios), opcoes.pop("saida", None) or SaidaArquivo(),
         DetectorFala(pasta / "silero_vad.onnx", silencio_fim_ms=800),
-        PalavraAtivacao(pasta, limiar=0.5) if por_modelo else None,
+        PalavraAtivacao(pasta, limiar=0.5) if por_modelo else opcoes.pop("ativacao", None),
         flag_dormindo=tmp_path / "dormindo.flag", escrever=lambda _t: None, bipes=opcoes.pop("bipes", False), **opcoes,
     )
 
@@ -627,3 +627,164 @@ async def test_pausar_no_meio_cancela_a_calibracao(pecas, registro, tmp_path):
 async def test_calibracao_so_com_ativacao_por_transcricao(pecas, registro, tmp_path):
     laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [_silencio(0.5)], tmp_path, ativacao_por_texto=False)
     assert "transcrição" in laco.pedir_calibracao(5, lambda *_a: None)
+
+
+# ------------------------------------------------------------------ "ambos": modelo + transcrição (03/10)
+
+
+class ModeloFalso:
+    """No lugar do openWakeWord: "reconhece o nome" uma vez, quando o microfone passa de `em_s` segundos de áudio."""
+
+    def __init__(self, em_s: float | None):
+        self.em_s = em_s
+        self.entrada = None
+        self.ultimo_score = 0.0
+        self.disparos = 0
+
+    def ouvir(self, _bloco) -> bool:
+        if self.em_s is None or self.disparos or self.entrada._pos < self.em_s * 16000:
+            return False
+        self.disparos += 1
+        self.ultimo_score = 0.9
+        return True
+
+    def zerar(self) -> None:
+        pass
+
+
+def _com_modelo(pecas, agente, audios, tmp_path, em_s, **opcoes):
+    modelo = ModeloFalso(em_s)
+    laco = _loop(pecas, agente, audios, tmp_path, ativacao=modelo, **opcoes)
+    modelo.entrada = laco.entrada
+    return laco, modelo
+
+
+async def test_ambos_modelo_reconhece_no_meio_da_fala_e_o_pedido_e_o_que_vem_depois(pecas, registro, tmp_path):
+    """O STT escreve o seu "Vision" como "Deliving" (não acorda pelo texto), mas o modelo reconhece o som: o que vem
+    depois do nome é o pedido, sem o "Deliving"."""
+    hoje = tempo.agora().date().isoformat()
+    llm = LLMFalso([chama("agenda_listar", data_inicio=hoje), fala("Hoje você tem aula.")])
+    chamado = _fala(pecas["en"], "Hey Deliving")
+    fim_do_nome = 0.5 + chamado.size / 16000 - 0.05
+    laco, modelo = _com_modelo(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), chamado, _silencio(0.3), _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),
+    ], tmp_path, fim_do_nome, bipes=True)
+    await laco.rodar()
+    assert modelo.disparos == 1 and laco.em_conversa
+    assert len(laco.historico) == 1 and "agenda" in laco.historico[0]["felipe"].lower()
+    assert "deliv" not in laco.historico[0]["felipe"].lower()
+
+
+async def test_ambos_sem_o_modelo_pegar_a_transcricao_ainda_acorda(pecas, registro, tmp_path):
+    hoje = tempo.agora().date().isoformat()
+    llm = LLMFalso([chama("agenda_listar", data_inicio=hoje), fala("Hoje você tem aula.")])
+    laco, modelo = _com_modelo(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(0.2), _fala(pecas["pt"], "Qual é a minha agenda de hoje?"),
+        _silencio(1.5),
+    ], tmp_path, None)
+    await laco.rodar()
+    assert modelo.disparos == 0
+    assert len(laco.historico) == 1 and "agenda" in laco.historico[0]["felipe"].lower()
+
+
+async def test_ambos_modelo_no_silencio_abre_a_conversa_com_bipe(pecas, registro, tmp_path):
+    from vision.voice.audio import bipe
+
+    hoje = tempo.agora().date().isoformat()
+    llm = LLMFalso([chama("agenda_listar", data_inicio=hoje), fala("Hoje você tem aula.")])
+    laco, modelo = _com_modelo(pecas, Agente(llm, registro, None), [
+        _silencio(0.6), _silencio(0.6), _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),
+    ], tmp_path, 0.4, bipes=True)
+    await laco.rodar()
+    assert modelo.disparos == 1 and np.array_equal(laco.saida.trechos[0], bipe(subindo=True))
+    assert len(laco.historico) == 1 and "agenda" in laco.historico[0]["felipe"].lower()
+
+
+async def test_ambos_com_a_escuta_pausada_o_modelo_nao_acorda(pecas, registro, tmp_path):
+    laco, modelo = _com_modelo(pecas, Agente(LLMFalso([]), registro, None), [
+        _silencio(0.5), _fala(pecas["en"], "Hey Deliving"), _silencio(1.0),
+    ], tmp_path, 0.7)
+    (tmp_path / "dormindo.flag").write_text("1", encoding="utf-8")
+    await laco.rodar()
+    assert modelo.disparos == 0 and not laco.em_conversa and laco.historico == []
+
+
+def test_carregar_ativacao_sem_o_modelo_fica_so_a_transcricao(cfg, tmp_path):
+    from vision.voice.loop import carregar_ativacao
+
+    avisos = []
+    cfg.modelos = tmp_path  # sem modelos/openwakeword/hey_vision.onnx
+    cfg.bruto.setdefault("voz", {}).update({"ativacao": "ambos", "palavra_ativacao": "hey_vision"})
+    assert carregar_ativacao(cfg, avisos.append) == (None, True)
+    assert "fica só a transcrição" in avisos[0]
+    cfg.bruto["voz"]["ativacao"] = "modelo"
+    assert carregar_ativacao(cfg, avisos.append) == (None, False) and "atalho" in avisos[1]
+    cfg.bruto["voz"]["ativacao"] = "transcricao"
+    assert carregar_ativacao(cfg, avisos.append) == (None, True) and len(avisos) == 2
+
+
+@pytest.mark.skipif(not (MODELOS / "openwakeword" / "hey_jarvis_v0.1.onnx").exists(), reason="sem openWakeWord")
+def test_verificador_da_voz_e_carregado_quando_existe(tmp_path):
+    """O .pkl ao lado do .onnx (scripts/ativacao/gravar_minha_voz.py) liga o verificador; sem ele, só o modelo."""
+    import pickle
+    import shutil
+
+    from openwakeword.custom_verifier_model import train_verifier_model
+
+    from vision.voice.wake import SUFIXO_VERIFICADOR, PalavraAtivacao
+
+    pasta = tmp_path / "openwakeword"
+    shutil.copytree(MODELOS / "openwakeword", pasta, ignore=shutil.ignore_patterns("*.tflite"))
+    assert not PalavraAtivacao(pasta, "hey_jarvis").com_verificador
+    rnd = np.random.default_rng(0)
+    verificador = train_verifier_model(rnd.normal(size=(20, 16, 96)), np.array([1, 0] * 10))
+    with (pasta / f"hey_jarvis_v0.1{SUFIXO_VERIFICADOR}").open("wb") as f:
+        pickle.dump(verificador, f)
+    ativacao = PalavraAtivacao(pasta, "hey_jarvis")
+    assert ativacao.com_verificador and ativacao.nome == "hey_jarvis_v0.1"
+    assert ativacao.ouvir(np.zeros(1280, np.int16)) is False
+
+
+async def test_ambos_acordar_pelo_modelo_nao_confirma_pendencia_de_antes(pecas, registro, tmp_path, servidor_agenda):
+    """Revisão do PR 45: como no "Hey Vision" pelo texto, acordar pelo modelo descarta a pendência de antes."""
+    amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
+    llm = LLMFalso([chama("agenda_criar", titulo="Barbeiro", data=amanha, hora_inicio="16:00"), fala("Certo.")])
+    antes = len(servidor_agenda.eventos)
+    pedido = _fala(pecas["pt"], "Marca barbeiro amanhã às quatro da tarde.")
+    chamado = _fala(pecas["en"], "Hey Deliving")
+    fim_do_nome = (0.5 + pedido.size / 16000 + 1.5) + chamado.size / 16000 - 0.05
+    laco, modelo = _com_modelo(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), pedido, _silencio(1.5), chamado, _silencio(0.3), _fala(pecas["pt"], "Sim, pode criar."),
+        _silencio(1.5),
+    ], tmp_path, fim_do_nome)
+    laco.jogando = True  # o pedido de antes veio pelo atalho, no modo jogo (sem abrir conversa)
+    laco.apertou_atalho()
+    responder = laco._responder
+
+    async def responder_e_sair_do_jogo(texto, t_stt):
+        await responder(texto, t_stt)
+        laco.jogando = False
+
+    laco._responder = responder_e_sair_do_jogo
+    await laco.rodar()
+    assert laco.historico[0]["vision"].endswith("Confirma?")
+    assert modelo.disparos == 1 and laco.em_conversa
+    assert len(servidor_agenda.eventos) == antes  # o "sim" depois do nome não confirmou a pendência de antes
+
+
+async def test_ambos_com_a_conversa_aberta_o_modelo_nem_ouve_e_o_sim_confirma(pecas, registro, tmp_path,
+                                                                                servidor_agenda):
+    """Revisão do PR 45: com a conversa aberta, tudo vai para a conversa; o modelo não é consultado e não cancela a
+    confirmação que você está respondendo."""
+    amanha = (tempo.agora().date() + timedelta(days=1)).isoformat()
+    llm = LLMFalso([chama("agenda_criar", titulo="Barbeiro", data=amanha, hora_inicio="16:00")])
+    antes = len(servidor_agenda.eventos)
+    laco, modelo = _com_modelo(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5), _fala(pecas["pt"], "Marca barbeiro amanhã às quatro da tarde."),
+        _silencio(1.2), _fala(pecas["pt"], "Sim, pode."), _silencio(1.5),
+    ], tmp_path, 3.0)  # "dispararia" no meio da conversa, se fosse consultado
+    await laco.rodar()
+    assert modelo.disparos == 0
+    assert laco.historico[0]["vision"].endswith("Confirma?")
+    assert laco.historico[1]["vision"].startswith("Feito. Criei 'Barbeiro'")
+    assert len(servidor_agenda.eventos) == antes + 1

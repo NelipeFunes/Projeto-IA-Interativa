@@ -41,6 +41,15 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   na calibração aparece só na tela; no log, só se acordou ou não.
   Para entender por que ele não acorda, `voz.registrar_ativacao: true` no `config.yaml` escreve no log o que ele
   ouviu no começo de cada fala (desligue depois: com isso ligado, o que se fala perto do PC vai para o log).
+- **"Hey Vision" pelo modelo** (`voz.ativacao: ambos`, padrão): além de achar o nome no texto, um modelo
+  openWakeWord reconhece o **som** do "Hey Vision", sem passar pelo STT, e o que vem depois do nome é o pedido.
+  O modelo não vem pronto (é seu): `scripts/ativacao/preparar_treino.py` gera amostras com sotaque brasileiro
+  (vozes Piper pt-BR) e o notebook do Colab (`data/ativacao/`); no Colab (GPU T4, ~2h30) ele treina e baixa
+  `hey_vision.onnx`, que vai em `modelos/openwakeword/`. Depois, `scripts/ativacao/gravar_minha_voz.py` grava
+  20 "Hey Vision" seus e 4 frases normais e treina o **verificador da sua voz** (um 2º filtro, local, que corrige o
+  sotaque e corta a TV) e mostra as notas para escolher `voz.limiar_ativacao`. As gravações ficam em
+  `data/ativacao/minha_voz/` e não saem do PC (o Colab só recebe as vozes sintéticas). Sem o modelo, fica só a
+  transcrição, como antes.
 - **Microfone:** usa o primeiro da lista `voz.microfone` que tiver som. Se ele ficar mudo ou desligado por
   1 minuto (headset sem fio), passa para o próximo; quando o primeiro volta, volta para ele. Fica no log.
 - **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.
@@ -97,7 +106,8 @@ git config core.hooksPath .githooks  # uma vez: barra push com termo de data/ter
 ## Como funciona
 
 ```
-microfone → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? abre a conversa → …
+microfone → openWakeWord ("Hey Vision" pelo som) ┐
+          → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? ┴ abre a conversa → …
          → Agente (Qwen3.5 + ferramentas) → Piper (voz, frase a frase) → fone
                   │
                   ├── agenda_*   → MCP @cocal/google-calendar-mcp (node/)

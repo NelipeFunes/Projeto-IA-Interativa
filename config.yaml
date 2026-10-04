@@ -132,17 +132,21 @@ voz:
   # Com a sua voz (30/09) os dois transcreveram igual ("…quanto eu gastei com iFood esse mês?"), mas o
   # base carrega em 3,2 s contra 7,7 s e transcreve mais rápido. Fica o base.
   stt: parakeet-base-int8
-  # Como ele acorda: "transcricao" = "Hey Vision" achado no texto do começo de cada fala curta (sem modelo pronto
-  # para esse nome); "modelo" = openWakeWord com a palavra abaixo (o "Hey Jarvis" de antes).
-  ativacao: transcricao
+  # Como ele acorda: "transcricao" = "Hey Vision" achado no texto do começo de cada fala curta; "modelo" = só o
+  # openWakeWord com a palavra abaixo (reconhece o som, sem passar por texto); "ambos" (03/10) = o modelo acorda e, se
+  # ele não pegar, a transcrição ainda vale. Sem o arquivo do modelo, "ambos" fica só com a transcrição (com aviso).
+  # O modelo hey_vision é treinado no Colab: scripts/ativacao/preparar_treino.py.
+  ativacao: ambos
   # Diagnóstico do "Hey Vision": true escreve no log (data/logs/nucleo.log) o que foi entendido no começo de cada
   # fala e se acordou. Desligado por padrão: ligado, o que se fala perto do PC vai para o log. Vale ao reiniciar.
   registrar_ativacao: false
-  palavra_ativacao: hey_jarvis
-  # Inglês nativo dá 0,99; vozes sintéticas PT-BR dizendo "Hey Jarvis" deram 0,11–0,75; frases comuns ~0,00.
-  # Sua voz (30/09, microfone da webcam, porque o HyperX estava mudo): 0,47 e 0,86. O limiar 0,3 pega as duas.
-  # Recalibre com: vision teste voz
-  limiar_ativacao: 0.3
+  palavra_ativacao: hey_vision   # modelos/openwakeword/hey_vision.onnx (o antigo: hey_jarvis)
+  # Nota mínima do modelo para acordar. Com o hey_jarvis, inglês nativo dava 0,99 e a sua voz 0,47–0,86 (30/09).
+  # Ajuste com as suas gravações: scripts/ativacao/gravar_minha_voz.py mostra as notas.
+  limiar_ativacao: 0.5
+  # Com o verificador da sua voz (modelos/openwakeword/hey_vision_verificador.pkl): a partir desta nota do modelo, é
+  # o verificador quem dá a nota final. Baixo para pegar um "Hey Vision" seu que o modelo achou fraco.
+  limiar_verificador: 0.1
   atalho: ctrl+alt+j
   # Conversa: "Hey Vision" abre; tudo o que você fala vai para ele até "Vision, standby"
   # ou esse tempo sem ninguém falar (pedido de 30/09: antes a janela de 8 s pegava conversa que não era com ele).
