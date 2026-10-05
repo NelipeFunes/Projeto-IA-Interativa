@@ -112,6 +112,14 @@ alexa:
   # de ler reunião, agenda ou nota (texto de terceiros). true aqui faz as luzes perguntarem sempre.
   confirmar_luzes: false
 
+tv:
+  ativo: true               # TV Samsung de 2015 (série J) pela rede: teclas, volume, apps e YouTube
+  # O IP da TV NÃO fica aqui (é da sua rede): `vision tv-parear` ou Ajustes → Conexões grava tv.ip em
+  # data/config-local.yaml. Sem ele, as ferramentas da TV nem aparecem. A TV não liga pela rede.
+  volume_maximo: 50         # o máximo que o Vision põe pela voz (para um pedido errado não estourar)
+  apps: [YouTube, Netflix]  # os apps que "abre o X na TV" aceita (nomes do DIAL da TV)
+  youtube_ok_no_perfil: true  # YouTube fechado abre na tela de perfis: o Vision aperta OK no perfil marcado
+
 voz:
   microfone: [HyperX, C920]   # procura por nome, na ordem
   alto_falante: [HyperX]

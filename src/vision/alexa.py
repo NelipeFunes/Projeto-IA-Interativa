@@ -12,15 +12,15 @@ e a registrar tokens.
 from __future__ import annotations
 
 import asyncio
-import json
 import logging
-import os
 import re
 import unicodedata
 import webbrowser
 from pathlib import Path
 from typing import Any
 
+from vision.arquivos import gravar_json as _gravar
+from vision.arquivos import ler_json as _ler
 from vision.config import Config
 
 log = logging.getLogger(__name__)
@@ -37,26 +37,6 @@ class SemLogin(RuntimeError):
 
 def pasta(cfg: Config) -> Path:
     return cfg.dados / "alexa"
-
-
-def _ler(arquivo: Path) -> Any:
-    try:
-        return json.loads(arquivo.read_text(encoding="utf-8"))
-    except FileNotFoundError:
-        return None
-    except (OSError, ValueError):
-        log.warning("%s ilegível", arquivo.name)
-        return None
-
-
-def _gravar(arquivo: Path, dados: Any) -> None:
-    arquivo.parent.mkdir(parents=True, exist_ok=True)
-    tmp = arquivo.with_suffix(".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        f.write(json.dumps(dados, ensure_ascii=False, indent=1))
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, arquivo)
 
 
 def tem_login(cfg: Config) -> bool:

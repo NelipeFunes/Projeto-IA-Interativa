@@ -19,8 +19,10 @@ CHAVES_AJUSTAVEIS = {"assistente.nome", "voz.voz_piper", "voz.velocidade_fala", 
                      "voz.microfone", "clima.cidade"}  # a cidade é dado pessoal: só no arquivo local
 # O interruptor de cada conexão na tela de Conexões (vision/conexoes.py): só aceita true/false.
 CHAVES_LIGA_DESLIGA = {"mcp.google-calendar.ativo", "spotify.ativo", "alexa.ativo", "mcp.wispr.ativo",
-                       "web.ativo", "mcp.orbit.ativo"}
+                       "web.ativo", "mcp.orbit.ativo", "tv.ativo"}
 CHAVES_AJUSTAVEIS |= CHAVES_LIGA_DESLIGA
+# Gravadas pela tela de Conexões (não pela de Ajustes). O IP da TV é da sua rede: só no arquivo local.
+CHAVES_DE_CONEXAO = {"tv.ip"}
 
 
 @dataclass
@@ -66,9 +68,11 @@ def carregar(arquivo: Path | None = None, sobrescrever: dict[str, Any] | None = 
         for chave, valor in ler_ajustes(RAIZ / "data" / AJUSTES_LOCAIS).items():
             if chave == "clima.cidade" and not (isinstance(valor, str) and len(valor) <= 60):
                 continue
+            if chave == "tv.ip" and not _ip_local(valor):
+                continue
             if chave in CHAVES_LIGA_DESLIGA and not isinstance(valor, bool):
                 continue
-            if chave in CHAVES_AJUSTAVEIS and not (chave == "voz.voz_piper" and not _nome_de_arquivo(valor)):
+            if (chave in CHAVES_AJUSTAVEIS or chave in CHAVES_DE_CONEXAO)                     and not (chave == "voz.voz_piper" and not _nome_de_arquivo(valor)):
                 _definir(bruto, chave, valor)
     for chave, valor in (sobrescrever or {}).items():
         _definir(bruto, chave, valor)
@@ -84,6 +88,17 @@ def ler_ajustes(arquivo: Path) -> dict[str, Any]:
     except (OSError, yaml.YAMLError):
         return {}
     return {str(k): v for k, v in dados.items()} if isinstance(dados, dict) else {}
+
+
+def _ip_local(valor: Any) -> bool:
+    """tv.ip: só um IPv4 da rede local (a TV); qualquer outro host é ignorado (vision/tv.py confere de novo)."""
+    import ipaddress
+
+    try:
+        ip = ipaddress.ip_address(str(valor).strip())
+    except ValueError:
+        return False
+    return ip.version == 4 and ip.is_private and not (ip.is_loopback or ip.is_link_local or ip.is_unspecified)
 
 
 def _nome_de_arquivo(valor: Any) -> bool:

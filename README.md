@@ -54,7 +54,7 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   1 minuto (headset sem fio), passa para o próximo; quando o primeiro volta, volta para ele. Fica no log.
 - **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.
 - **Janela fechada:** falando com ele, aparece uma bolha no canto, sem tirar o foco (não aparece no modo jogo).
-- **Conexões (⚙ → Conexões):** Google Agenda, Spotify, Alexa, Wispr Flow, a chave da Tavily e o Orbit, sem
+- **Conexões (⚙ → Conexões):** Google Agenda, Spotify, Alexa, Wispr Flow, a chave da Tavily, o Orbit e a TV, sem
   terminal. Cada um tem um interruptor; os logins abrem a página do próprio serviço no navegador (o Vision não
   vê a senha dessas contas). Chave e senha digitadas ali vão para o `.env` e nunca voltam para a tela. Como as
   conexões são montadas ao iniciar, a tela oferece "Reiniciar agora" quando algo muda. Os comandos
@@ -64,6 +64,13 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
 - **Lista de fazeres:** as tarefas do Orbit. "O que tem na minha lista?", "adiciona trocar o óleo para sexta",
   "já paguei o IPVA" (marca como feita), "muda a prioridade de X"; apagar pede "sim". O login é pela tela de
   Conexões (se o Orbit mandar um código por e-mail, a tela pede o código).
+- **TV Samsung (2015, série J):** "desliga a TV", "volume da TV no 10", "canal 13", "abre o Netflix na TV",
+  "toca blank space no YouTube da TV" (busca no DuckDuckGo e toca o clipe mais visto), "desliga a TV em
+  30 minutos" (timer que desliga, sem alarme). Pareie uma vez com a TV ligada: ⚙ → Conexões → TV Samsung (IP da
+  TV e o PIN que aparece nela) ou `vision tv-parear`. O IP fica em `data/config-local.yaml` e o pareamento em
+  `data/tv/`, fora do git. Volume e YouTube vão pelo UPnP e pelo DIAL (sem pareamento); as teclas, pelo protocolo
+  criptografado dessas TVs. Ligar não dá: com a TV desligada o Wi-Fi dela também desliga. Um link de mídia
+  ("toca este link na TV") sempre pede "sim".
 - **Log:** `data/logs/nucleo.log` e `data/logs/janela.log`.
 
 ### Vision.exe (duplo clique)
@@ -85,6 +92,7 @@ vision voz               # "Hey Vision" (ou ctrl+alt+j) abre a conversa; "Vision
 vision teste             # checagem geral (ollama, agenda, orbit, voz)
 vision teste voz         # testa o "Hey Vision" e o "standby" com a sua voz
 vision google-login      # a cada 7 dias (app do Google em modo teste)
+vision tv-parear         # pareia com a TV Samsung (PIN na tela dela)
 vision memorias          # o que o Vision lembra de você
 vision dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Vision"
 vision acordar
@@ -113,6 +121,7 @@ microfone → openWakeWord ("Hey Vision" pelo som) ┐
                   ├── agenda_*   → MCP @cocal/google-calendar-mcp (node/)
                   ├── financas_*, tarefas_* → MCP do Orbit (mcp_servers/orbit)
                   ├── web_buscar / web_ler → Tavily (ou DuckDuckGo, sem chave)
+                  ├── tv_*        → TV Samsung na rede de casa (teclas, UPnP, DIAL)
                   └── guardar_memoria / buscar_memoria / esquecer → data/memoria.db
 ```
 

@@ -452,7 +452,7 @@ class Nucleo:
             return
         try:
             texto = await asyncio.to_thread(conexoes.desconectar, self.cfg, servico)
-            if servico in ("alexa", "wispr"):
+            if servico in ("alexa", "wispr", "tv"):
                 self.desconectados.add(servico)
                 texto += " Reinicie para o Vision soltar a sessão que está em uso."
             self._andamento(servico, texto, rodando=False, ok=True)
@@ -782,10 +782,11 @@ class Nucleo:
                         acesso.unlink(missing_ok=True)
 
     def _timer_acabou(self, t: Any) -> None:
-        """Fim de timer: alarme e fala (pelo laço de voz) e aviso na bandeja e na tela."""
+        """Fim de timer: alarme e fala (pelo laço de voz) e aviso na bandeja e na tela. Timer com ação
+        ("desliga a TV em 30 minutos") fez a ação e só avisa na tela: sem alarme (você pode estar dormindo)."""
         texto = t.aviso()
         self.barramento.publicar({"tipo": "aviso", "texto": texto})
-        if self.laco is not None:
+        if self.laco is not None and not getattr(t, "acao", ""):
             self.laco.pedir_alarme(texto)
 
     async def _subir_voz(self, pilha: contextlib.ExitStack, tarefas: list[asyncio.Task]) -> None:

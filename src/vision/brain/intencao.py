@@ -40,8 +40,10 @@ PADROES = {
                          r"\b(que|qual) m[uú]sica (est[aá] |t[aá] )?tocando\b|"
                          r"\b(pul[ae]|pular|volt[ae]|continu[ae]|paus[ae]|repet[ei])\w* (essa |esta |a |o )?"
                          r"(m[uú]sica|faixa|som|spotify)\b", re.IGNORECASE),
-    "timer": re.compile(r"\b(timer|alarme|cron[oô]metro|temporizador|me avis[ae] (daqui|em|às|as|quando der))\b",
-                        re.IGNORECASE),
+    "timer": re.compile(r"\b(timer|alarme|cron[oô]metro|temporizador|me avis[ae] (daqui|em|às|as|quando der))\b|"
+                        r"\b(tv|televis[aã]o)\b.*\b(em|daqui a|daqui) \d+ ?(min|minutos?|h|horas?)\b",
+                        re.IGNORECASE),  # "desliga a TV em 30 minutos": timer com ação
+    "tv": re.compile(r"\b(tv|televis[aã]o|youtube|netflix)\b", re.IGNORECASE),
     # Só pedido explícito de pesquisa: "busca minha agenda" é da agenda, não da web.
     "web": re.compile(r"\bpesquis(a|e|ar|ando)\b|\b(na|pela) (internet|web|net)\b|\bno google\b|"
                       r"\b(busc|procur)(a|e|ar) (algumas|alguns|umas|uns|op[cç][oõ]es|pre[cç]os?)\b|"

@@ -12,7 +12,7 @@ from vision import config
 
 def _silenciar_logs() -> None:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
-    for nome in ("httpx", "httpcore", "mcp", "openwakeword"):
+    for nome in ("httpx", "httpcore", "mcp", "openwakeword", "samsungtvws"):  # samsungtvws: loga o token da TV
         logging.getLogger(nome).setLevel(logging.WARNING)
 
 
@@ -118,6 +118,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("google-login", help="refaz o login do Google Agenda (a cada 7 dias)")
     sub.add_parser("alexa-login", help="liga o Vision às luzes da sua Alexa (login da Amazon no navegador)")
     sub.add_parser("alexa-luzes", help="atualiza a lista de luzes da Alexa (depois de renomear no app)")
+    tv = sub.add_parser("tv-parear", help="pareia o Vision com a TV Samsung (PIN na tela da TV)")
+    tv.add_argument("--ip", help="IP da TV na sua rede (fica em data/config-local.yaml)")
     sub.add_parser("wispr-login", help="liga o Vision às suas reuniões e notas do Wispr Flow (login no navegador)")
     s = sub.add_parser("spotify-login", help="liga o Vision ao seu Spotify (Premium) para tocar música")
     s.add_argument("--client-id", help="Client ID do app criado em developer.spotify.com")
@@ -187,6 +189,10 @@ def main(argv: list[str] | None = None) -> int:
         from vision.alexa import atualizar_lista
 
         return asyncio.run(atualizar_lista(cfg))
+    elif args.comando == "tv-parear":
+        from vision.tv import parear_interativo
+
+        return _depois_do_login(asyncio.run(parear_interativo(cfg, args.ip)))
     elif args.comando == "wispr-login":
         from vision.wispr import login
 

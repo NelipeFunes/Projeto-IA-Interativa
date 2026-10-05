@@ -33,6 +33,8 @@ EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,190}\.[^@\s]{2,}$")
 CHAVE_TAVILY = re.compile(r"^tvly-[A-Za-z0-9_-]{8,120}$")
 CLIENT_ID_SPOTIFY = re.compile(r"^[0-9a-f]{32}$")
 CODIGO_ORBIT = re.compile(r"^[A-Za-z0-9]{4,10}$")
+PIN_TV = re.compile(r"^\d{4}$")
+VALIDADE_PIN_TV_S = 300  # a TV fecha a tela do PIN sozinha depois de um tempo
 VALIDADE_DESAFIO_S = 600  # o código do e-mail do Orbit: depois disso, e-mail e senha de novo
 GUIA_GOOGLE = "https://github.com/NelipeFunes/Projeto-IA-Interativa/blob/main/docs/guia-google-cloud.md"
 
@@ -52,6 +54,7 @@ SERVICOS = (
     Servico("wispr", "Wispr Flow", "Reuniões, transcrições e notas (só leitura).", "mcp.wispr.ativo"),
     Servico("web", "Busca na web", "Tavily (1.000 buscas grátis por mês); sem chave, usa o DuckDuckGo.", "web.ativo"),
     Servico("orbit", "Orbit", "Finanças e tarefas do seu app.", "mcp.orbit.ativo"),
+    Servico("tv", "TV Samsung", "Controle, volume, apps e YouTube na TV pela rede de casa.", "tv.ativo"),
 )
 POR_ID = {s.id: s for s in SERVICOS}
 # Os que abrem o navegador e esperam você entrar: rodam em segundo plano e podem ser cancelados.
@@ -338,12 +341,83 @@ async def _conectar_orbit(cfg: Config, dados: dict[str, str], avisar: Callable[[
     return True
 
 
+# Entre "Parear" e o PIN, o pareamento em andamento fica só na memória deste processo (como o código do Orbit).
+_pareamento_tv: Any = None
+
+
+def _pareamento_valido() -> Any:
+    global _pareamento_tv
+    if _pareamento_tv is not None and time.monotonic() - _pareamento_tv.quando > VALIDADE_PIN_TV_S:
+        _pareamento_tv = None
+    return _pareamento_tv
+
+
+def _tv(cfg: Config) -> dict[str, Any]:
+    from vision import tv
+
+    if _pareamento_valido() is not None:
+        return {"situacao": "atencao", "detalhe": "A TV está mostrando um PIN de 4 dígitos.",
+                "campos": [_campo("pin", "PIN da tela da TV", dica="Para recomeçar, use Desconectar.")],
+                "acao": "Confirmar PIN", "desconectar": True}
+    ip = tv.endereco(cfg) or ""
+    pareada = tv.tem_pareamento(cfg)
+    if pareada and ip:
+        situacao, detalhe = "ok", "Pareada."
+    elif ip:
+        situacao, detalhe = "atencao", "Volume e YouTube funcionam; falta parear para as teclas do controle."
+    else:
+        situacao, detalhe = "falta", "Sem TV: digite o IP dela e pareie (com a TV ligada)."
+    return {"situacao": situacao, "detalhe": detalhe,
+            "campos": [_campo("ip", "IP da TV na sua rede", valor=ip,
+                              dica="Em Configurações → Rede da TV (ex.: 192.168.0.50). Fixe no roteador.")],
+            "acao": "Parear de novo" if pareada else "Parear", "desconectar": pareada}
+
+
+async def _conectar_tv(cfg: Config, dados: dict[str, str], avisar: Callable[[str], None]) -> bool | None:
+    """None: a TV mostrou o PIN (a tela pede). True: pareada. False: não deu."""
+    global _pareamento_tv
+    from vision import tv
+    from vision.config import salvar_ajustes
+
+    if "pin" in dados:
+        par = _pareamento_valido()
+        if par is None:
+            avisar("O PIN venceu: clique em Parear de novo.")
+            return False
+        try:
+            ok = await par.confirmar(dados["pin"])
+        except RuntimeError as e:
+            _pareamento_tv = None
+            await par.fechar()
+            avisar(f"{e}.")
+            return False
+        if not ok:
+            avisar("PIN recusado: confira na tela da TV e digite de novo.")
+            return None
+        _pareamento_tv = None
+        avisar("TV pareada.")
+        return True
+    if (antigo := _pareamento_tv) is not None:
+        _pareamento_tv = None
+        await antigo.fechar()
+    par = tv.Pareamento(cfg, dados["ip"])
+    try:
+        await par.iniciar()
+    except tv.TVInacessivel as e:
+        avisar(str(e))
+        return False
+    salvar_ajustes(cfg, {"tv.ip": par.ip})  # a TV respondeu: volume e YouTube já funcionam com o IP
+    _pareamento_tv = par
+    avisar("A TV está mostrando um PIN: digite ele aqui.")
+    return None
+
+
 def estado(cfg: Config, status_mcp: dict[str, str] | None = None) -> list[dict[str, Any]]:
     """Um cartão por serviço, na ordem da tela. Nunca inclui um segredo."""
     status_mcp = status_mcp or {}
     feitos = {"google": lambda: _google(cfg, status_mcp), "spotify": lambda: _spotify(cfg),
               "alexa": lambda: _alexa(cfg), "wispr": lambda: _wispr(cfg), "web": lambda: _web(cfg),
-              "orbit": lambda: _orbit(cfg)}
+              "orbit": lambda: _orbit(cfg), "tv": lambda: _tv(cfg)}
     cartoes = []
     for s in SERVICOS:
         ligado = bool(cfg.get(s.chave_ligado, True))
@@ -361,7 +435,7 @@ def _resumo(*partes: Any) -> str:
 
 def assinatura(cfg: Config) -> dict[str, str]:
     """O que o Vision montou ao iniciar, por serviço. Mudou depois disso: só vale ao reiniciar."""
-    from vision import alexa, spotify, wispr
+    from vision import alexa, spotify, tv, wispr
     from vision.google_login import ARQUIVO_DATA, arquivo_credenciais
 
     def ler(p: Path) -> str:
@@ -378,6 +452,7 @@ def assinatura(cfg: Config) -> dict[str, str]:
         "wispr": (wispr.tem_login(cfg),),
         "web": (_env("TAVILY_API_KEY"),),
         "orbit": tuple(_env(n) for n in ("ORBIT_EMAIL", "ORBIT_PASSWORD", "ORBIT_TOKEN")),
+        "tv": (tv.tem_pareamento(cfg), tv.endereco(cfg)),
     }
     return {s.id: _resumo(bool(cfg.get(s.chave_ligado, True)), *partes[s.id]) for s in SERVICOS}
 
@@ -414,6 +489,16 @@ def validar(servico: Any, dados: Any) -> dict[str, str]:
         if not CHAVE_TAVILY.match(d.get("chave", "")):
             raise ValueError("a chave da Tavily começa com tvly- (copie do painel da Tavily)")
         return {"chave": d["chave"]}
+    if servico == "tv" and "pin" in d:
+        if not PIN_TV.match(d["pin"]):
+            raise ValueError("o PIN da TV tem 4 números")
+        return {"pin": d["pin"]}
+    if servico == "tv":
+        from vision.tv import ip_valido
+
+        if (ip := ip_valido(d.get("ip", ""))) is None:
+            raise ValueError("o IP da TV tem que ser da rede de casa (ex.: 192.168.0.50)")
+        return {"ip": ip}
     if servico == "orbit" and "codigo" in d:
         if not CODIGO_ORBIT.match(d["codigo"]):
             raise ValueError("o código tem só letras e números (copie do e-mail)")
@@ -458,6 +543,8 @@ async def conectar(cfg: Config, servico: str, dados: dict[str, str], avisar: Cal
         return True
     if servico == "orbit":
         return await _conectar_orbit(cfg, dados, avisar)
+    if servico == "tv":
+        return await _conectar_tv(cfg, dados, avisar)
     raise ValueError("serviço desconhecido")
 
 
@@ -492,4 +579,13 @@ def desconectar(cfg: Config, servico: str) -> str:
             return "Código cancelado: entre de novo com e-mail e senha."
         gravar_env(cfg.raiz / ".env", {"ORBIT_EMAIL": None, "ORBIT_PASSWORD": None, "ORBIT_TOKEN": None})
         return "Login do Orbit apagado."
+    if servico == "tv":
+        global _pareamento_tv
+        if _pareamento_valido() is not None:
+            _pareamento_tv = None  # a sessão HTTP do pareamento cancelado é solta pelo coletor
+            return "Pareamento cancelado."
+        from vision import tv
+
+        tv.arquivo_sessao(cfg).unlink(missing_ok=True)
+        return "Pareamento da TV apagado (o IP continua salvo)."
     raise ValueError("esse serviço não tem desconectar pela tela")
