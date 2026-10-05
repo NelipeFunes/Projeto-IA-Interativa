@@ -1179,6 +1179,12 @@ wheels = [
 ]
 
 [[package]]
+name = "py3rijndael"
+version = "0.3.3"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/3c/18/82d406b47cce65b884abc077335eb4b74adb4a4b750112fe4a67dc7d4c90/py3rijndael-0.3.3.tar.gz", hash = "sha256:b6655a3ebff3a10540eaed049e8788eea3ac93d6b71b3a6ac2b00224bbece9a8", size = 6620, upload-time = "2019-06-20T06:00:11.07Z" }
+
+[[package]]
 name = "pycaw"
 version = "20260927"
 source = { registry = "https://pypi.org/simple" }
@@ -1482,6 +1488,30 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/8e/3f/73ccf82579412b4a71c4ca673f10b5f1f888d7cf5af7fe24f27d30307be4/safetensors-0.8.0-cp310-abi3-win32.whl", hash = "sha256:2ddf52eac562eda224f99acfa7889d02968c1fd59a5b011ae7d8137c37e9c02d", size = 342401, upload-time = "2026-06-09T07:52:28.895Z" },
     { url = "https://files.pythonhosted.org/packages/1b/6d/3fba214c1e5e0f69991677ec3bc17023f0421776975e1de0c682dca475e2/safetensors-0.8.0-cp310-abi3-win_amd64.whl", hash = "sha256:096ec1a98435df7beb08853bb5aa9081a84f23d0adc67ed1a0a10550f608373f", size = 355540, upload-time = "2026-06-09T07:52:27.832Z" },
     { url = "https://files.pythonhosted.org/packages/8d/fc/7eedc3510d97878876e32774eebbeb61c43f148a96e915c84229a3e967aa/safetensors-0.8.0-cp310-abi3-win_arm64.whl", hash = "sha256:f7838e5135a406ad3e02efdcb8cf2e5397d368b0154537c4fec682dbc544d452", size = 340500, upload-time = "2026-06-09T07:52:26.745Z" },
+]
+
+[[package]]
+name = "samsungtvws"
+version = "3.0.6"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "requests" },
+    { name = "websocket-client" },
+    { name = "yarl" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/35/10/83c2d17e8643c262acc8b9e24581a44699862bb6c0ef0683b4bf682ee53a/samsungtvws-3.0.6.tar.gz", hash = "sha256:166111d8370443cd2021b74cdfac9495896dfc41e3a87ea023289f24f922bb91", size = 48757, upload-time = "2026-09-11T22:41:04.031Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/76/49/60b2993a26e78f5d2716b4df1c3fb8fae54d19acf79197280df9088ddc15/samsungtvws-3.0.6-py3-none-any.whl", hash = "sha256:6e3a1b23f928b3035570cc976b64b8c2a218b06022a333855fd7cd02dc74891d", size = 48791, upload-time = "2026-09-11T22:41:02.375Z" },
+]
+
+[package.optional-dependencies]
+async = [
+    { name = "aiohttp" },
+    { name = "websockets" },
+]
+encrypted = [
+    { name = "cryptography" },
+    { name = "py3rijndael" },
 ]
 
 [[package]]
@@ -1866,6 +1896,7 @@ dependencies = [
     { name = "python-dotenv" },
     { name = "pywebview" },
     { name = "pyyaml" },
+    { name = "samsungtvws", extra = ["async", "encrypted"] },
     { name = "sounddevice" },
     { name = "soundfile" },
     { name = "starlette" },
@@ -1908,6 +1939,7 @@ requires-dist = [
     { name = "python-dotenv", specifier = ">=1" },
     { name = "pywebview", specifier = ">=6.2.1" },
     { name = "pyyaml", specifier = ">=6" },
+    { name = "samsungtvws", extras = ["async", "encrypted"], specifier = "==3.0.6" },
     { name = "sounddevice", specifier = ">=0.5" },
     { name = "soundfile", specifier = ">=0.12" },
     { name = "starlette", specifier = ">=0.40" },
@@ -1928,6 +1960,15 @@ xtts = [
     { name = "torch", specifier = "==2.8.*", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchaudio", specifier = "==2.8.*", index = "https://download.pytorch.org/whl/cu128" },
     { name = "transformers", specifier = ">=4.43,<5" },
+]
+
+[[package]]
+name = "websocket-client"
+version = "1.9.2"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/d8/cb/a5abcc2891249f393827c650c6296660ce40374ac22d99ab9aea41f9d2a2/websocket_client-1.9.2.tar.gz", hash = "sha256:0fcb57545848be86992e128218fd96dd87a6769ffdb1a968dff79632b85604d0", size = 84110, upload-time = "2026-08-31T14:08:40.964Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/d5/d2/cc4dc1271e464942db7ee278baae2daa99ee77cb2af744025c04da585a3e/websocket_client-1.9.2-py3-none-any.whl", hash = "sha256:e1a673830a9c7bfa47b1cd3d5e4178f4c9651d80a4eab02c9c23a1c3ec6250ce", size = 95786, upload-time = "2026-08-31T14:08:39.899Z" },
 ]
 
 [[package]]

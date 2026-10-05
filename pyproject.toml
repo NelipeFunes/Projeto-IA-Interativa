@@ -30,6 +30,7 @@ dependencies = [
     "pycaw>=20240316",
     "ddgs>=9,<10",
     "wyoming>=1.5,<2",
+    "samsungtvws[async,encrypted]==3.0.6",
 ]
 
 [project.scripts]

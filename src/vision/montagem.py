@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
+from typing import Any
 
 from vision.brain.agent import Agente
 from vision.brain.llm import LLM, OllamaLLM
@@ -97,6 +99,32 @@ async def montar(
         registro.adicionar(*Reunioes(cfg, host).ferramentas())
     alexa = None
     atalhos = []
+    tv = None
+    acoes_de_timer: dict[str, tuple[str, dict[str, Any], str]] = {}
+    if cfg.get("tv.ativo", True):
+        from vision import tv as modulo_tv
+
+        if (ip_tv := modulo_tv.endereco(cfg)) is not None:  # sem tv.ip no config local, as ferramentas nem aparecem
+            from vision.tools.tv import ACOES_DE_TIMER, TV
+
+            tv = modulo_tv.TVSamsung(ip_tv, modulo_tv.ler_sessao(cfg),
+                                     ok_no_perfil=bool(cfg.get("tv.youtube_ok_no_perfil", True)))
+            controle_tv = TV(tv, apps=list(cfg.get("tv.apps") or []) or None,
+                             volume_maximo=int(cfg.get("tv.volume_maximo", 50)))
+            registro.adicionar(*controle_tv.ferramentas())
+            atalhos.append(controle_tv.atalho)
+            acoes_de_timer.update(ACOES_DE_TIMER)
+
+    async def disparar_timer(t) -> None:
+        """Timer com ação ("desliga a TV em 30 minutos"): faz a ação (só as da lista fechada) e depois avisa."""
+        from vision.tools.timer import fazer_acao
+
+        await fazer_acao(t, registro, acoes_de_timer)
+        if ao_disparar_timer is not None:
+            r = ao_disparar_timer(t)
+            if inspect.isawaitable(r):
+                await r
+
     timers = None
     if cfg.get("pc.ativo", True):
         from vision.tools.pc import PC
@@ -106,9 +134,9 @@ async def montar(
         registro.adicionar(*pc.ferramentas())
         atalhos.append(pc.atalho)
         timers = Timers(cfg.dados / "timers.json")
-        timers.ao_disparar = ao_disparar_timer
+        timers.ao_disparar = disparar_timer
         timers.iniciar()
-        temporizador = Temporizador(timers)
+        temporizador = Temporizador(timers, acoes={k: v[2] for k, v in acoes_de_timer.items()})
         registro.adicionar(*temporizador.ferramentas())
         atalhos.append(temporizador.atalho)
         from vision.tools import sistema as ferramentas_sistema
@@ -193,6 +221,8 @@ async def montar(
                 await alexa.fechar()
             if spotify is not None:
                 await spotify.fechar()
+            if tv is not None:
+                await tv.fechar()
 
 
 def _modo_confirmacao(cfg: Config) -> str:

@@ -16,6 +16,7 @@ GRUPOS = [
     ("timer", "pôr timers e alarmes"),
     ("musica", "tocar música no Spotify"),
     ("casa", "acender e apagar as luzes"),
+    ("tv", "controlar a TV e tocar vídeos do YouTube nela"),
     ("pc", "abrir programas e sites, mexer no volume, travar o PC e ver o estado dele"),
     ("web", "pesquisar na internet"),
     ("memoria", "lembrar o que você me conta"),
