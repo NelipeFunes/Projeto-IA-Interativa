@@ -389,7 +389,7 @@ async def _conectar_tv(cfg: Config, dados: dict[str, str], avisar: Callable[[str
         except RuntimeError as e:
             _pareamento_tv = None
             await par.fechar()
-            avisar(f"{e}.")
+            avisar(str(e).rstrip(".") + ".")
             return False
         if not ok:
             avisar("PIN recusado: confira na tela da TV e digite de novo.")

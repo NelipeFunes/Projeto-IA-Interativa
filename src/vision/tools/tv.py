@@ -13,7 +13,7 @@ import re
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
-from vision.tools.base import ErroFerramenta, Ferramenta, esquema, numero, texto
+from vision.tools.base import PRAZO_PC_S, ErroFerramenta, Ferramenta, esquema, numero, texto
 from vision.tools.pc import normalizar
 from vision.tv import VIDEO_ID, SemPareamento, TVInacessivel
 
@@ -272,7 +272,7 @@ class TV:
         video = await self._video(args)
         apertou_ok = await self._rodar(self.tv.youtube(video["id"]))
         nome = f"'{video['titulo']}'" if video["titulo"] else "o vídeo"
-        extra = " (escolhi o perfil na tela de perfis)" if apertou_ok else ""
+        extra = " (o YouTube estava fechado: aperto OK no perfil quando ele abrir)" if apertou_ok else ""
         return f"Tocando {nome} no YouTube da TV{extra}."
 
     async def tocar_midia(self, args: dict[str, Any]) -> str:
@@ -300,12 +300,15 @@ class TV:
         nome, args = cmd
         executar = {"tv_controle": self.controle, "tv_volume": self.volume, "tv_youtube": self.youtube}[nome]
         try:
-            return nome, args, await executar(args), True
+            return nome, args, await asyncio.wait_for(executar(args), PRAZO_PC_S), True
         except ErroFerramenta as e:
             return nome, args, str(e), False
+        except TimeoutError:
+            return nome, args, "A TV demorou demais para responder.", False
 
     def ferramentas(self) -> list[Ferramenta]:
-        comum = {"escrita": True, "grupo": "tv", "confirmar": False, "confirmar_se_externo": True}
+        comum = {"escrita": True, "grupo": "tv", "confirmar": False, "confirmar_se_externo": True,
+                 "prazo_s": PRAZO_PC_S}
         return [
             Ferramenta("tv_controle",
                        "Controle da TV da sala: desligar, volume, mudo, canal +/-, fonte/HDMI, setas, ok, voltar, "
@@ -320,7 +323,7 @@ class TV:
                        esquema(["numero"], numero=texto("Número do canal, ex.: '5' ou '5.1'")), self.canal,
                        descrever=self.descrever_canal, **comum),
             Ferramenta("tv_status", "Se a TV está ligada, o volume e o app aberto.", esquema([]), self.status,
-                       grupo="tv"),
+                       grupo="tv", prazo_s=PRAZO_PC_S),
             Ferramenta("tv_abrir_app", "Abre um app na TV.",
                        esquema(["app"], app={"type": "string", "enum": list(self.apps)}), self.abrir_app,
                        descrever=self.descrever_abrir_app, **comum),
@@ -333,7 +336,7 @@ class TV:
                        "Manda a TV tocar um link direto de mídia (mp4, mp3). Só para um link que o Felipe passou.",
                        esquema(["url"], url=texto("Link http(s) do arquivo")), self.tocar_midia,
                        escrita=True, grupo="tv", sempre_confirmar=True, confirmar_se_externo=True,
-                       descrever=self.descrever_tocar_midia),
+                       descrever=self.descrever_tocar_midia, prazo_s=PRAZO_PC_S),
         ]
 
     async def _descrever_youtube(self, args: dict[str, Any]) -> str:

@@ -24,6 +24,9 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 ATRASO_MAXIMO_S = 3600  # venceu com o núcleo desligado há mais que isso: o aviso já não serve
+# Timer com ação (desligar a TV) vencido com o núcleo fora: depois disso não age. Você pode ter religado a TV
+# no meio-tempo, e ela desligaria na sua cara (revisão do PR 46).
+ATRASO_MAXIMO_ACAO_S = 120
 MAXIMO_TIMERS = 20
 
 
@@ -71,6 +74,9 @@ class Timers:
             except TypeError:
                 continue
             if agora - t.fim > ATRASO_MAXIMO_S:
+                continue
+            if t.acao and agora - t.fim > ATRASO_MAXIMO_ACAO_S:
+                log.info("timer com ação venceu com o Vision fechado; não fiz a ação: %s", t.acao)
                 continue
             self._agendar(t)
         self._gravar()

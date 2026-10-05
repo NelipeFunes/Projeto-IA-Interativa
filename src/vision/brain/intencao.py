@@ -43,7 +43,10 @@ PADROES = {
     "timer": re.compile(r"\b(timer|alarme|cron[oô]metro|temporizador|me avis[ae] (daqui|em|às|as|quando der))\b|"
                         r"\b(tv|televis[aã]o)\b.*\b(em|daqui a|daqui) \d+ ?(min|minutos?|h|horas?)\b",
                         re.IGNORECASE),  # "desliga a TV em 30 minutos": timer com ação
-    "tv": re.compile(r"\b(tv|televis[aã]o|youtube|netflix)\b", re.IGNORECASE),
+    # Só verbo + TV: "o que passa na TV hoje?" é pergunta, não pedido para mexer nela (revisão do PR 46).
+    "tv": re.compile(r"\b(deslig|aument|abaix|diminu|sob[ei]|sub[ai]|mut[ae]|desmut|silenci|toc|coloc|p[oõ]e|"
+                     r"bot[ae]|abr[ea]|mud[ae]|troc|volt[ae]|paus|apert)\w*\b.{0,60}\b(tv|televis[aã]o)\b|"
+                     r"\b(volume|canal|som) da (tv|televis[aã]o)\b", re.IGNORECASE),
     # Só pedido explícito de pesquisa: "busca minha agenda" é da agenda, não da web.
     "web": re.compile(r"\bpesquis(a|e|ar|ando)\b|\b(na|pela) (internet|web|net)\b|\bno google\b|"
                       r"\b(busc|procur)(a|e|ar) (algumas|alguns|umas|uns|op[cç][oõ]es|pre[cç]os?)\b|"
@@ -64,7 +67,7 @@ PADROES = {
 
 # Grupos que, em PERGUNTA, não obrigam a chamar ferramenta logo de cara: "abre/fecha/volume" aparecem em
 # pergunta comum ("como abrir uma conta no banco?"). Em pedido, obrigam (revisão do PR 20).
-SEM_INSISTIR = {"pc", "musica"}
+SEM_INSISTIR = {"pc", "musica", "tv"}
 
 
 def detectar(texto: str) -> list[str]:

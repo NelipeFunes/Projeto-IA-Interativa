@@ -83,7 +83,8 @@ class Temporizador:
             _numero(args, "horas") * 3600 + _numero(args, "minutos") * 60 + _numero(args, "segundos"))
         nome = str(args.get("nome") or "").strip()[:60]
         acao = self._acao(args)
-        return f"Vou ligar um timer {quando}" + (f" com o aviso: {nome}." if nome else ".")             + (f" No fim, vou {self.acoes[acao]}." if acao else "")
+        depois = f" No fim, vou {self.acoes[acao]}." if acao else ""
+        return f"Vou ligar um timer {quando}" + (f" com o aviso: {nome}." if nome else ".") + depois
 
     async def listar(self, _args: dict[str, Any]) -> str:
         timers = self.timers.listar()

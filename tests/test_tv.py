@@ -368,8 +368,9 @@ async def test_youtube_fechado_espera_subir_e_aperta_ok(tv_real):
     respx.get(f"http://{IP}:8080/ws/apps/YouTube").mock(
         side_effect=lambda _r: httpx.Response(200, text=f"<service><state>{next(estados)}</state></service>"))
     abrir = respx.post(f"http://{IP}:8080/ws/apps/YouTube").mock(return_value=httpx.Response(201))
-    assert await tv_real.youtube("e-ORhEE9VVg") is True
-    assert abrir.calls[0].request.content == b"v=e-ORhEE9VVg"
+    assert await tv_real.youtube("e-ORhEE9VVg") is True  # responde logo; o OK vem em segundo plano
+    assert abrir.calls[0].request.content == b"v=e-ORhEE9VVg" and tv_real.teclas_enviadas == []
+    await asyncio.wait_for(tv_real.ok_pendente, 5)
     assert tv_real.teclas_enviadas == [["KEY_ENTER"]]
     await tv_real.fechar()
 
@@ -482,3 +483,59 @@ async def test_conexoes_pareia_em_dois_passos_e_desconecta(cfg, autenticador):
     antes = conexoes.assinatura(cfg)["tv"]
     assert "apagado" in conexoes.desconectar(cfg, "tv")
     assert not modulo_tv.tem_pareamento(cfg) and conexoes.assinatura(cfg)["tv"] != antes
+
+
+# ------------------------------------------------------------------ revisão do PR 46
+
+
+@respx.mock
+async def test_volume_com_a_tv_desligada_vira_mensagem(tv_real):
+    respx.post(f"http://{IP}:9197/upnp/control/RenderingControl1").mock(side_effect=httpx.ConnectTimeout("x"))
+    with pytest.raises(modulo_tv.TVInacessivel, match="desligada"):
+        await tv_real.definir_volume(5)
+    assert tv_real._http.timeout.connect == modulo_tv.PRAZO_CONEXAO_S
+    await tv_real.fechar()
+
+
+@pytest.mark.parametrize("frase, tem_tv", [
+    ("o que passa na TV hoje?", False), ("o que tem na Netflix?", False), ("abre o YouTube no PC", False),
+    ("desliga a TV", True), ("toca blank space no youtube da tv", True), ("abaixa o volume da TV", True),
+    ("abre o Netflix na televisão", True),
+])
+def test_so_pedido_para_mexer_na_tv_libera_a_trava(frase, tem_tv):
+    from vision.brain import intencao
+
+    assert ("tv" in intencao.detectar(frase)) is tem_tv
+    assert "tv" in intencao.SEM_INSISTIR
+
+
+async def test_timer_de_acao_vencido_com_o_vision_fechado_nao_age(tmp_path):
+    import json
+    import time
+
+    arquivo = tmp_path / "timers.json"
+    agora = time.time()
+    arquivo.write_text(json.dumps([
+        {"id": "a", "nome": "", "fim": agora - 600, "rotulo": "30 minutos", "acao": "desligar_tv"},
+        {"id": "b", "nome": "forno", "fim": agora - 600, "rotulo": "10 minutos"},
+    ]), encoding="utf-8")
+    timers = Timers(arquivo)
+    disparados = []
+    timers.ao_disparar = disparados.append
+    timers.iniciar()
+    await asyncio.sleep(0.05)
+    timers.fechar()
+    assert [t.id for t in disparados] == ["b"]  # o aviso atrasado vale; desligar a TV 10 min depois, não
+
+
+async def test_tv_cai_no_meio_do_pin(cfg, monkeypatch):
+    from samsungtvws.encrypted import authenticator
+
+    class Cai(AutenticadorFalso):
+        async def try_pin(self, pin):
+            raise TimeoutError
+
+    monkeypatch.setattr(authenticator, "SamsungTVEncryptedWSAsyncAuthenticator", Cai)
+    avisos = []
+    assert await modulo_tv.parear_interativo(cfg, IP, ler=lambda _p: "4321", avisar=avisos.append) == 1
+    assert "parou de responder" in avisos[-1] and modulo_tv.ler_sessao(cfg) is None

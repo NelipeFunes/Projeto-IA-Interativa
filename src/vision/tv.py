@@ -114,10 +114,15 @@ class TVSamsung:
         self.sessao = sessao
         self.folga_perfis_s = folga_perfis_s
         self.ok_no_perfil = ok_no_perfil
-        self._http = httpx.AsyncClient(timeout=PRAZO_S, follow_redirects=False)
+        # Conexão curta (TV desligada responde rápido); a resposta pode demorar mais.
+        self._http = httpx.AsyncClient(timeout=httpx.Timeout(PRAZO_S, connect=PRAZO_CONEXAO_S),
+                                       follow_redirects=False)
         self._trava = asyncio.Lock()  # um comando por vez: a TV de 2015 reinicia com pedidos em rajada
+        self.ok_pendente: asyncio.Task | None = None  # o OK da tela de perfis, em segundo plano
 
     async def fechar(self) -> None:
+        if self.ok_pendente is not None:
+            self.ok_pendente.cancel()
         await self._http.aclose()
 
     # ------------------------------------------------------------------ alcance
@@ -239,7 +244,8 @@ class TVSamsung:
 
     async def youtube(self, video_id: str) -> bool:
         """Abre o vídeo no YouTube da TV. Com o app fechado, espera ele subir e aperta OK na tela de perfis
-        (o perfil marcado é o último usado). Devolve True se apertou o OK."""
+        (o perfil marcado é o último usado), em segundo plano: a resposta não espera os ~12 s do app subir.
+        Devolve True se vai apertar o OK."""
         if not VIDEO_ID.match(video_id):
             raise ValueError("ID de vídeo do YouTube inválido")
         async with self._trava:
@@ -248,16 +254,26 @@ class TVSamsung:
             if antes is None:
                 raise ValueError("a TV não tem o app do YouTube")
             await self._abrir("YouTube", f"v={video_id}")
-            if antes == "running" or not self.ok_no_perfil or self.sessao is None:
-                return False
+        if antes == "running" or not self.ok_no_perfil or self.sessao is None:
+            return False
+        if self.ok_pendente is not None:
+            self.ok_pendente.cancel()  # pediu outro vídeo antes do OK do anterior: vale só o último
+        self.ok_pendente = asyncio.get_running_loop().create_task(self._ok_no_perfil(), name="tv-ok-perfil")
+        return True
+
+    async def _ok_no_perfil(self) -> None:
+        try:
             limite = time.monotonic() + PRAZO_APP_S
             while await self.estado_app("YouTube") != "running":  # nunca encadear sem esperar: a TV reinicia
                 if time.monotonic() > limite:
-                    return False
+                    log.info("TV: o YouTube não subiu a tempo; sem o OK do perfil")
+                    return
                 await asyncio.sleep(1)
             await asyncio.sleep(self.folga_perfis_s)
-            await self._enviar_teclas(["KEY_ENTER"], INTERVALO_TECLAS_S)
-            return True
+            async with self._trava:
+                await self._enviar_teclas(["KEY_ENTER"], INTERVALO_TECLAS_S)
+        except (TVInacessivel, ValueError, RuntimeError) as e:
+            log.info("TV: OK do perfil não foi (%s)", type(e).__name__)
 
     # ------------------------------------------------------------------ mídia (UPnP AVTransport)
 
@@ -302,6 +318,7 @@ class Pareamento:
 
     async def confirmar(self, pin: str) -> bool:
         """True: pareada (sessão gravada). False: PIN recusado (dá para tentar de novo)."""
+        import aiohttp
         from samsungtvws.encrypted.authenticator import SamsungTVEncryptedError
 
         if self._auth is None:
@@ -315,7 +332,11 @@ class Pareamento:
                 return False
             session_id = await self._auth.get_session_id_and_close()
         except SamsungTVEncryptedError as e:
+            await self.fechar()
             raise RuntimeError("a TV encerrou o pareamento: comece de novo") from e
+        except (aiohttp.ClientError, OSError, TimeoutError) as e:
+            await self.fechar()
+            raise TVInacessivel("A TV parou de responder no meio do pareamento: comece de novo.") from e
         gravar_json(arquivo_sessao(self.cfg), {"token": str(token), "session_id": str(session_id)})
         await self.fechar()
         return True
