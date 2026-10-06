@@ -22,7 +22,7 @@ Próximo código livre: **T-017**
 - [ ] **T-003** 🔴 **Parear de novo as teclas da TV** (o pareamento venceu em 06/10). Só dá com a TV ligada: Ajustes → Conexões → TV Samsung, ou `vision tv-parear`.
 - [ ] **T-004** 🟡 **Descobrir por que o pareamento da TV vence** (suspeita: a TV reinicia ou renova a sessão). Olhar o log e anotar quando as teclas deixam de reagir.
 - [ ] **T-005** 🟡 **Testar na TV de verdade** o que só passou em simulação: desligar, canal, fonte/HDMI, setas, abrir Netflix e navegador, tocar link de mídia (UPnP), timer "desliga a TV em N minutos".
-- [ ] **T-006** 🟡 **Treinar o modelo "Hey Vision" no Google Colab** e pôr `hey_vision.onnx` em `modelos/openwakeword/` (passo a passo no README, seção "Hey Vision").
+- [ ] **T-006** 🟡 **Treinar o modelo "Hey Vision" no Google Colab** e pôr `hey_vision.onnx` em `modelos/openwakeword/` (passo a passo no README, no item **"Hey Vision" pelo modelo**).
 - [ ] **T-007** 🟡 **Gravar a própria voz para o verificador** (`scripts/ativacao/gravar_minha_voz.py`) depois do T-006, e reiniciar o Vision. As gravações ficam em `data/` e não saem do PC.
 - [ ] **T-008** 🟢 **Expor `voz.limiar_ativacao` na tela de Ajustes** (hoje só no `config.yaml`).
 - [ ] **T-009** 🟢 **Login do Orbit pela tela de Conexões** (se o Orbit mandar código por e-mail, a tela pede).
