@@ -56,6 +56,11 @@ def _segundos(duracao: Any) -> int:
     return total
 
 
+def _limpo(valor: Any, tamanho: int) -> str:
+    """Texto de terceiros (título de vídeo) numa linha só e sem caractere de controle, para ir ao modelo."""
+    return " ".join("".join(c if c.isprintable() else " " for c in str(valor or "")).split())[:tamanho]
+
+
 def id_do_youtube(url: Any) -> str | None:
     """O ID de um link do YouTube (watch?v=, youtu.be/, /shorts/, /embed/), ou None."""
     try:
@@ -89,16 +94,66 @@ def escolher_video(resultados: list[dict[str, Any]]) -> dict[str, Any] | None:
         except (TypeError, ValueError):
             views = 0
         candidatos.append((duracao >= DURACAO_MINIMA_S, views, {
-            "id": vid, "titulo": str(r.get("title") or "")[:70].strip(),
-            "canal": str(r.get("uploader") or r.get("publisher") or "")[:40].strip(), "duracao": duracao}))
+            "id": vid, "titulo": _limpo(r.get("title"), 70),
+            "canal": _limpo(r.get("uploader") or r.get("publisher"), 40), "duracao": duracao}))
     if not candidatos:
         return None
     candidatos.sort(key=lambda c: (c[0], c[1]), reverse=True)
     return candidatos[0][2]
 
 
+def resultados_do_youtube(html: str) -> list[dict[str, Any]]:
+    """Os vídeos da página de resultados do YouTube, no formato do ddgs (title, content, duration...)."""
+    import json
+
+    m = re.search(r"var ytInitialData = (\{.*?\});</script>", html, re.S)
+    if not m:
+        return []
+    try:
+        dados = json.loads(m.group(1))
+    except ValueError:
+        return []
+    achados: list[dict[str, Any]] = []
+
+    def andar(o: Any) -> None:
+        if isinstance(o, dict):
+            if isinstance(v := o.get("videoRenderer"), dict) and v.get("videoId"):
+                views = re.sub(r"\D", "", str((v.get("viewCountText") or {}).get("simpleText") or ""))
+                achados.append({
+                    "title": "".join(x.get("text", "") for x in (v.get("title") or {}).get("runs", [])),
+                    "content": f"https://www.youtube.com/watch?v={v['videoId']}", "publisher": "YouTube",
+                    "uploader": "".join(x.get("text", "") for x in (v.get("ownerText") or {}).get("runs", [])),
+                    "duration": (v.get("lengthText") or {}).get("simpleText") or "",
+                    "statistics": {"viewCount": int(views) if views else 0}})
+            for x in o.values():
+                andar(x)
+        elif isinstance(o, list):
+            for x in o:
+                andar(x)
+
+    andar(dados)
+    return achados
+
+
+def buscar_no_youtube(consulta: str, maximo: int = 10) -> list[dict[str, Any]]:
+    import httpx
+
+    r = httpx.get("https://www.youtube.com/results", params={"search_query": consulta}, timeout=8,
+                  headers={"Accept-Language": "pt-BR,pt;q=0.9", "User-Agent": "Mozilla/5.0"}, follow_redirects=True)
+    return resultados_do_youtube(r.text)[:maximo] if r.status_code == 200 else []
+
+
 def buscar_videos(consulta: str, maximo: int = 10) -> list[dict[str, Any]]:
-    """Pelo DuckDuckGo (o mesmo `ddgs` da busca na web), sem chave de API."""
+    """Na página de resultados do YouTube (a mesma busca do app); se ela falhar, pelo DuckDuckGo (`ddgs`)."""
+    try:
+        if achados := buscar_no_youtube(consulta, maximo):
+            return achados
+    except Exception:  # noqa: BLE001 - o YouTube mudou a página ou está fora: tenta o DuckDuckGo
+        pass
+    return _buscar_ddgs(consulta, maximo)
+
+
+def _buscar_ddgs(consulta: str, maximo: int) -> list[dict[str, Any]]:
     from ddgs import DDGS
     from ddgs.exceptions import DDGSException
 
@@ -331,7 +386,7 @@ class TV:
                        "Toca uma música ou vídeo no YouTube da TV: busca pelo nome e escolhe o mais certo (o clipe "
                        "oficial, o mais visto). Também aceita um link do YouTube.",
                        esquema(["busca"], busca=texto("O que o Felipe pediu, ex.: 'blank space taylor swift'")),
-                       self.youtube, descrever=self._descrever_youtube, **comum),
+                       self.youtube, descrever=self._descrever_youtube, conteudo_externo=True, **comum),
             Ferramenta("tv_tocar_midia",
                        "Manda a TV tocar um link direto de mídia (mp4, mp3). Só para um link que o Felipe passou.",
                        esquema(["url"], url=texto("Link http(s) do arquivo")), self.tocar_midia,
