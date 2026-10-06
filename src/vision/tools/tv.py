@@ -97,8 +97,58 @@ def escolher_video(resultados: list[dict[str, Any]]) -> dict[str, Any] | None:
     return candidatos[0][2]
 
 
+def resultados_do_youtube(html: str) -> list[dict[str, Any]]:
+    """Os vídeos da página de resultados do YouTube, no formato do ddgs (title, content, duration...)."""
+    import json
+
+    m = re.search(r"var ytInitialData = (\{.*?\});</script>", html, re.S)
+    if not m:
+        return []
+    try:
+        dados = json.loads(m.group(1))
+    except ValueError:
+        return []
+    achados: list[dict[str, Any]] = []
+
+    def andar(o: Any) -> None:
+        if isinstance(o, dict):
+            if isinstance(v := o.get("videoRenderer"), dict) and v.get("videoId"):
+                views = re.sub(r"\D", "", str((v.get("viewCountText") or {}).get("simpleText") or ""))
+                achados.append({
+                    "title": "".join(x.get("text", "") for x in (v.get("title") or {}).get("runs", [])),
+                    "content": f"https://www.youtube.com/watch?v={v['videoId']}", "publisher": "YouTube",
+                    "uploader": "".join(x.get("text", "") for x in (v.get("ownerText") or {}).get("runs", [])),
+                    "duration": (v.get("lengthText") or {}).get("simpleText") or "",
+                    "statistics": {"viewCount": int(views) if views else 0}})
+            for x in o.values():
+                andar(x)
+        elif isinstance(o, list):
+            for x in o:
+                andar(x)
+
+    andar(dados)
+    return achados
+
+
+def buscar_no_youtube(consulta: str, maximo: int = 10) -> list[dict[str, Any]]:
+    import httpx
+
+    r = httpx.get("https://www.youtube.com/results", params={"search_query": consulta}, timeout=8,
+                  headers={"Accept-Language": "pt-BR,pt;q=0.9", "User-Agent": "Mozilla/5.0"}, follow_redirects=True)
+    return resultados_do_youtube(r.text)[:maximo] if r.status_code == 200 else []
+
+
 def buscar_videos(consulta: str, maximo: int = 10) -> list[dict[str, Any]]:
-    """Pelo DuckDuckGo (o mesmo `ddgs` da busca na web), sem chave de API."""
+    """Na página de resultados do YouTube (a mesma busca do app); se ela falhar, pelo DuckDuckGo (`ddgs`)."""
+    try:
+        if achados := buscar_no_youtube(consulta, maximo):
+            return achados
+    except Exception:  # noqa: BLE001 - o YouTube mudou a página ou está fora: tenta o DuckDuckGo
+        pass
+    return _buscar_ddgs(consulta, maximo)
+
+
+def _buscar_ddgs(consulta: str, maximo: int) -> list[dict[str, Any]]:
     from ddgs import DDGS
     from ddgs.exceptions import DDGSException
 

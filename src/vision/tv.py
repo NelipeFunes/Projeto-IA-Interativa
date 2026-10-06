@@ -21,6 +21,7 @@ logger dela fica preso em WARNING aqui.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import ipaddress
 import logging
 import re
@@ -43,6 +44,8 @@ PORTA_DIAL = 8080
 PORTA_UPNP = 9197
 PRAZO_S = 4.0  # cada pedido HTTP à TV
 PRAZO_CONEXAO_S = 1.5  # TV desligada ou fora da rede: a resposta tem que ser rápida
+PAUSA_PIN_VELHO_S = 2.0  # depois de fechar a tela de PIN velha, antes de abrir a nova
+CONFIRMACAO_S = 2.5  # a TV responde cada tecla em instantes; sem resposta, a sessão do pareamento morreu
 APERTO_DE_MAO_S = 1.0  # a 1ª tecla logo depois de conectar se perde (visto em 05/10)
 INTERVALO_TECLAS_S = 0.4  # 3 de 3 teclas chegaram com 0,4 s e com 1 s
 FOLGA_PERFIS_S = 8.0  # do YouTube "rodando" até a tela de perfis aceitar o OK (funcionou com 8 s)
@@ -92,6 +95,18 @@ def ler_sessao(cfg: Config) -> dict[str, str] | None:
     return None
 
 
+def tecla_confirmada(sessao: Any, evento: str) -> bool:
+    """A TV confirma cada tecla com {"api":"SendRemoteKey","result":{}}, cifrado com a sessão. Sessão morta: vazio."""
+    m = re.search(r'"args":"\[([\d,]+)\]"', evento)
+    if sessao is None or not m:
+        return False
+    try:
+        aberto = sessao._decrypt(bytes(int(n) for n in m.group(1).split(",")).hex().encode())
+    except (ValueError, TypeError):
+        return False
+    return '"SendRemoteKey"' in aberto
+
+
 def tem_pareamento(cfg: Config) -> bool:
     return ler_sessao(cfg) is not None
 
@@ -127,17 +142,19 @@ class TVSamsung:
 
     # ------------------------------------------------------------------ alcance
 
-    async def acessivel(self) -> bool:
+    async def _porta_aberta(self, porta: int) -> bool:
         try:
-            _, escrita = await asyncio.wait_for(asyncio.open_connection(self.ip, PORTA_UPNP), PRAZO_CONEXAO_S)
+            _, escrita = await asyncio.wait_for(asyncio.open_connection(self.ip, porta), PRAZO_CONEXAO_S)
         except (OSError, TimeoutError):
             return False
         escrita.close()
-        try:
+        with contextlib.suppress(OSError):
             await escrita.wait_closed()
-        except OSError:
-            pass
         return True
+
+    async def acessivel(self) -> bool:
+        """Ligada = alguma das portas respondeu. A do UPnP demora a abrir numa TV recém-ligada (visto em 05/10)."""
+        return any(await asyncio.gather(*(self._porta_aberta(p) for p in {PORTA_UPNP, PORTA_DIAL, PORTA_TECLAS})))
 
     async def _exigir(self) -> None:
         if not await self.acessivel():
@@ -160,14 +177,33 @@ class TVSamsung:
         )
 
         assert self.sessao is not None
+        from websockets.exceptions import ConnectionClosed
+
+        class Remoto(SamsungTVEncryptedWSAsyncRemote):
+            """Guarda o que a TV responde: uma sessão de pareamento morta recebe tecla e não reage a ela."""
+
+            respostas: list[str]
+
+            async def _do_start_listening(self, connection):
+                with contextlib.suppress(ConnectionClosed):
+                    while True:
+                        self.respostas.append(str(await connection.recv()))
+
         async with aiohttp.ClientSession() as web:
-            remoto = SamsungTVEncryptedWSAsyncRemote(self.ip, web_session=web, token=self.sessao["token"],
-                                                     session_id=self.sessao["session_id"], port=PORTA_TECLAS,
-                                                     timeout=PRAZO_S, key_press_delay=intervalo_s)
+            remoto = Remoto(self.ip, web_session=web, token=self.sessao["token"],
+                            session_id=self.sessao["session_id"], port=PORTA_TECLAS,
+                            timeout=PRAZO_S, key_press_delay=intervalo_s)
+            remoto.respostas = []
             try:
                 await remoto.start_listening()
                 await asyncio.sleep(APERTO_DE_MAO_S)
                 await remoto.send_commands([SendRemoteKey.click(t) for t in teclas])
+                limite = time.monotonic() + CONFIRMACAO_S
+                while not any(tecla_confirmada(remoto._session, r) for r in remoto.respostas):
+                    if time.monotonic() > limite:
+                        raise SemPareamento("A TV não reagiu às teclas: o pareamento deve ter vencido (acontece "
+                                            "quando ela reinicia). Pareie de novo em Ajustes → Conexões.")
+                    await asyncio.sleep(0.1)
             except (aiohttp.ClientError, OSError, TimeoutError) as e:
                 log.warning("TV: teclas não foram (%s)", type(e).__name__)
                 raise TVInacessivel("A TV não aceitou o comando (a conexão caiu).") from e
@@ -311,6 +347,10 @@ class Pareamento:
         self._auth = SamsungTVEncryptedWSAsyncAuthenticator(self.ip, web_session=self._web, port=PORTA_PAREAR,
                                                             timeout=PRAZO_S)
         try:
+            # Uma tela de PIN de tentativa anterior faz a TV reaproveitar o PIN velho e expirar (visto em 05/10).
+            with contextlib.suppress(aiohttp.ClientError, OSError, TimeoutError):
+                await self._auth._close_pin_page_on_tv()
+                await asyncio.sleep(PAUSA_PIN_VELHO_S)
             await self._auth.start_pairing()
         except (aiohttp.ClientError, OSError, TimeoutError) as e:
             await self.fechar()
@@ -331,7 +371,7 @@ class Pareamento:
             if token is None:
                 return False
             session_id = await self._auth.get_session_id_and_close()
-        except SamsungTVEncryptedError as e:
+        except (SamsungTVEncryptedError, ValueError) as e:  # ValueError: a lib erra a conta da chave às vezes
             await self.fechar()
             raise RuntimeError("a TV encerrou o pareamento: comece de novo") from e
         except (aiohttp.ClientError, OSError, TimeoutError) as e:
