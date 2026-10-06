@@ -41,6 +41,11 @@ logging.getLogger("samsungtvws").setLevel(logging.WARNING)  # em INFO ela grava 
 PORTA_TECLAS = 8000
 PORTA_PAREAR = 8080
 PORTA_DIAL = 8080
+PORTA_API = 8001  # API de aplicativos da Samsung: abre e consulta qualquer app instalado pelo ID (testado em 05/10)
+# IDs dos apps da Samsung (públicos, iguais em toda TV Tizen). O DIAL só conhece YouTube e Netflix nessas TVs;
+# o resto (Spotify, navegador) só abre por aqui. Nome fora desta lista nunca vira ID.
+IDS_APPS = {"YouTube": "111299001912", "Netflix": "11101200001", "Spotify": "3201606009684",
+            "Browser": "org.tizen.browser"}
 PORTA_UPNP = 9197
 PRAZO_S = 4.0  # cada pedido HTTP à TV
 PRAZO_CONEXAO_S = 1.5  # TV desligada ou fora da rede: a resposta tem que ser rápida
@@ -254,17 +259,24 @@ class TVSamsung:
     # ------------------------------------------------------------------ apps (DIAL)
 
     async def estado_app(self, nome: str) -> str | None:
-        """"running", "stopped"... ou None se a TV não conhece o app."""
+        """"running", "stopped"... ou None se a TV não conhece o app. Pelo DIAL; o que o DIAL não conhece
+        (Spotify, navegador) é consultado pela API de aplicativos da Samsung, pelo ID."""
         if not NOME_APP.match(nome):
             raise ValueError("nome de app inválido")
         try:
             r = await self._http.get(f"http://{self.ip}:{PORTA_DIAL}/ws/apps/{nome}")
+            m = re.search(r"<state>([^<]{1,40})</state>", r.text)
+            if r.status_code == 200 and m:
+                return m.group(1).strip().lower()
+            if nome in IDS_APPS:
+                r = await self._http.get(f"http://{self.ip}:{PORTA_API}/api/v2/applications/{IDS_APPS[nome]}")
+                if r.status_code == 200:
+                    return "running" if r.json().get("running") else "stopped"
         except httpx.HTTPError as e:
             raise TVInacessivel("A TV não responde: deve estar desligada ou fora da rede.") from e
-        if r.status_code == 404:
+        except ValueError:  # resposta que não é JSON: trata como "não conheço"
             return None
-        m = re.search(r"<state>([^<]{1,40})</state>", r.text)
-        return m.group(1).strip().lower() if r.status_code == 200 and m else None
+        return None
 
     async def _abrir(self, nome: str, corpo: str = "") -> None:
         try:
@@ -275,12 +287,28 @@ class TVSamsung:
         if r.status_code not in (200, 201):
             raise RuntimeError(f"a TV não abriu {nome} (HTTP {r.status_code})")
 
+    async def _abrir_por_id(self, nome: str) -> None:
+        try:
+            r = await self._http.post(f"http://{self.ip}:{PORTA_API}/api/v2/applications/{IDS_APPS[nome]}")
+        except httpx.HTTPError as e:
+            raise TVInacessivel("A TV não responde: deve estar desligada ou fora da rede.") from e
+        if r.status_code != 200:
+            raise RuntimeError(f"a TV não abriu {nome} (HTTP {r.status_code})")
+
     async def abrir_app(self, nome: str) -> None:
         async with self._trava:
             await self._exigir()
-            if await self.estado_app(nome) is None:
+            try:
+                dial = await self._http.get(f"http://{self.ip}:{PORTA_DIAL}/ws/apps/{nome}") \
+                    if NOME_APP.match(nome) else None
+            except httpx.HTTPError as e:
+                raise TVInacessivel("A TV não responde: deve estar desligada ou fora da rede.") from e
+            if dial is not None and dial.status_code == 200:
+                await self._abrir(nome)
+            elif nome in IDS_APPS and await self.estado_app(nome) is not None:
+                await self._abrir_por_id(nome)
+            else:
                 raise ValueError(f"a TV não tem o app {nome}")
-            await self._abrir(nome)
 
     async def youtube(self, video_id: str) -> bool:
         """Abre o vídeo no YouTube da TV. Com o app fechado, espera ele subir e aperta OK na tela de perfis

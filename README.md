@@ -64,7 +64,7 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
 - **Lista de fazeres:** as tarefas do Orbit. "O que tem na minha lista?", "adiciona trocar o óleo para sexta",
   "já paguei o IPVA" (marca como feita), "muda a prioridade de X"; apagar pede "sim". O login é pela tela de
   Conexões (se o Orbit mandar um código por e-mail, a tela pede o código).
-- **TV Samsung (2015, série J):** "desliga a TV", "volume da TV no 10", "canal 13", "abre o Netflix na TV",
+- **TV Samsung (2015, série J):** "desliga a TV", "volume da TV no 10", "canal 13", "abre o Spotify na TV",
   "toca blank space no YouTube da TV" (busca no DuckDuckGo e toca o clipe mais visto), "desliga a TV em
   30 minutos" (timer que desliga, sem alarme). Pareie uma vez com a TV ligada: ⚙ → Conexões → TV Samsung (IP da
   TV e o PIN que aparece nela) ou `vision tv-parear`. O IP fica em `data/config-local.yaml` e o pareamento em
