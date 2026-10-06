@@ -268,15 +268,22 @@ class TVSamsung:
             m = re.search(r"<state>([^<]{1,40})</state>", r.text)
             if r.status_code == 200 and m:
                 return m.group(1).strip().lower()
-            if nome in IDS_APPS:
-                r = await self._http.get(f"http://{self.ip}:{PORTA_API}/api/v2/applications/{IDS_APPS[nome]}")
-                if r.status_code == 200:
-                    return "running" if r.json().get("running") else "stopped"
         except httpx.HTTPError as e:
             raise TVInacessivel("A TV não responde: deve estar desligada ou fora da rede.") from e
-        except ValueError:  # resposta que não é JSON: trata como "não conheço"
+        return await self._estado_por_id(nome) if nome in IDS_APPS else None
+
+    async def _estado_por_id(self, nome: str) -> str | None:
+        """O estado de um app da lista `IDS_APPS` pela API da Samsung (porta 8001); None se ela não o conhece."""
+        try:
+            r = await self._http.get(f"http://{self.ip}:{PORTA_API}/api/v2/applications/{IDS_APPS[nome]}")
+            dados = r.json() if r.status_code == 200 else None
+        except httpx.HTTPError as e:
+            raise TVInacessivel("A TV não responde: deve estar desligada ou fora da rede.") from e
+        except ValueError:  # resposta que não é JSON
             return None
-        return None
+        if not isinstance(dados, dict):
+            return None
+        return "running" if dados.get("running") else "stopped"
 
     async def _abrir(self, nome: str, corpo: str = "") -> None:
         try:
@@ -305,7 +312,7 @@ class TVSamsung:
                 raise TVInacessivel("A TV não responde: deve estar desligada ou fora da rede.") from e
             if dial is not None and dial.status_code == 200:
                 await self._abrir(nome)
-            elif nome in IDS_APPS and await self.estado_app(nome) is not None:
+            elif nome in IDS_APPS and await self._estado_por_id(nome) is not None:
                 await self._abrir_por_id(nome)
             else:
                 raise ValueError(f"a TV não tem o app {nome}")

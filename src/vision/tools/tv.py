@@ -282,13 +282,14 @@ class TV:
             partes.append(f"volume {vol}" + (" (no mudo)" if mudo else ""))
         except (TVInacessivel, RuntimeError):
             pass
-        abertos = []
-        for app in self.apps:
+        async def rodando(app: str) -> bool:
             try:
-                if await self.tv.estado_app(app) == "running":
-                    abertos.append(app)
-            except (TVInacessivel, ValueError):
-                pass
+                return await asyncio.wait_for(self.tv.estado_app(app), 6) == "running"
+            except (TVInacessivel, ValueError, TimeoutError):
+                return False
+
+        abertos = [app for app, aberto in zip(self.apps, await asyncio.gather(*(rodando(a) for a in self.apps)),
+                                              strict=True) if aberto]
         if abertos:
             partes.append("aberto: " + ", ".join(abertos))
         if self.tv.sessao is None:

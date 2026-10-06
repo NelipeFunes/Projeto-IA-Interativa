@@ -704,3 +704,47 @@ async def test_abrir_app_por_frase_e_apelidos():
     assert await TV(t).abrir_app({"app": "navegador"}) == "Abri o Browser na TV."
     assert await TV(t).atalho("abre a porta na TV") is None  # não é app da lista: o modelo decide
     assert comando_de_tv("abre o spotify na tv em 10 minutos") is None
+
+
+# ------------------------------------------------------------------ revisão do PR 48
+
+
+@respx.mock
+async def test_erros_da_api_de_apps_viram_mensagem(tv_real):
+    respx.get(f"http://{IP}:8080/ws/apps/Spotify").mock(return_value=httpx.Response(404))
+    url = f"http://{IP}:8001/api/v2/applications/3201606009684"
+    respx.get(url).mock(return_value=httpx.Response(200, json={"running": False}))
+    respx.post(url).mock(return_value=httpx.Response(500))
+    with pytest.raises(RuntimeError, match="HTTP 500"):
+        await tv_real.abrir_app("Spotify")
+    respx.post(url).mock(side_effect=httpx.ConnectError("sem rota"))
+    with pytest.raises(modulo_tv.TVInacessivel, match="desligada"):
+        await tv_real.abrir_app("Spotify")
+    respx.get(url).mock(return_value=httpx.Response(200, json=["não", "é", "objeto"]))
+    assert await tv_real.estado_app("Spotify") is None
+    await tv_real.fechar()
+
+
+@respx.mock
+async def test_youtube_com_o_dial_em_404_cai_na_api(tv_real):
+    respx.get(f"http://{IP}:8080/ws/apps/YouTube").mock(return_value=httpx.Response(404))
+    respx.get(f"http://{IP}:8001/api/v2/applications/111299001912").mock(
+        return_value=httpx.Response(200, json={"running": True}))
+    assert await tv_real.estado_app("YouTube") == "running"
+    await tv_real.fechar()
+
+
+async def test_status_consulta_os_apps_em_paralelo_e_diz_o_que_esta_aberto():
+    t = TVFalsa()
+    t.apps = {"YouTube": "stopped", "Netflix": "stopped", "Spotify": "running", "Browser": "stopped"}
+    assert await TV(t).status({}) == "A TV está ligada, volume 7, aberto: Spotify."
+
+
+@pytest.mark.parametrize("frase", ["coloca o canal 13 na TV", "poe o volume na TV", "abre a netflix na TV agora",
+                                   "abre o app da netflix na TV"])
+async def test_atalho_de_abrir_so_age_com_app_da_lista(frase):
+    t = TVFalsa()
+    resultado = await TV(t).atalho(frase)
+    assert t.feitas == [] or resultado is None or resultado[0] == "tv_abrir_app"
+    if resultado is not None:
+        assert resultado[1]["app"] in ("netflix",)  # só app da lista passa pelo atalho
