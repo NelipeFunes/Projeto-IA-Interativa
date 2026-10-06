@@ -56,6 +56,11 @@ def _segundos(duracao: Any) -> int:
     return total
 
 
+def _limpo(valor: Any, tamanho: int) -> str:
+    """Texto de terceiros (título de vídeo) numa linha só e sem caractere de controle, para ir ao modelo."""
+    return " ".join("".join(c if c.isprintable() else " " for c in str(valor or "")).split())[:tamanho]
+
+
 def id_do_youtube(url: Any) -> str | None:
     """O ID de um link do YouTube (watch?v=, youtu.be/, /shorts/, /embed/), ou None."""
     try:
@@ -89,8 +94,8 @@ def escolher_video(resultados: list[dict[str, Any]]) -> dict[str, Any] | None:
         except (TypeError, ValueError):
             views = 0
         candidatos.append((duracao >= DURACAO_MINIMA_S, views, {
-            "id": vid, "titulo": str(r.get("title") or "")[:70].strip(),
-            "canal": str(r.get("uploader") or r.get("publisher") or "")[:40].strip(), "duracao": duracao}))
+            "id": vid, "titulo": _limpo(r.get("title"), 70),
+            "canal": _limpo(r.get("uploader") or r.get("publisher"), 40), "duracao": duracao}))
     if not candidatos:
         return None
     candidatos.sort(key=lambda c: (c[0], c[1]), reverse=True)
@@ -381,7 +386,7 @@ class TV:
                        "Toca uma música ou vídeo no YouTube da TV: busca pelo nome e escolhe o mais certo (o clipe "
                        "oficial, o mais visto). Também aceita um link do YouTube.",
                        esquema(["busca"], busca=texto("O que o Felipe pediu, ex.: 'blank space taylor swift'")),
-                       self.youtube, descrever=self._descrever_youtube, **comum),
+                       self.youtube, descrever=self._descrever_youtube, conteudo_externo=True, **comum),
             Ferramenta("tv_tocar_midia",
                        "Manda a TV tocar um link direto de mídia (mp4, mp3). Só para um link que o Felipe passou.",
                        esquema(["url"], url=texto("Link http(s) do arquivo")), self.tocar_midia,

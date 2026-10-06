@@ -183,11 +183,13 @@ class TVSamsung:
             """Guarda o que a TV responde: uma sessão de pareamento morta recebe tecla e não reage a ela."""
 
             respostas: list[str]
+            fechou = False
 
             async def _do_start_listening(self, connection):
                 with contextlib.suppress(ConnectionClosed):
                     while True:
                         self.respostas.append(str(await connection.recv()))
+                self.fechou = True  # a TV derrubou a conexão (ex.: KEY_POWER): sem resposta, mas não é sessão morta
 
         async with aiohttp.ClientSession() as web:
             remoto = Remoto(self.ip, web_session=web, token=self.sessao["token"],
@@ -200,6 +202,8 @@ class TVSamsung:
                 await remoto.send_commands([SendRemoteKey.click(t) for t in teclas])
                 limite = time.monotonic() + CONFIRMACAO_S
                 while not any(tecla_confirmada(remoto._session, r) for r in remoto.respostas):
+                    if remoto.fechou:
+                        break  # conexão fechada pela TV: a tecla foi; sessão morta deixa a conexão aberta e muda
                     if time.monotonic() > limite:
                         raise SemPareamento("A TV não reagiu às teclas: o pareamento deve ter vencido (acontece "
                                             "quando ela reinicia). Pareie de novo em Ajustes → Conexões.")
@@ -309,7 +313,7 @@ class TVSamsung:
             async with self._trava:
                 await self._enviar_teclas(["KEY_ENTER"], INTERVALO_TECLAS_S)
         except (TVInacessivel, ValueError, RuntimeError) as e:
-            log.info("TV: OK do perfil não foi (%s)", type(e).__name__)
+            log.warning("TV: o YouTube abriu, mas o OK do perfil não foi (%s)", type(e).__name__)
 
     # ------------------------------------------------------------------ mídia (UPnP AVTransport)
 
