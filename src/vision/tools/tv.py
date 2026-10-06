@@ -41,6 +41,8 @@ ACOES_DE_TIMER = {
     "desligar_tv": ("tv_controle", {"acao": "desligar"}, "desligar a TV"),
     "mutar_tv": ("tv_controle", {"acao": "mudo"}, "pôr a TV no mudo"),
 }
+APPS_PADRAO = ("YouTube", "Netflix", "Spotify", "Browser")
+APELIDOS_DE_APP = {"navegador": "browser", "internet": "browser", "browser": "browser"}
 SEM_LIGAR = "Não consigo ligar a TV pela rede (ela desliga o Wi-Fi junto): ligue pelo controle."
 DURACAO_MINIMA_S = 90  # menos que isso é corte, short ou TikTok, não a música
 
@@ -168,7 +170,7 @@ def _buscar_ddgs(consulta: str, maximo: int) -> list[dict[str, Any]]:
 class TV:
     def __init__(self, tv, apps: list[str] | None = None, volume_maximo: int = 50, buscar=buscar_videos):
         self.tv = tv
-        self.apps = [a for a in (apps or ["YouTube", "Netflix"]) if re.fullmatch(r"[A-Za-z0-9._-]{1,40}", str(a))]
+        self.apps = [a for a in (apps or list(APPS_PADRAO)) if re.fullmatch(r"[A-Za-z0-9._-]{1,40}", str(a))]
         self.volume_maximo = max(1, min(100, int(volume_maximo)))
         self.buscar = buscar
 
@@ -280,13 +282,14 @@ class TV:
             partes.append(f"volume {vol}" + (" (no mudo)" if mudo else ""))
         except (TVInacessivel, RuntimeError):
             pass
-        abertos = []
-        for app in self.apps:
+        async def rodando(app: str) -> bool:
             try:
-                if await self.tv.estado_app(app) == "running":
-                    abertos.append(app)
-            except (TVInacessivel, ValueError):
-                pass
+                return await asyncio.wait_for(self.tv.estado_app(app), 6) == "running"
+            except (TVInacessivel, ValueError, TimeoutError):
+                return False
+
+        abertos = [app for app, aberto in zip(self.apps, await asyncio.gather(*(rodando(a) for a in self.apps)),
+                                              strict=True) if aberto]
         if abertos:
             partes.append("aberto: " + ", ".join(abertos))
         if self.tv.sessao is None:
@@ -295,6 +298,7 @@ class TV:
 
     def _app(self, args: dict[str, Any]) -> str:
         pedido = normalizar(str(args.get("app") or "")).replace(" ", "")
+        pedido = APELIDOS_DE_APP.get(pedido, pedido)
         for app in self.apps:
             if normalizar(app).replace(" ", "") == pedido:
                 return app
@@ -353,7 +357,13 @@ class TV:
         if cmd is None:
             return None
         nome, args = cmd
-        executar = {"tv_controle": self.controle, "tv_volume": self.volume, "tv_youtube": self.youtube}[nome]
+        executar = {"tv_controle": self.controle, "tv_volume": self.volume, "tv_youtube": self.youtube,
+                    "tv_abrir_app": self.abrir_app}[nome]
+        if nome == "tv_abrir_app":
+            try:
+                self._app(args)
+            except ErroFerramenta:
+                return None  # "abre a porta na TV": não é um app da lista, o modelo decide
         try:
             return nome, args, await asyncio.wait_for(executar(args), PRAZO_PC_S), True
         except ErroFerramenta as e:
@@ -412,6 +422,8 @@ _VOLUME = re.compile(_INICIO + r"(?:(?:coloca|poe|bota|deixa|muda)\s+)?(?:o\s+)?
                      + r"\s+(?:no|em|pra|para|pro)\s+(\d{1,3})$")
 _SUBIR = re.compile(_INICIO + r"(aumenta|aumentar|sobe|subir|abaixa|abaixar|diminui|diminuir|baixa)\s+(?:o\s+)?"
                     r"(?:volume|som)\s+" + _TV + r"(?:\s+(?:em\s+)?(\d{1,2})(?:\s+vezes)?)?$")
+_ABRIR = re.compile(_INICIO + r"(?:abre|abra|abrir|coloca|poe|bota)\s+(?:o\s+|a\s+)?([a-z0-9 ]{2,30}?)\s+n[ao]\s+"
+                    r"(?:tv|televisao)$")
 _YOUTUBE = re.compile(_INICIO + r"(?:toca|tocar|toque|coloca|colocar|poe|bota|abre|abrir)\s+(.{2,80}?)\s+no\s+youtube"
                       r"\s+" + _TV + r"$")
 
@@ -436,4 +448,6 @@ def comando_de_tv(frase: str) -> tuple[str, dict[str, Any]] | None:
         return "tv_controle", {"acao": acao, "vezes": int(m.group(2) or 1)}
     if m := _YOUTUBE.match(t):
         return "tv_youtube", {"busca": m.group(1).strip()}
+    if m := _ABRIR.match(t):
+        return "tv_abrir_app", {"app": m.group(1).strip()}
     return None

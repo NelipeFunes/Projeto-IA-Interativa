@@ -652,3 +652,99 @@ def test_busca_na_pagina_do_youtube_manda_a_consulta_em_params_e_ignora_erro_htt
     rota = respx.get("https://www.youtube.com/results").mock(return_value=httpx.Response(429, text="x"))
     assert buscar_no_youtube("blank space & mais") == []
     assert rota.calls[0].request.url.params["search_query"] == "blank space & mais"
+
+
+# ------------------------------------------------------------------ apps pelo ID (porta 8001)
+
+
+@respx.mock
+async def test_spotify_abre_pela_api_da_samsung_quando_o_dial_nao_conhece(tv_real):
+    respx.get(f"http://{IP}:8080/ws/apps/Spotify").mock(return_value=httpx.Response(404))
+    respx.get(f"http://{IP}:8001/api/v2/applications/3201606009684").mock(
+        return_value=httpx.Response(200, json={"name": "Spotify", "running": False}))
+    abrir = respx.post(f"http://{IP}:8001/api/v2/applications/3201606009684").mock(
+        return_value=httpx.Response(200, json={"ok": True}))
+    await tv_real.abrir_app("Spotify")
+    assert abrir.called and await tv_real.estado_app("Spotify") == "stopped"
+    await tv_real.fechar()
+
+
+@respx.mock
+async def test_netflix_continua_pelo_dial_e_app_desconhecido_e_recusado(tv_real):
+    respx.get(f"http://{IP}:8080/ws/apps/Netflix").mock(
+        return_value=httpx.Response(200, text="<service><state>stopped</state></service>"))
+    dial = respx.post(f"http://{IP}:8080/ws/apps/Netflix").mock(return_value=httpx.Response(201))
+    api = respx.post(url__regex=rf"http://{IP}:8001/.*").mock(return_value=httpx.Response(200))
+    await tv_real.abrir_app("Netflix")
+    assert dial.called and not api.called
+    respx.get(f"http://{IP}:8080/ws/apps/Outro").mock(return_value=httpx.Response(404))
+    with pytest.raises(ValueError, match="não tem o app"):
+        await tv_real.abrir_app("Outro")  # fora de IDS_APPS: nunca vira ID
+    assert not api.called
+    await tv_real.fechar()
+
+
+@respx.mock
+async def test_estado_do_app_pela_api_diz_se_esta_rodando(tv_real):
+    respx.get(f"http://{IP}:8080/ws/apps/Spotify").mock(return_value=httpx.Response(404))
+    respx.get(f"http://{IP}:8001/api/v2/applications/3201606009684").mock(
+        side_effect=[httpx.Response(200, json={"running": True}), httpx.Response(404),
+                     httpx.Response(200, text="não é json")])
+    assert await tv_real.estado_app("Spotify") == "running"
+    assert await tv_real.estado_app("Spotify") is None
+    assert await tv_real.estado_app("Spotify") is None
+    await tv_real.fechar()
+
+
+async def test_abrir_app_por_frase_e_apelidos():
+    t = TVFalsa()
+    nome, args, resposta, ok = await TV(t).atalho("Vision, abre o Spotify na TV")
+    assert (nome, args, ok) == ("tv_abrir_app", {"app": "spotify"}, True) and t.feitas == [("app", "Spotify")]
+    assert comando_de_tv("abre o navegador na televisão") == ("tv_abrir_app", {"app": "navegador"})
+    assert await TV(t).abrir_app({"app": "navegador"}) == "Abri o Browser na TV."
+    assert await TV(t).atalho("abre a porta na TV") is None  # não é app da lista: o modelo decide
+    assert comando_de_tv("abre o spotify na tv em 10 minutos") is None
+
+
+# ------------------------------------------------------------------ revisão do PR 48
+
+
+@respx.mock
+async def test_erros_da_api_de_apps_viram_mensagem(tv_real):
+    respx.get(f"http://{IP}:8080/ws/apps/Spotify").mock(return_value=httpx.Response(404))
+    url = f"http://{IP}:8001/api/v2/applications/3201606009684"
+    respx.get(url).mock(return_value=httpx.Response(200, json={"running": False}))
+    respx.post(url).mock(return_value=httpx.Response(500))
+    with pytest.raises(RuntimeError, match="HTTP 500"):
+        await tv_real.abrir_app("Spotify")
+    respx.post(url).mock(side_effect=httpx.ConnectError("sem rota"))
+    with pytest.raises(modulo_tv.TVInacessivel, match="desligada"):
+        await tv_real.abrir_app("Spotify")
+    respx.get(url).mock(return_value=httpx.Response(200, json=["não", "é", "objeto"]))
+    assert await tv_real.estado_app("Spotify") is None
+    await tv_real.fechar()
+
+
+@respx.mock
+async def test_youtube_com_o_dial_em_404_cai_na_api(tv_real):
+    respx.get(f"http://{IP}:8080/ws/apps/YouTube").mock(return_value=httpx.Response(404))
+    respx.get(f"http://{IP}:8001/api/v2/applications/111299001912").mock(
+        return_value=httpx.Response(200, json={"running": True}))
+    assert await tv_real.estado_app("YouTube") == "running"
+    await tv_real.fechar()
+
+
+async def test_status_consulta_os_apps_em_paralelo_e_diz_o_que_esta_aberto():
+    t = TVFalsa()
+    t.apps = {"YouTube": "stopped", "Netflix": "stopped", "Spotify": "running", "Browser": "stopped"}
+    assert await TV(t).status({}) == "A TV está ligada, volume 7, aberto: Spotify."
+
+
+@pytest.mark.parametrize("frase", ["coloca o canal 13 na TV", "poe o volume na TV", "abre a netflix na TV agora",
+                                   "abre o app da netflix na TV"])
+async def test_atalho_de_abrir_so_age_com_app_da_lista(frase):
+    t = TVFalsa()
+    resultado = await TV(t).atalho(frase)
+    assert t.feitas == [] or resultado is None or resultado[0] == "tv_abrir_app"
+    if resultado is not None:
+        assert resultado[1]["app"] in ("netflix",)  # só app da lista passa pelo atalho

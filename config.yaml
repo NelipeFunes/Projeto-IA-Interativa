@@ -117,7 +117,8 @@ tv:
   # O IP da TV NÃO fica aqui (é da sua rede): `vision tv-parear` ou Ajustes → Conexões grava tv.ip em
   # data/config-local.yaml. Sem ele, as ferramentas da TV nem aparecem. A TV não liga pela rede.
   volume_maximo: 50         # o máximo que o Vision põe pela voz (para um pedido errado não estourar)
-  apps: [YouTube, Netflix]  # os apps que "abre o X na TV" aceita (nomes do DIAL da TV)
+  # Os apps que "abre o X na TV" aceita. Os IDs estão em vision/tv.py (IDS_APPS); "Browser" é o navegador da TV.
+  apps: [YouTube, Netflix, Spotify, Browser]
   youtube_ok_no_perfil: true  # YouTube fechado abre na tela de perfis: o Vision aperta OK no perfil marcado
 
 voz:
