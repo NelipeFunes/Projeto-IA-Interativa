@@ -8,7 +8,7 @@ Como usar:
 - Concluída leva a data e o PR (quando houver). Mudança neste arquivo também passa por branch e PR.
 - Este repositório é **público**: só tarefas técnicas aqui. Nada de dado pessoal, rotina ou credencial.
 
-Próximo código livre: **T-017**
+Próximo código livre: **T-018**
 
 ---
 
@@ -46,6 +46,24 @@ Próximo código livre: **T-017**
 - [ ] **T-011** 🟢 **Ligar a TV pela rede:** impossível (o Wi-Fi dela desliga junto). Alternativa: um controle infravermelho (Broadlink RM4 Mini, `python-broadlink`) como segundo backend. O cliente da TV já é separado das ferramentas para isso.
 - [ ] **T-012** 🟢 **Servidor dedicado para o modelo** (PC com GPU menor, rodando só o Ollama; `modelo.host` aponta para ele). Antes: rever o modo jogo e o "modelo sempre carregado", que supõem o Ollama no mesmo PC, e travar a porta 11434 por firewall só para o IP do PC principal.
 - [ ] **T-013** 🟢 **Pausar e retomar música na TV** por voz (tecla `pausa` já existe; depende do T-003).
+- [ ] **T-017** 🟡 **Controlar a piscina (Tholz) pelo Vision** (pedido de 10/10) — **só pesquisa feita; nada de código ainda.**
+  - **O que foi levantado (10/10, só leitura):**
+    - **Equipamentos** (pela tela "Configurar dispositivos" do app Tholz Smart Home): módulo central **SmartPool 2ª Geração**; trocador de calor **Tholz TurboSilence**; clorador **THC45**; um módulo **TLZ Smart** do aquecimento solar. Cada um aparece como dispositivo separado no app. Não se sabe se cada um tem Wi-Fi próprio ou se passam pelo módulo central.
+    - **O app funciona fora do Wi-Fi de casa (dados móveis): existe uma nuvem da Tholz no meio.** O módulo se conecta à internet e o app fala com ele pelo servidor.
+    - **Não existe API pública, biblioteca, integração de Home Assistant nem projeto de engenharia reversa da Tholz** (buscas em português e inglês, GitHub, fóruns, Control4, Alexa e Google Home). Não há APK da Tholz em listagens de terceiros; o app consta na App Store (id1565539566, "Tholz Smart Home", iOS 15+, feito no Brasil), e a ficha diz "compatível com assistentes de voz" sem dizer quais.
+    - **Pista de rede local:** o driver Control4 da 4Drivers ("Tholz SmartPool", em Driver Central) conecta no módulo por **uma única conexão TCP/IP** e controla luz RGBW/RGB, até 2 trocadores de calor (termostato), até 5 relés auxiliares e até 4 sensores de temperatura, nos módulos "Modern" e "Legacy" (provável: a 2ª geração é o "Modern"; não confirmado). Porta, formato das mensagens e se passa pela nuvem **não** constam. Quer dizer que a Tholz tem um protocolo de integração, que pode ser pedido ao suporte.
+    - Modelos de módulo que aparecem em lojas (só para pesquisar manual): `PDX1512N`, `MCX1512N` (SmartPool Wi-Fi 2ª Geração) e `MTZ1462N` (RGBW). Pesquisa de manual técnico no site da Tholz ainda não feita.
+  - **Decisão (10/10): o foco é a nuvem.** Ordem de tentativa, do mais barato ao mais caro:
+    1. **Pela Alexa (atalho, 2 minutos, sem código novo):** o Vision já controla dispositivos pela conta da Alexa (ferramenta `casa`, `tools/casa.py`). No app da Alexa, ver em Dispositivos se algo da piscina já aparece; se não, Mais → Skills e Jogos, buscar "Tholz", ativar e vincular. Testar "Alexa, ligue a luz da piscina". Se funcionar, a tarefa vira só ajustar nomes e alias no Vision e testar por voz. Limite provável: skills de piscina costumam expor só ligar/desligar (luz, bomba) e talvez temperatura; cor, efeitos e agendamento podem ficar de fora, e trocador, clorador e solar podem não aparecer.
+    2. **Perguntar à Tholz** (suporte) se há API ou protocolo de integração (a existência do driver Control4 mostra que há documento), e procurar o manual técnico do SmartPool 2ª Geração.
+    3. **Engenharia reversa da nuvem** (só se a Alexa não bastar): ver as chamadas do app Tholz no celular com um proxy de inspeção no PC (mitmproxy; o celular aponta o proxy para o PC e instala o certificado do proxy). Levantar: servidor, autenticação (login, token e sua renovação), listagem de dispositivos, leitura de estado, comando de ligar/desligar luz e bomba, e se o canal em tempo real é WebSocket ou MQTT. **Risco:** se o app fixar o certificado (certificate pinning), o proxy não enxerga o tráfego e esse caminho trava. Só no equipamento e na conta do próprio dono.
+    4. **Rede local** (se aparecer um IP do módulo no roteador): varredura de portas somente leitura no IP do módulo, como foi feito com a TV, e comparar com a pista TCP do driver Control4.
+  - **Como implementar (quando chegar lá):** seguir o desenho da TV (`vision/tv.py` + `vision/tools/tv.py`): um cliente separado das ferramentas, ferramentas com `escrita=True, confirmar=False, confirmar_se_externo=True`, enum fixo de ações (nunca texto livre do modelo ao equipamento), `atalho()` para comandos curtos, cartão em Conexões e grupo próprio em `intencao.py`. Se for pela nuvem da Tholz: a senha da conta é digitada pelo próprio usuário (nunca por mim nem em arquivo versionado), sessão e token só em `data/`, token nunca em log, e a conexão só com o domínio descoberto (nunca um host vindo de texto do usuário, da web ou da memória).
+  - **Cuidados:**
+    - **Segurança dos equipamentos:** bomba, aquecedor e clorador agem em água e energia. Começar só com **leitura** (temperatura, estado) e **luz**; bomba, aquecedor e clorador só depois, e com confirmação por voz. Timers de ação só para desligar (como `desligar_tv`), nunca para ligar o aquecedor ou o clorador.
+    - **Fragilidade:** API não oficial pode mudar sem aviso; tratar erro de sessão vencida (como o pareamento da TV) com mensagem clara.
+    - **Repositório público:** não versionar login, e-mail da conta, IP, ID de dispositivo, nome que identifique a casa, token nem captura de tráfego. Capturas ficam no scratchpad ou em `data/`, e relatório de captura é mascarado antes de ir ao PR.
+  - **Passos de agora, do Felipe:** (1) o teste da Alexa acima; (2) se não resolver, dizer se aceita o teste do proxy no celular; (3) ver no roteador se aparece aparelho da Tholz (só a quantidade, sem o IP no chat público).
 
 ## Em andamento
 
