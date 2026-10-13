@@ -8,7 +8,7 @@ Como usar:
 - Concluída leva a data e o PR (quando houver). Mudança neste arquivo também passa por branch e PR.
 - Este repositório é **público**: só tarefas técnicas aqui. Nada de dado pessoal, rotina ou credencial.
 
-Próximo código livre: **T-018**
+Próximo código livre: **T-019**
 
 ---
 
@@ -75,6 +75,52 @@ Próximo código livre: **T-018**
     - **Fragilidade:** API não oficial pode mudar sem aviso; tratar erro de sessão vencida (como o pareamento da TV) com mensagem clara.
     - **Repositório público:** não versionar login, e-mail da conta, IP, ID de dispositivo, nome que identifique a casa, token nem captura de tráfego. Capturas ficam no scratchpad ou em `data/`, e relatório de captura é mascarado antes de ir ao PR.
   - **Passos de agora, do Felipe:** (1) dizer quando iniciar a etapa 1 (ele digita o login no Vision); (2) opcional, em paralelo: testar a skill da Alexa no app e pedir a API ao suporte da Tholz (contato no site da empresa).
+
+- [ ] **T-018** 🟡 **Cache único para tudo que dá para guardar** (pedido de 13/10) — **só investigado e descrito; nada de código ainda. O tempo de validade de cada fonte fica para uma etapa própria, depois de medir.**
+  - **Objetivo:** responder rápido sem esperar a internet nem os serviços, gastar menos cota (Tavily, Google, Spotify) e continuar útil quando uma fonte cair. Hoje cada fonte tem seu jeito de guardar; a ideia é um módulo comum, com regras iguais e fáceis de ajustar.
+  - **O que já existe hoje (levantado em 13/10 no código; vários mecanismos diferentes):**
+    - **Agenda** (`tools/agenda.py`): em memória, janela de ontem até +7 dias numa consulta só; vale `agenda.cache_min` (10 min); o núcleo a refaz a cada 5 min e depois de cada mudança feita pelo Vision (a escrita derruba o cache e um novo vem em segundo plano).
+    - **Buscas na web** (`web.py`, `CacheBuscas`): arquivo `data/cache/web.json`, 6 h (`web.cache_horas`); corrompido ou apagado vira cache vazio. Há também o contador de cota (`web-cota.json`).
+    - **Manchetes** (`web.py`): 30 min, no mesmo arquivo, com o prazo escrito na própria função.
+    - **Clima** (`clima.py`): previsão 15 min em memória; as coordenadas da cidade ficam em `data/cache/clima.json`, sem validade.
+    - **Apps do Menu Iniciar** (`tools/pc.py`): 10 min em memória.
+    - **Token do Spotify** (`spotify.py`): até expirar (menos 60 s), no arquivo do login.
+    - **Luzes da Alexa** (`alexa.py` e `tools/casa.py`): lista em `data/alexa/luzes.json`, refeita só no login; sem validade.
+    - **Memória do assistente** (`memory/store.py`): 128 consultas em memória (LRU).
+    - **Sessão da TV**: arquivo `data/tv/sessao.json`, sem validade (vence sozinha; o Vision detecta e avisa).
+    - **Resumo:** relógios diferentes (`time.monotonic` em memória, `time.time` em arquivo), validades fixas no código ou no config, nada mostra a idade do dado, nada mede acertos e erros, e não há como limpar tudo pela tela.
+  - **O que ainda não tem cache e é candidato (confirmar a lentidão com medição; a busca no código só achou cache nas fontes acima):**
+    - **Orbit** (`tools/orbit.py`, finanças e tarefas): hoje cada pergunta vai ao servidor. Hipótese: o Orbit fica num plano grátis que dorme e demora na primeira chamada (a confirmar medindo). Candidato: lista de tarefas, saldo e gastos do mês; derrubar na hora quando o Vision lançar, editar ou apagar.
+    - **Reuniões e notas do Wispr** (`tools/reunioes.py`): "próximas reuniões" e notas recentes.
+    - **Spotify**: dispositivos e playlists do usuário (para achar "tocar minha playlist X" sem listar tudo); "o que está tocando" por poucos segundos.
+    - **TV** (`tv.py`): estado ligada/desligada e apps abertos, por poucos segundos (evita três consultas por pergunta).
+    - **Piscina** (T-017): lista de dispositivos por muito tempo; estado por pouco (ou ao vivo, se o IoT empurrar o estado).
+    - **Vídeo do YouTube**: o ID escolhido para uma busca ("blank space") por dias, com a opção de buscar de novo.
+    - **Luz da Alexa**: o último estado conhecido, só como dica (a Alexa não avisa quando mudam por fora).
+    - **Voz sintetizada (TTS)**: frases fixas (saudação, "feito", "não entendi", confirmações), pré-geradas ou guardadas em arquivo de áudio pelo texto e pela voz usada; deve ser o maior ganho de tempo de resposta percebido (a confirmar medindo). Não há cache de áudio no código hoje.
+    - **Briefing e feriados**: resumo do dia montado uma vez; feriados do ano por muito tempo.
+    - **Respostas repetidas do agente:** a mesma pergunta de leitura, no mesmo minuto, sem refazer as ferramentas.
+  - **O que NÃO guardar em cache:**
+    - Escritas e confirmações (criar, apagar, ligar, desligar): sempre ao vivo.
+    - Estado do jogo e do PC em tempo real (modo jogo, CPU, GPU).
+    - Segredos em arquivo de cache: tokens e logins continuam só onde estão (`data/` de cada serviço), nunca em `data/cache/`.
+    - Texto de terceiros reaproveitado como se fosse confiável: página, e-mail, evento ou transcrição lidos do cache continuam sendo **conteúdo externo** para o modelo (a marcação não pode se perder no caminho).
+  - **Desenho proposto** (`src/vision/cache.py`, um só para todos, gravando com segurança no estilo de `arquivos.py`):
+    - Entrada: `{valor, quando, validade, versao}`, em memória e, se pedir, em `data/cache/<nome>.json` (gravação atômica; arquivo corrompido, de outra versão ou apagado vale cache vazio, nunca erro).
+    - `obter(nome, chave, buscar, validade)`: acerto devolve na hora; falha da fonte devolve o velho **com a idade** ("dado de 20 min atrás") em vez de falhar (*stale-if-error*); opcionalmente devolve o velho e atualiza em segundo plano (*stale-while-revalidate*) para fontes lentas.
+    - **Invalidação por evento:** uma escrita derruba o espaço de nomes (agenda, Orbit, luzes); desconectar ou trocar de conta apaga o espaço daquele serviço; o botão **Limpar cache** em Ajustes apaga tudo.
+    - **Limites:** tamanho máximo por espaço de nomes e por arquivo (descarta os mais velhos); `versao` do formato dos dados para o cache antigo não quebrar uma atualização do Vision.
+    - **Relógio injetável** (como `agenda.relogio`), para testar a validade sem esperar; um relógio só (`time.time` no disco, para sobreviver a reinício).
+    - **Medição:** acertos, erros, idade média e tempo economizado por fonte, no diagnóstico (`vision teste` e status do sistema) e na tela de Ajustes.
+    - **Fala:** quando o dado vier velho por falha da fonte, o Vision diz que é a última informação conhecida.
+  - **Tempo de validade (etapa própria, depois da medição):** não definir agora. Para decidir cada um é preciso saber (a) quanto a fonte demora (registrar a latência por ferramenta por alguns dias), (b) com que frequência o dado muda por fora (a agenda muda pelo celular; o Orbit pelo app; o clima de hora em hora; a TV a qualquer momento), (c) o custo de estar velho (um compromisso errado é pior que um clima de 15 min atrás) e (d) a cota (Tavily). Os tempos de hoje (acima) são o ponto de partida. Perguntas para decidir nessa etapa: valores por fonte em `config.yaml` (`cache.<fonte>_min`)? pré-aquecer ao iniciar? o que fazer na madrugada, quando o PC dorme?
+  - **Etapas, cada uma com PR e revisão:**
+    1. **Medir:** log de latência e de repetição por ferramenta e fonte (sem guardar o conteúdo); rodar por alguns dias de uso normal.
+    2. **Módulo comum** (`vision/cache.py`) com testes, e migrar os caches de hoje sem mudar o comportamento (agenda, web, manchetes, clima, apps do PC, luzes).
+    3. **Novas fontes** na ordem do ganho medido: Orbit, reuniões, Spotify, estado da TV e depois a piscina.
+    4. **Áudio das frases fixas** (TTS).
+    5. **Ajuste dos tempos** com os dados da etapa 1, *stale-if-error*, aviso da idade na resposta, botão de limpar e números no diagnóstico.
+  - **Cuidados:** repositório público (nenhum dado pessoal em código, teste ou exemplo; o cache real fica em `data/cache/`, fora do git); cache de resultado de ferramenta de escrita é proibido; o cache nunca pode fazer o Vision agir sobre dado velho sem avisar (por exemplo, apagar um evento que já mudou: a escrita sempre relê da fonte).
 
 ## Em andamento
 
