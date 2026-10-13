@@ -80,14 +80,13 @@ Próximo código livre: **T-019**
   - **Objetivo:** responder rápido sem esperar a internet nem os serviços, gastar menos cota (Tavily, Google, Spotify) e continuar útil quando uma fonte cair. Hoje cada fonte tem seu jeito de guardar; a ideia é um módulo comum, com regras iguais e fáceis de ajustar.
   - **O que já existe hoje (levantado em 13/10 no código; vários mecanismos diferentes):**
     - **Agenda** (`tools/agenda.py`): em memória, janela de ontem até +7 dias numa consulta só; vale `agenda.cache_min` (10 min); o núcleo a refaz a cada 5 min e depois de cada mudança feita pelo Vision (a escrita derruba o cache e um novo vem em segundo plano).
-    - **Buscas na web** (`web.py`, `CacheBuscas`): arquivo `data/cache/web.json`, 6 h (`web.cache_horas`); corrompido ou apagado vira cache vazio. Há também o contador de cota (`web-cota.json`).
+    - **Buscas na web e páginas lidas** (`web.py`, `CacheBuscas`): arquivo `data/cache/web.json`, 6 h (`web.cache_horas`); guarda também o texto das páginas lidas (`ler:<url>`, texto de terceiros em disco); corrompido ou apagado vira cache vazio. Há também o contador de cota (`web-cota.json`).
     - **Manchetes** (`web.py`): 30 min, no mesmo arquivo, com o prazo escrito na própria função.
     - **Clima** (`clima.py`): previsão 15 min em memória; as coordenadas da cidade ficam em `data/cache/clima.json`, sem validade.
     - **Apps do Menu Iniciar** (`tools/pc.py`): 10 min em memória.
-    - **Token do Spotify** (`spotify.py`): até expirar (menos 60 s), no arquivo do login.
-    - **Luzes da Alexa** (`alexa.py` e `tools/casa.py`): lista em `data/alexa/luzes.json`, refeita só no login; sem validade.
+    - **Luzes da Alexa** (`alexa.py`): lista em `data/alexa/luzes.json`, refeita no login e por `vision alexa-luzes`; sem validade. `tools/casa.py` só lê a lista.
     - **Memória do assistente** (`memory/store.py`): 128 consultas em memória (LRU).
-    - **Sessão da TV**: arquivo `data/tv/sessao.json`, sem validade (vence sozinha; o Vision detecta e avisa).
+    - **Credenciais com validade (não são cache e NÃO migram para o módulo comum):** token do Spotify (`spotify.py`, até expirar menos 60 s, no arquivo do login) e a sessão da TV (`data/tv/sessao.json`, sem validade; vence sozinha e o Vision detecta e avisa). A migração da etapa 2 é só agenda, web (buscas, manchetes e páginas lidas), clima, apps do PC e luzes.
     - **Resumo:** relógios diferentes (`time.monotonic` em memória, `time.time` em arquivo), validades fixas no código ou no config, nada mostra a idade do dado, nada mede acertos e erros, e não há como limpar tudo pela tela.
   - **O que ainda não tem cache e é candidato (confirmar a lentidão com medição; a busca no código só achou cache nas fontes acima):**
     - **Orbit** (`tools/orbit.py`, finanças e tarefas): hoje cada pergunta vai ao servidor. Hipótese: o Orbit fica num plano grátis que dorme e demora na primeira chamada (a confirmar medindo). Candidato: lista de tarefas, saldo e gastos do mês; derrubar na hora quando o Vision lançar, editar ou apagar.
@@ -110,17 +109,17 @@ Próximo código livre: **T-019**
     - `obter(nome, chave, buscar, validade)`: acerto devolve na hora; falha da fonte devolve o velho **com a idade** ("dado de 20 min atrás") em vez de falhar (*stale-if-error*); opcionalmente devolve o velho e atualiza em segundo plano (*stale-while-revalidate*) para fontes lentas.
     - **Invalidação por evento:** uma escrita derruba o espaço de nomes (agenda, Orbit, luzes); desconectar ou trocar de conta apaga o espaço daquele serviço; o botão **Limpar cache** em Ajustes apaga tudo.
     - **Limites:** tamanho máximo por espaço de nomes e por arquivo (descarta os mais velhos); `versao` do formato dos dados para o cache antigo não quebrar uma atualização do Vision.
-    - **Relógio injetável** (como `agenda.relogio`), para testar a validade sem esperar; um relógio só (`time.time` no disco, para sobreviver a reinício).
+    - **Relógio injetável** (como `agenda.relogio`), para testar a validade sem esperar: `time.time` no disco (para sobreviver a reinício) e `time.monotonic` em memória (que não sofre com ajuste do relógio do Windows), os dois por um relógio injetável; a migração da etapa 2 mantém o que cada cache usa hoje.
     - **Medição:** acertos, erros, idade média e tempo economizado por fonte, no diagnóstico (`vision teste` e status do sistema) e na tela de Ajustes.
     - **Fala:** quando o dado vier velho por falha da fonte, o Vision diz que é a última informação conhecida.
   - **Tempo de validade (etapa própria, depois da medição):** não definir agora. Para decidir cada um é preciso saber (a) quanto a fonte demora (registrar a latência por ferramenta por alguns dias), (b) com que frequência o dado muda por fora (a agenda muda pelo celular; o Orbit pelo app; o clima de hora em hora; a TV a qualquer momento), (c) o custo de estar velho (um compromisso errado é pior que um clima de 15 min atrás) e (d) a cota (Tavily). Os tempos de hoje (acima) são o ponto de partida. Perguntas para decidir nessa etapa: valores por fonte em `config.yaml` (`cache.<fonte>_min`)? pré-aquecer ao iniciar? o que fazer na madrugada, quando o PC dorme?
   - **Etapas, cada uma com PR e revisão:**
     1. **Medir:** log de latência e de repetição por ferramenta e fonte (sem guardar o conteúdo); rodar por alguns dias de uso normal.
-    2. **Módulo comum** (`vision/cache.py`) com testes, e migrar os caches de hoje sem mudar o comportamento (agenda, web, manchetes, clima, apps do PC, luzes).
+    2. **Módulo comum** (`vision/cache.py`) com testes, e migrar os caches de hoje sem mudar o comportamento (agenda, web, manchetes, páginas lidas, clima, apps do PC, luzes). O que veio do cache como texto de terceiros (buscas e páginas lidas) continua marcado como conteúdo externo (`do_cache` hoje), com teste.
     3. **Novas fontes** na ordem do ganho medido: Orbit, reuniões, Spotify, estado da TV e depois a piscina.
     4. **Áudio das frases fixas** (TTS).
     5. **Ajuste dos tempos** com os dados da etapa 1, *stale-if-error*, aviso da idade na resposta, botão de limpar e números no diagnóstico.
-  - **Cuidados:** repositório público (nenhum dado pessoal em código, teste ou exemplo; o cache real fica em `data/cache/`, fora do git); cache de resultado de ferramenta de escrita é proibido; o cache nunca pode fazer o Vision agir sobre dado velho sem avisar (por exemplo, apagar um evento que já mudou: a escrita sempre relê da fonte).
+  - **Cuidados:** repositório público (nenhum dado pessoal em código, teste ou exemplo; o cache real fica em `data/cache/`, fora do git); cache de resultado de ferramenta de escrita é proibido; o cache nunca pode fazer o Vision agir sobre dado velho sem avisar (por exemplo, apagar um evento que já mudou: a escrita sempre relê o objeto pelo id na fonte; o id pode vir de uma lista velha do cache, então a confirmação mostra o que foi relido, não o que estava no cache).
 
 ## Em andamento
 
