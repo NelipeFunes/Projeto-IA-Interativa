@@ -127,8 +127,7 @@ Próximo código livre: **T-019**
 
 ## Concluídas
 
-- [x] **T-008** **Limiar de ativação na tela de Ajustes** (14/10): campo "Sensibilidade da ativação pelo som" (`voz.limiar_ativacao`, de 0,1 a 0,95, vale ao reiniciar), com validação, testes e a demonstração da janela.
-
+- [x] **T-008** **Limiar de ativação na tela de Ajustes** (14/10): campo "Sensibilidade da ativação pelo som" (`voz.limiar_ativacao`, de 0,15 a 0,95, vale ao reiniciar; o rótulo avisa que abaixo de 0,3 a TV pode acordar o assistente), com validação, testes e a demonstração da janela.
 - [x] **T-016** **Controle da TV Samsung (série J) pela rede** (05/10): teclas por PIN, volume e mudo pelo UPnP, YouTube pelo DIAL com OK no perfil, busca de vídeo, timer com ação, cartão em Conexões. PRs [#46](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/46) e [#47](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/47).
 - [x] Abrir Spotify e navegador da TV pelo ID do app, "abre o X na TV" por voz (06/10), PR [#48](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/48).
 - [x] "Hey Vision" por modelo e por transcrição ao mesmo tempo (`voz.ativacao: ambos`), verificador com a própria voz e scripts de treino (03/10), PR [#45](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/45).
