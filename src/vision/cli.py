@@ -125,6 +125,8 @@ def main(argv: list[str] | None = None) -> int:
     s.add_argument("--client-id", help="Client ID do app criado em developer.spotify.com")
     sub.add_parser("dormir", help="tira o modelo da VRAM e pausa a palavra de ativação")
     sub.add_parser("acordar", help="carrega o modelo e reativa a palavra de ativação")
+    m = sub.add_parser("medicao", help="quanto cada ferramenta demora e quantas perguntas se repetem (base do cache)")
+    m.add_argument("--dias", type=int, default=7, help="quantos dias olhar (padrão: 7)")
     sub.add_parser("memorias", help="lista o que o assistente lembra")
     sub.add_parser("wyoming", help="serviço Wyoming (fala → texto e voz) para o Home Assistant e os satélites")
     f = sub.add_parser("falar", help="fala um texto com a voz configurada (teste de voz)")
@@ -203,6 +205,10 @@ def main(argv: list[str] | None = None) -> int:
         return _depois_do_login(asyncio.run(spotify_login(cfg, args.client_id)))
     elif args.comando in ("dormir", "acordar"):
         asyncio.run(_dormir(cfg, args.comando == "dormir"))
+    elif args.comando == "medicao":
+        from vision.medicao import relatorio
+
+        print(relatorio(cfg.dados / "medicoes", max(1, args.dias)))
     elif args.comando == "memorias":
         asyncio.run(_memorias(cfg))
     elif args.comando == "falar":

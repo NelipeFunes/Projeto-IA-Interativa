@@ -74,6 +74,10 @@ mcp:
     oauth: data/wispr-oauth.json
     timeout_s: 30
 
+medicao:
+  ativo: true               # T-018: grava só nome, duração e resultado de cada ferramenta (nunca o conteúdo), em data/medicoes/
+  dias: 30                  # apaga o que for mais velho que isso. Resumo: vision medicao
+
 sistema:
   alertas: true             # avisa sozinho com placa de vídeo a 85°C+, memória ou disco a 95%+ (1x por hora cada)
 
