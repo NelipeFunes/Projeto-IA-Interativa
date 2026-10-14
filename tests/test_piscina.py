@@ -5,6 +5,8 @@ from __future__ import annotations
 import base64
 import json
 import logging
+import sys
+import types
 
 import httpx
 import pytest
@@ -83,6 +85,15 @@ def test_endereco_da_api_fora_do_padrao_e_recusado(cfg, url):
         piscina.ler_app(cfg)
 
 
+@pytest.mark.parametrize("pool,regiao", [("us-east-\u0661_FalsoPool1", "us-east-\u0661"),  # dígito unicode
+                                         ("us-east-1_FalsoPool1", "us-east-1\n")])
+def test_regiao_e_pool_so_aceitam_ascii(cfg, pool, regiao):
+    gravar_json(cfg.dados / "piscina" / "app.json", {"pool_id": pool, "client_id": CLIENT, "regiao": regiao,
+                                                     "api_url": API})
+    with pytest.raises(SemConfiguracao):
+        piscina.ler_app(cfg)
+
+
 def test_regiao_do_pool_precisa_bater(cfg):
     gravar_json(cfg.dados / "piscina" / "app.json", {"pool_id": "us-west-2_FalsoPool1", "client_id": CLIENT,
                                                      "regiao": "us-east-1", "api_url": API})
@@ -121,6 +132,7 @@ async def test_login_grava_a_sessao_e_nunca_a_senha_nem_loga_token(app, caplog):
     assert CognitoFalso.ultimo.args == (POOL, CLIENT, "us-east-1", EMAIL) and CognitoFalso.ultimo.senha == SENHA
     s = piscina.ler_sessao(app)
     assert s["refresh_token"] == "refresh-novo" and s["expira"] == 2_000_000.0 and piscina.tem_login(app)
+    assert "access_token" not in s  # o que não se usa não fica no disco
     gravado = (app.dados / "piscina" / "sessao.json").read_text(encoding="utf-8")
     assert SENHA not in gravado and EMAIL not in gravado  # nem a senha nem o e-mail ficam no disco
     assert SENHA not in caplog.text and "refresh-novo" not in caplog.text and "acesso-novo" not in caplog.text
@@ -229,7 +241,7 @@ async def test_cognito_fora_do_ar_nao_apaga_a_sessao(app):
     _sessao(app, expira=rel() - 5)
     respx.post(COGNITO).mock(return_value=httpx.Response(503))
     p = await _piscina(app, rel)
-    with pytest.raises(ErroPiscina, match="indispon"):
+    with pytest.raises(ErroPiscina, match="não renovou"):
         await p.ler("dispositivos")
     assert piscina.tem_login(app)  # um erro passageiro não derruba o login
     await p.fechar()
@@ -275,7 +287,7 @@ async def test_404_tenta_o_proximo_caminho_e_depois_desiste(app):
     p = await _piscina(app)
     assert await p.ler("dispositivos") == {"itens": []} and segunda.called
     segunda.mock(return_value=httpx.Response(404))
-    with pytest.raises(ErroPiscina, match="404"):
+    with pytest.raises(ErroPiscina, match="palpites"):
         await p.ler("dispositivos")
     await p.fechar()
 
@@ -371,3 +383,125 @@ def test_cli_conhece_os_comandos_e_silencia_os_logs_do_login(cfg, monkeypatch):
     assert chamados == ["login", "ler"]
     for nome in ("botocore", "boto3", "pycognito"):
         assert logging.getLogger(nome).getEffectiveLevel() >= logging.WARNING
+
+
+# ------------------------------------------------------------------ revisão do PR 57
+
+@respx.mock
+async def test_403_de_rota_inexistente_nao_e_sessao_vencida_e_tenta_o_proximo_caminho(app):
+    """O API Gateway responde 403 "Missing Authentication Token" a um caminho que não existe."""
+    _sessao(app, expira=2_000_000.0)
+    renova = respx.post(COGNITO).mock(return_value=httpx.Response(200, json={}))
+    respx.get(f"{API}/device").mock(return_value=httpx.Response(
+        403, json={"message": "Missing Authentication Token"}, headers={"x-amzn-ErrorType": "MissingAuthenticationTokenException"}))
+    segunda = respx.get(f"{API}/devices").mock(return_value=httpx.Response(200, json=["ok"]))
+    p = await _piscina(app)
+    assert await p.ler("dispositivos") == ["ok"] and segunda.called
+    assert not renova.called  # nem renovou o token nem trocou para Bearer por causa de uma rota que não existe
+    segunda.mock(return_value=httpx.Response(403, text='{"message":"Missing Authentication Token"}'))
+    with pytest.raises(ErroPiscina, match="palpites") as e:
+        await p.ler("dispositivos")
+    assert not isinstance(e.value, SessaoVencida)
+    await p.fechar()
+
+
+@respx.mock
+@pytest.mark.parametrize("resposta", [
+    httpx.Response(400, json={"__type": "TooManyRequestsException"}),
+    httpx.Response(400, json={"__type": "LimitExceededException"}),
+    httpx.Response(403, text="bloqueado pelo proxy"),
+    httpx.Response(200, text="<html>portal cativo</html>"),
+    httpx.Response(200, json={"AuthenticationResult": {}}),
+    httpx.Response(302, headers={"Location": "https://mal.example"}),
+])
+async def test_erro_passageiro_na_renovacao_nao_apaga_a_sessao(app, resposta):
+    rel = Relogio()
+    _sessao(app, expira=rel() - 5)
+    respx.post(COGNITO).mock(return_value=resposta)
+    p = await _piscina(app, rel)
+    with pytest.raises(ErroPiscina) as e:
+        await p.ler("dispositivos")
+    assert not isinstance(e.value, SessaoVencida) and piscina.tem_login(app)
+    await p.fechar()
+
+
+@respx.mock
+@pytest.mark.parametrize("tipo", ["NotAuthorizedException", "com.amazonaws#NotAuthorizedException",
+                                  "UserNotFoundException"])
+async def test_so_a_recusa_do_refresh_token_apaga_a_sessao(app, tipo):
+    rel = Relogio()
+    _sessao(app, expira=rel() - 5)
+    respx.post(COGNITO).mock(return_value=httpx.Response(400, json={"__type": tipo}))
+    p = await _piscina(app, rel)
+    with pytest.raises(SessaoVencida):
+        await p.ler("dispositivos")
+    assert not piscina.tem_login(app)
+    await p.fechar()
+
+
+@respx.mock
+async def test_refresh_token_novo_da_rotacao_e_guardado(app):
+    rel = Relogio()
+    _sessao(app, expira=rel() - 5, refresh="refresh-velho")
+    novo = _jwt(rel() + 3600)
+    respx.post(COGNITO).mock(return_value=httpx.Response(200, json={
+        "AuthenticationResult": {"IdToken": novo, "RefreshToken": "refresh-rodado"}}))
+    respx.get(f"{API}/device").mock(return_value=httpx.Response(200, json=[]))
+    p = await _piscina(app, rel)
+    await p.ler("dispositivos")
+    assert piscina.ler_sessao(app)["refresh_token"] == "refresh-rodado"
+    assert "access_token" not in piscina.ler_sessao(app)
+    await p.fechar()
+
+
+async def test_caminho_real_do_login_fixa_regiao_endpoint_e_nao_assina(app, monkeypatch):
+    """O ramo sem fábrica (o do uso de verdade), com o pycognito e o botocore simulados."""
+    visto = {}
+
+    class CognitoSimulado:
+        def __init__(self, pool, client, **kw):
+            visto.update(pool=pool, client=client, **kw)
+            self.id_token, self.refresh_token = _jwt(2_000_000.0), "refresh-simulado"
+
+        def authenticate(self, password):
+            visto["senha_recebida"] = password == SENHA
+
+    unsigned = object()
+    modulos = {"pycognito": types.SimpleNamespace(Cognito=CognitoSimulado),
+               "botocore": types.SimpleNamespace(UNSIGNED=unsigned),
+               "botocore.config": types.SimpleNamespace(Config=lambda **kw: ("config", kw))}
+    for nome, mod in modulos.items():
+        monkeypatch.setitem(sys.modules, nome, mod)
+    await piscina.login(app, EMAIL, SENHA)
+    assert visto["pool"] == POOL and visto["client"] == CLIENT and visto["user_pool_region"] == "us-east-1"
+    assert visto["boto3_client_kwargs"] == {"endpoint_url": COGNITO}  # AWS_ENDPOINT_URL* não redireciona o login
+    assert visto["botocore_config"] == ("config", {"signature_version": unsigned})  # sem credenciais da AWS
+    assert visto["senha_recebida"] and piscina.ler_sessao(app)["refresh_token"] == "refresh-simulado"
+
+
+async def test_erro_de_disco_ao_gravar_a_sessao_vira_mensagem(app, monkeypatch):
+    def quebra(*a, **k):
+        raise PermissionError("arquivo em uso")
+
+    monkeypatch.setattr(piscina, "gravar_json", quebra)
+    with pytest.raises(ErroPiscina, match="gravar a sessão"):
+        await piscina.login(app, EMAIL, SENHA, fabrica=CognitoFalso)
+
+
+def test_forma_mascara_chaves_que_parecem_identificador():
+    dados = {"4f3c2a10-aaaa-bbbb-cccc-1234567890ab": 1, "a1:b2:c3:d4:e5:f6": 2, "pessoa@exemplo.com": 3,
+             "nomeDoDispositivo": 4, "ligado": 5, "AbCdEfGhIjKlMnOp9": 6}
+    f = piscina.forma(dados)
+    assert set(f) == {"<id>", "<id>+", "<id>++", "<id>+++", "nomeDoDispositivo", "ligado"}
+    texto = json.dumps(f)
+    assert "4f3c2a10" not in texto and "a1:b2" not in texto and "pessoa@" not in texto
+
+
+async def test_ctrl_c_e_fim_de_entrada_no_login_cancelam_sem_traceback(app, monkeypatch, capsys):
+    for erro in (KeyboardInterrupt, EOFError):
+        def levanta(*a, _erro=erro, **k):
+            raise _erro()
+
+        monkeypatch.setattr("builtins.input", levanta)
+        assert await piscina.login_interativo(app) == 1
+    assert capsys.readouterr().out.count("Cancelado") == 2

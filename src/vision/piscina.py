@@ -42,12 +42,31 @@ ARQUIVO_LEITURA = "ultima-leitura.json"
 FOLGA_RENOVAR_S = 120  # renova o token quando faltam menos de 2 min
 TIMEOUT = httpx.Timeout(15, connect=5)
 
-POOL_ID = re.compile(r"^[a-z]{2}-[a-z]+-\d_[A-Za-z0-9]{6,20}$")
-CLIENT_ID = re.compile(r"^[A-Za-z0-9]{20,40}$")
-REGIAO = re.compile(r"^[a-z]{2}-[a-z]+-\d$")
+POOL_ID = re.compile(r"^[a-z]{2}-[a-z]+-\d_[A-Za-z0-9]{6,20}$", re.ASCII)
+CLIENT_ID = re.compile(r"^[A-Za-z0-9]{20,40}$", re.ASCII)
+REGIAO = re.compile(r"^[a-z]{2}-[a-z]+-\d$", re.ASCII)
 EMAIL = re.compile(r"^[^@\s]{1,64}@[^@\s]{1,255}$")
 # Caminhos de leitura que o cliente conhece (nunca um caminho vindo de fora). Mais de um: o primeiro que existir.
 CAMINHOS = {"dispositivos": ("/device", "/devices"), "perfil": ("/user/profile",)}
+
+
+def _tipo_de_erro(r: httpx.Response) -> str:
+    """O tipo do erro de uma resposta da AWS ("NotAuthorizedException"), sem o prefixo antes do `#`. Vazio se não há."""
+    tipo = ""
+    try:
+        corpo = r.json()
+        if isinstance(corpo, dict):
+            tipo = str(corpo.get("__type") or corpo.get("code") or "")
+    except ValueError:
+        pass
+    tipo = tipo or r.headers.get("x-amzn-ErrorType", "")
+    return tipo.split("#")[-1].split(":")[0]
+
+
+def _rota_inexistente(r: httpx.Response) -> bool:
+    """O API Gateway responde 403 "Missing Authentication Token" a um caminho que não existe (não 404)."""
+    return r.status_code == 403 and (_tipo_de_erro(r) == "MissingAuthenticationTokenException"
+                                     or b"Missing Authentication Token" in r.content[:300])
 
 
 class ErroPiscina(Exception):
@@ -125,9 +144,14 @@ def _expira_do_jwt(token: str) -> float:
         return 0.0
 
 
-def _gravar_sessao(cfg: Config, id_token: str, access_token: str, refresh_token: str, expira: float) -> None:
-    gravar_json(_pasta(cfg) / ARQUIVO_SESSAO, {"id_token": id_token, "access_token": access_token,
-                                               "refresh_token": refresh_token, "expira": expira})
+def _gravar_sessao(cfg: Config, id_token: str, refresh_token: str, expira: float) -> None:
+    """Só o que se usa: o token de identidade (vai na API), o de renovação e quando o primeiro vence. Em texto, só
+    neste PC (`data/` fica fora do git): quem lê o arquivo entra na conta até o refresh token vencer ou ser revogado."""
+    try:
+        gravar_json(_pasta(cfg) / ARQUIVO_SESSAO, {"id_token": id_token, "refresh_token": refresh_token,
+                                                   "expira": expira})
+    except OSError as e:
+        raise ErroPiscina(f"Não deu para gravar a sessão da Tholz ({type(e).__name__}).") from None
 
 
 def apagar_sessao(cfg: Config) -> None:
@@ -159,25 +183,27 @@ async def login(cfg: Config, email: str, senha: str, *, fabrica=None) -> None:
         raise ErroPiscina("Senha inválida.")
     app = ler_app(cfg)
 
-    def entrar() -> tuple[str, str, str]:
+    def entrar() -> tuple[str, str]:
         if fabrica is None:
             from botocore import UNSIGNED
             from botocore.config import Config as ConfigBoto
             from pycognito import Cognito
 
             # Sem assinatura: nenhuma credencial da AWS do PC (variáveis, ~/.aws) é lida nem enviada.
+            # endpoint_url fixo: AWS_ENDPOINT_URL* e ~/.aws/config não redirecionam o login para outro host.
             usuario = Cognito(app.pool_id, app.client_id, user_pool_region=app.regiao, username=email.strip(),
-                              botocore_config=ConfigBoto(signature_version=UNSIGNED))
+                              botocore_config=ConfigBoto(signature_version=UNSIGNED),
+                              boto3_client_kwargs={"endpoint_url": app.cognito_url})
         else:
             usuario = fabrica(app.pool_id, app.client_id, app.regiao, email.strip())
         usuario.authenticate(password=senha)
-        return usuario.id_token, usuario.access_token, usuario.refresh_token
+        return usuario.id_token, usuario.refresh_token
 
     try:
-        id_token, access_token, refresh_token = await asyncio.to_thread(entrar)
+        id_token, refresh_token = await asyncio.to_thread(entrar)
     except Exception as e:  # noqa: BLE001 - toda falha vira mensagem fixa, sem a senha nem o texto da exceção
         raise ErroPiscina(_traduzir_erro_de_login(e)) from None
-    _gravar_sessao(cfg, id_token, access_token, refresh_token, _expira_do_jwt(id_token))
+    _gravar_sessao(cfg, id_token, refresh_token, _expira_do_jwt(id_token))
     log.info("login na Tholz feito")
 
 
@@ -190,7 +216,8 @@ class Piscina:
         self.cfg = cfg
         self.app = ler_app(cfg)
         self.relogio = relogio
-        self._http = httpx.AsyncClient(timeout=TIMEOUT, transport=transporte, follow_redirects=False)
+        # trust_env=False: o token nunca passa por um proxy ou certificado vindo das variáveis do ambiente.
+        self._http = httpx.AsyncClient(timeout=TIMEOUT, transport=transporte, follow_redirects=False, trust_env=False)
         self._com_bearer = False  # descoberto na primeira leitura: o token vai puro ou como "Bearer ..."
         self._trava = asyncio.Lock()
 
@@ -206,17 +233,23 @@ class Piscina:
                 "Content-Type": "application/x-amz-json-1.1"})
         except httpx.HTTPError as e:
             raise ErroPiscina(f"Sem conexão com o login da Tholz ({type(e).__name__}).") from None
-        if r.status_code >= 500 or r.status_code == 429:
-            raise ErroPiscina(f"O login da Tholz está indisponível agora (HTTP {r.status_code}).")
+        if r.status_code != 200:
+            tipo = _tipo_de_erro(r)
+            if r.status_code == 400 and tipo in ("NotAuthorizedException", "UserNotFoundException"):
+                apagar_sessao(self.cfg)  # o Cognito disse que o refresh token não vale mais: só um login novo resolve
+                raise SessaoVencida("A sessão da Tholz venceu: faça `vision piscina-login` de novo.")
+            raise ErroPiscina(f"O login da Tholz não renovou a sessão agora (HTTP {r.status_code}); tente de novo.")
         try:
-            resultado = r.json().get("AuthenticationResult") if r.status_code == 200 else None
+            resultado = r.json()["AuthenticationResult"]
             id_token = resultado["IdToken"]
-            access = resultado.get("AccessToken", sessao.get("access_token", ""))
-        except (ValueError, KeyError, TypeError, AttributeError):
-            apagar_sessao(self.cfg)  # o refresh token não vale mais: um login novo é o caminho
-            raise SessaoVencida("A sessão da Tholz venceu: faça `vision piscina-login` de novo.") from None
-        nova = {"id_token": id_token, "access_token": access, "refresh_token": sessao["refresh_token"],
-                "expira": _expira_do_jwt(id_token)}
+            if not (isinstance(id_token, str) and id_token):
+                raise TypeError
+        except (ValueError, KeyError, TypeError):
+            raise ErroPiscina("O login da Tholz devolveu uma resposta inesperada; tente de novo.") from None
+        novo_refresh = resultado.get("RefreshToken")  # com rotação ligada no client, o antigo deixa de valer
+        if not (isinstance(novo_refresh, str) and novo_refresh):
+            novo_refresh = sessao["refresh_token"]
+        nova = {"id_token": id_token, "refresh_token": novo_refresh, "expira": _expira_do_jwt(id_token)}
         _gravar_sessao(self.cfg, **nova)
         return nova
 
@@ -246,6 +279,8 @@ class Piscina:
             for caminho in caminhos:
                 for tentativa in range(3):
                     r = await self._pedir(caminho, sessao["id_token"], self._com_bearer)
+                    if _rota_inexistente(r):
+                        break  # caminho que a API não tem (não é problema de sessão): tenta o próximo
                     if r.status_code in (401, 403):
                         if not renovou:  # 1º: pode ser só o token velho
                             sessao, renovou = await self._sessao_valida(forcar=True), True
@@ -255,7 +290,7 @@ class Piscina:
                             continue
                         raise SessaoVencida("A Tholz recusou a sessão: faça `vision piscina-login` de novo.")
                     break
-                if r.status_code == 404:
+                if r.status_code == 404 or _rota_inexistente(r):
                     continue  # tenta o próximo caminho conhecido
                 if r.status_code != 200:
                     raise ErroPiscina(f"A nuvem da Tholz respondeu HTTP {r.status_code}.")
@@ -263,7 +298,18 @@ class Piscina:
                     return r.json()
                 except ValueError:
                     raise ErroPiscina("A nuvem da Tholz devolveu algo que não é JSON.") from None
-            raise ErroPiscina("A nuvem da Tholz não conhece essa leitura (HTTP 404 em todos os caminhos).")
+            raise ErroPiscina("A nuvem da Tholz não conhece essa leitura (caminho inexistente em todas as tentativas): "
+                              "os caminhos são palpites e precisam ser ajustados.")
+
+
+_PARECE_ID = re.compile(r"^[0-9A-Fa-f]{2}([:-][0-9A-Fa-f]{2}){5}$|^[A-Za-z0-9_-]{16,}$|@")
+
+
+def _chave_segura(chave: str) -> str:
+    """Uma chave que parece identificador (UUID, MAC, e-mail, texto longo sem espaço) sai como "<id>": dado da conta."""
+    if _PARECE_ID.search(chave) and (any(c.isdigit() for c in chave) or "@" in chave):
+        return "<id>"
+    return chave[:40]
 
 
 def forma(dados: Any, fundo: int = 4) -> Any:
@@ -271,7 +317,13 @@ def forma(dados: Any, fundo: int = 4) -> Any:
     if fundo <= 0:
         return "..."
     if isinstance(dados, dict):
-        return {str(k): forma(v, fundo - 1) for k, v in list(dados.items())[:40]}
+        saida: dict[str, Any] = {}
+        for k, v in list(dados.items())[:40]:
+            nome = _chave_segura(str(k))
+            while nome in saida:
+                nome += "+"
+            saida[nome] = forma(v, fundo - 1)
+        return saida
     if isinstance(dados, list):
         return [f"{len(dados)} itens", forma(dados[0], fundo - 1)] if dados else []
     if isinstance(dados, bool):
@@ -297,6 +349,9 @@ async def login_interativo(cfg: Config) -> int:
     except ErroPiscina as e:
         print(e)
         return 1
+    except (KeyboardInterrupt, EOFError):
+        print("\nCancelado.")
+        return 1
     print("Conectado à Tholz. Teste com: vision piscina-ler")
     return 0
 
@@ -318,5 +373,6 @@ async def ler_interativo(cfg: Config) -> int:
     gravar_json(_pasta(cfg) / ARQUIVO_LEITURA, dados)
     print("Formato da resposta (valores omitidos):")
     print(json.dumps(forma(dados), ensure_ascii=False, indent=1))
-    print(f"\nO JSON completo ficou em data/{PASTA}/{ARQUIVO_LEITURA} (só no seu PC, fora do git).")
+    print(f"\nO JSON completo ficou em data/{PASTA}/{ARQUIVO_LEITURA} (só no seu PC, fora do git). Ele pode ter "
+          "identificadores e dados da conta: não cole o arquivo no chat; cole só o formato acima.")
     return 0

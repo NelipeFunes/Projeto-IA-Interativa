@@ -73,10 +73,12 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   ("toca este link na TV") sempre pede "sim".
 - **Piscina Tholz (em construção, só leitura, T-017 etapa 1):** o app da Tholz fala com uma API na AWS autenticada
   por login Cognito; `vision piscina-login` entra com a **sua** conta (e-mail e senha digitados no terminal, a senha
-  não é guardada; só a sessão, em `data/piscina/sessao.json`) e `vision piscina-ler` lê a lista de dispositivos,
-  guarda o JSON em `data/piscina/` e mostra só o formato. Os identificadores do backend (pool e client do login e
+  não é guardada; só a sessão, em `data/piscina/sessao.json`, **em texto, só neste PC**: quem lê o arquivo entra na
+  conta até o token vencer ou ser revogado) e `vision piscina-ler` lê a lista de dispositivos, guarda o JSON cru em
+  `data/piscina/ultima-leitura.json` (pode ter identificadores: não cole o arquivo) e mostra só o formato. Os identificadores do backend (pool e client do login e
   endereço da API) ficam em `data/piscina/app.json`, fora do git (o repositório é público): o cliente só fala com
-  uma API `*.execute-api.<região>.amazonaws.com` e com o Cognito da mesma região. Ainda não há ferramenta para o
+  uma API `*.execute-api.<região>.amazonaws.com` e com o Cognito da mesma região (isso garante "uma API da AWS", não
+  "a da Tholz": confira o `app.json`). Ainda não há ferramenta para o
   modelo nem comando para a piscina. Os termos de uso da Tholz proíbem engenharia reversa: uso pessoal, por sua
   conta e risco (a Tholz pode bloquear a conta ou mudar a API).
 - **Log:** `data/logs/nucleo.log` e `data/logs/janela.log`.
