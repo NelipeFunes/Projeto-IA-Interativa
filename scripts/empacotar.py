@@ -71,10 +71,17 @@ def _ligar(origem: Path, destino: Path) -> None:
         raise SystemExit(f"não consegui ligar {destino} a {origem}: {r.stdout}{r.stderr}")
 
 
+# O verificador da voz do dono (modelos/openwakeword/<modelo>_verificador.pkl, do scripts/ativacao/gravar_minha_voz.py)
+# é biométrico: nunca vai para um pacote que pode ser levado a outro computador (revisão do PR 37).
+NUNCA_COPIAR = ("*verificador*", "*.pkl", "node_modules/.cache", "*.pyc", "__pycache__")
+
+
 def _copiar(origem: Path, destino: Path) -> None:
+    """Copia uma pasta de modelos (ou o node) para o pacote. Se o destino já existe, não faz nada: um pacote refeito
+    não atualiza o que já foi copiado (apague a pasta do pacote para copiar de novo)."""
     if destino.exists():
         return
-    shutil.copytree(origem, destino, ignore=shutil.ignore_patterns("node_modules/.cache", "*.pyc", "__pycache__"))
+    shutil.copytree(origem, destino, ignore=shutil.ignore_patterns(*NUNCA_COPIAR))
 
 
 def achar_node() -> Path | None:

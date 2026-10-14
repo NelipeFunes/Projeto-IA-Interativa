@@ -108,6 +108,11 @@ $env:UV_PROJECT_ENVIRONMENT=".venv-pacote"; uv sync --no-default-groups --group 
   diz o que o Vision executa, então uma pasta que outros usuários podem alterar (`C:\Users\Public`, `C:\Temp`)
   não é um bom lugar. O `.exe` não é assinado: o Windows pode avisar na primeira vez.
 - O pacote não toma o lugar de um atalho de inicialização que já exista no Windows.
+- **Pacote e projeto não rodam juntos:** o núcleo é único por usuário do Windows. Com o núcleo do projeto ligado,
+  abrir o `Vision.exe` só pede a janela do núcleo do projeto (com os dados e o config dele).
+- **Limites conhecidos:** o servidor MCP do Orbit (finanças e tarefas por voz) chama o Python do ambiente de
+  desenvolvimento (`.venv`) e não sobe no pacote; as outras conexões funcionam. O verificador da sua voz
+  (`*_verificador.pkl`) nunca é copiado para o pacote. Um pacote refeito não atualiza modelos já copiados.
 
 ## Comandos (de qualquer pasta)
 

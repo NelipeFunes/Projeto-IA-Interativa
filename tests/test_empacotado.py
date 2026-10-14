@@ -18,6 +18,22 @@ def _empacotado(monkeypatch, exe: Path):
     monkeypatch.setattr(sys, "executable", str(exe))
 
 
+def test_empacotado_com_marcador_antigo_nao_refaz_o_atalho_que_pode_ser_de_outra_instalacao(monkeypatch, tmp_path):
+    """O pacote não troca um atalho existente nem quando o marcador é de uma versão antiga (revisão do PR 37)."""
+    _empacotado(monkeypatch, tmp_path / "Vision.exe")
+    monkeypatch.setattr(inicializacao, "pasta_inicializar", lambda: tmp_path / "Startup")
+    chamadas = []
+    monkeypatch.setattr(inicializacao.subprocess, "run", lambda *a, **k: chamadas.append(1))
+    (tmp_path / "Startup").mkdir()
+    (tmp_path / "Startup" / inicializacao.NOME_ATALHO).write_bytes(b"atalho de outra instalacao")
+    marcador = tmp_path / "data" / "inicializacao.txt"
+    marcador.parent.mkdir()
+    marcador.write_text("versao=0\n", encoding="utf-8")
+    assert inicializacao.primeira_vez(marcador, tmp_path) is False
+    assert not chamadas  # não refez o atalho
+    assert f"versao={inicializacao.VERSAO_ATALHO}" in marcador.read_text(encoding="utf-8")  # e não pergunta de novo
+
+
 def test_comando_do_vision_nos_dois_modos(monkeypatch, tmp_path):
     assert empacotado.comando_do_vision("interface", "--nucleo") == [sys.executable, "-m", "vision.cli", "interface",
                                                                       "--nucleo"]
@@ -76,6 +92,8 @@ def _projeto_falso(raiz: Path) -> Path:
     for m in ("parakeet-base-int8", "piper", "openwakeword", "xtts_v2", "parakeet-ptbr"):
         (raiz / "modelos" / m).mkdir(parents=True)
         (raiz / "modelos" / m / "arquivo.bin").write_bytes(b"0")
+    (raiz / "modelos" / "openwakeword" / "hey_vision.onnx").write_bytes(b"0")
+    (raiz / "modelos" / "openwakeword" / "hey_vision_verificador.pkl").write_bytes(b"voz do dono")
     (raiz / "node" / "node_modules").mkdir(parents=True)
     (raiz / "data").mkdir()
     (raiz / "data" / "google-oauth.json").write_text("{}", encoding="utf-8")
@@ -94,6 +112,9 @@ def test_pasta_do_pacote_nunca_leva_dados_nem_segredos_nem_xtts(tmp_path):
     assert sorted(p.name for p in (saida / "modelos").iterdir()) == ["openwakeword", "parakeet-base-int8", "piper"]
     assert list((saida / "data").iterdir()) == [] and not (saida / ".env").exists()
     assert (saida / "node" / "node_modules").exists()
+    # A voz do dono (verificador biométrico) fica de fora; o modelo de ativação em si vai.
+    assert (saida / "modelos" / "openwakeword" / "hey_vision.onnx").exists()
+    assert not list(saida.rglob("*verificador*")) and not list(saida.rglob("*.pkl"))
 
 
 def test_sem_modelos_o_pacote_so_avisa_o_que_falta(tmp_path):
