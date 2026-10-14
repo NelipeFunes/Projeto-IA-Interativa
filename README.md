@@ -140,6 +140,11 @@ microfone → openWakeWord ("Hey Vision" pelo som) ┐
   pede "sim", e `web_ler` não abre endereço da rede local.
 - **Cache:** a agenda (ontem até +7 dias) fica em memória e é refeita a cada 5 min; buscas na web ficam 6 h em
   `data/cache/` (pode apagar a pasta quando quiser).
+- **Medição:** cada ferramenta deixa em `data/medicoes/` o nome, quanto demorou, se terminou sem erro e uma
+  impressão curta dos argumentos (para saber se a mesma pergunta voltou). O conteúdo não é gravado em texto, mas a
+  impressão pode ser adivinhada para argumento simples; por isso fica em `data/`, fora do git, e ferramentas de
+  escrita não gravam impressão. `vision medicao` mostra o resumo e quanto um cache poderia ter poupado.
+  Desligue com `medicao.ativo: false`.
 - **Modo jogo:** com o `cs2.exe` aberto, o modelo sai da VRAM e o "Hey Vision" pausa (o atalho continua).
 
 ## Arquivos que você edita

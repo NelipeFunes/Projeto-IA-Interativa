@@ -83,6 +83,10 @@ async def montar(
     if memorias is None and com_memoria:
         memorias = criar_memorias(cfg)
     registro = Registro()
+    if cfg.get("medicao.ativo", True):
+        from vision.medicao import Medidor
+
+        registro.medidor = Medidor(cfg.dados / "medicoes", dias=int(cfg.get("medicao.dias", 30)))
     agenda = None
     if cfg.get("agenda.servidor") in host.conexoes:
         agenda = Agenda(cfg, host)

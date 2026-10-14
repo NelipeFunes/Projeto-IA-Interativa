@@ -76,7 +76,9 @@ Próximo código livre: **T-019**
     - **Repositório público:** não versionar login, e-mail da conta, IP, ID de dispositivo, nome que identifique a casa, token nem captura de tráfego. Capturas ficam no scratchpad ou em `data/`, e relatório de captura é mascarado antes de ir ao PR.
   - **Passos de agora, do Felipe:** (1) dizer quando iniciar a etapa 1 (ele digita o login no Vision); (2) opcional, em paralelo: testar a skill da Alexa no app e pedir a API ao suporte da Tholz (contato no site da empresa).
 
-- [ ] **T-018** 🟡 **Cache único para tudo que dá para guardar** (pedido de 13/10) — **só investigado e descrito; nada de código ainda. O tempo de validade de cada fonte fica para uma etapa própria, depois de medir.**
+## Em andamento
+
+- [~] **T-018** 🟡 **Cache único para tudo que dá para guardar** (pedido de 13/10) — **etapa 1 (medir) pronta em 14/10: `vision medicao` mostra o resumo; falta juntar alguns dias de uso normal antes da etapa 2. O tempo de validade de cada fonte fica para uma etapa própria, depois de medir.**
   - **Objetivo:** responder rápido sem esperar a internet nem os serviços, gastar menos cota (Tavily, Google, Spotify) e continuar útil quando uma fonte cair. Hoje cada fonte tem seu jeito de guardar; a ideia é um módulo comum, com regras iguais e fáceis de ajustar.
   - **O que já existe hoje (levantado em 13/10 no código; vários mecanismos diferentes):**
     - **Agenda** (`tools/agenda.py`): em memória, janela de ontem até +7 dias numa consulta só; vale `agenda.cache_min` (10 min); o núcleo a refaz a cada 5 min e depois de cada mudança feita pelo Vision (a escrita derruba o cache e um novo vem em segundo plano).
@@ -114,14 +116,12 @@ Próximo código livre: **T-019**
     - **Fala:** quando o dado vier velho por falha da fonte, o Vision diz que é a última informação conhecida.
   - **Tempo de validade (etapa própria, depois da medição):** não definir agora. Para decidir cada um é preciso saber (a) quanto a fonte demora (registrar a latência por ferramenta por alguns dias), (b) com que frequência o dado muda por fora (a agenda muda pelo celular; o Orbit pelo app; o clima de hora em hora; a TV a qualquer momento), (c) o custo de estar velho (um compromisso errado é pior que um clima de 15 min atrás) e (d) a cota (Tavily). Os tempos de hoje (acima) são o ponto de partida. Perguntas para decidir nessa etapa: valores por fonte em `config.yaml` (`cache.<fonte>_min`)? pré-aquecer ao iniciar? o que fazer na madrugada, quando o PC dorme?
   - **Etapas, cada uma com PR e revisão:**
-    1. **Medir:** log de latência e de repetição por ferramenta e fonte (sem guardar o conteúdo); rodar por alguns dias de uso normal.
+    1. ✅ **Medir (feito em 14/10, `src/vision/medicao.py`):** cada chamada de ferramenta grava em `data/medicoes/` nome, duração, resultado e uma impressão curta dos argumentos (SHA-256 com sal da instalação; o conteúdo não é gravado em texto, mas a impressão pode ser adivinhada para argumento simples e por isso fica só em `data/`; escrita não grava impressão; apaga o que passa de `medicao.dias`). `vision medicao [--dias N]` mostra por ferramenta chamadas, % sem erro (a ferramenta não levantou erro; não quer dizer resultado útil), mediana, p95, e quantas chamadas um cache simulado de 5 min e de 1 h teria respondido sozinho, com a economia de tempo. **Falta:** rodar alguns dias de uso normal e olhar o resumo (consultas que não passam pelo registro de ferramentas, como a atualização da agenda para o painel, não entram nesta medição).
     2. **Módulo comum** (`vision/cache.py`) com testes, e migrar os caches de hoje sem mudar o comportamento (agenda, web, manchetes, páginas lidas, clima, apps do PC, luzes). O que veio do cache como texto de terceiros (buscas e páginas lidas) continua marcado como conteúdo externo (`do_cache` hoje), com teste.
     3. **Novas fontes** na ordem do ganho medido: Orbit, reuniões, Spotify, estado da TV e depois a piscina.
     4. **Áudio das frases fixas** (TTS).
     5. **Ajuste dos tempos** com os dados da etapa 1, *stale-if-error*, aviso da idade na resposta, botão de limpar e números no diagnóstico.
   - **Cuidados:** repositório público (nenhum dado pessoal em código, teste ou exemplo; o cache real fica em `data/cache/`, fora do git); cache de resultado de ferramenta de escrita é proibido; o cache nunca pode fazer o Vision agir sobre dado velho sem avisar (por exemplo, apagar um evento que já mudou: a escrita sempre relê o objeto pelo id na fonte; o id pode vir de uma lista velha do cache, então a confirmação mostra o que foi relido, não o que estava no cache).
-
-## Em andamento
 
 - [~] **T-014** 🟡 **PR #37: pacote independente** (instalação sem a pasta do projeto). Aberto; não mesclar sem revisão.
 - [~] **T-015** 🟡 **Ativação pelo som:** código e README prontos (PR #45); falta o treino no Colab e as gravações (T-006 e T-007), que agora esperam a T-001 (a frase vai virar "Hey balinha").
