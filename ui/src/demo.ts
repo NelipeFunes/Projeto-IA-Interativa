@@ -9,6 +9,7 @@ export const AJUSTES_DEMO: DadosAjustes = {
     "voz.voz_piper": "pt_BR-faber-medium",
     "voz.velocidade_fala": 1.0,
     "voz.conversa_silencio_max_s": 120,
+    "voz.limiar_ativacao": 0.5,
     "voz.microfone": "Microfone (headset)",
     inicia_com_windows: true,
   },
@@ -18,6 +19,7 @@ export const AJUSTES_DEMO: DadosAjustes = {
     { chave: "voz.velocidade_fala", tipo: "numero", rotulo: "Ritmo da fala (maior = mais devagar)", aoVivo: true, minimo: 0.7, maximo: 1.5 },
     { chave: "voz.conversa_silencio_max_s", tipo: "numero", rotulo: "Fecha a conversa depois de quantos segundos sem falar", aoVivo: true, minimo: 30, maximo: 600 },
     { chave: "voz.microfone", tipo: "escolha", rotulo: "Microfone", aoVivo: false },
+    { chave: "voz.limiar_ativacao", tipo: "numero", rotulo: "Sensibilidade da ativação pelo som (nota mínima: menor acorda mais fácil; abaixo de 0,3 a TV pode acordar o assistente e ele executar comandos)", aoVivo: false, minimo: 0.15, maximo: 0.95 },
   ],
   opcoes: {
     "voz.voz_piper": ["pt_BR-cadu-medium", "pt_BR-faber-medium", "pt_BR-jeff-medium"],
