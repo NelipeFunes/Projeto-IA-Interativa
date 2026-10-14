@@ -183,7 +183,9 @@ microfone → openWakeWord ("Hey Vision" pelo som) ┐
 - **Cache:** um módulo só (`vision/cache.py`) para a agenda (ontem até +7 dias, em memória, refeita a cada 5 min),
   as buscas e páginas lidas da web (6 h) e as manchetes (30 min), em `data/cache/web.json` (pode apagar a pasta quando
   quiser), a previsão do clima (15 min) e a lista de programas do PC (10 min), em memória. Arquivo estragado ou de
-  outra versão vale cache vazio. Tokens e logins nunca ficam aqui.
+  outra versão vale cache vazio. Tokens e logins nunca ficam aqui, e a lista de luzes da Alexa, as coordenadas da
+  cidade do clima e o contador da Tavily (também em `data/cache/`) não são desse cache: apagar a pasta zera o
+  contador do mês.
 - **Medição:** cada ferramenta deixa em `data/medicoes/` o nome, quanto demorou, se terminou sem erro e uma
   impressão curta dos argumentos (para saber se a mesma pergunta voltou). O conteúdo não é gravado em texto, mas a
   impressão pode ser adivinhada para argumento simples; por isso fica em `data/`, fora do git, e ferramentas de

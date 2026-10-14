@@ -108,8 +108,10 @@ class Agenda:
             log.warning("não deu para atualizar o cache da agenda: %s", e)
 
     def _do_cache(self, inicio: date, fim: date) -> list[dict[str, Any]] | None:
-        j = self._cache.pegar(JANELA)  # None se não há ou passou de `agenda.cache_min`
-        if j is None or inicio < j[0] or fim > j[1]:
+        j = self._cache.pegar(JANELA, contar=False)  # None se não há ou passou de `agenda.cache_min`
+        servida = j is not None and inicio >= j[0] and fim <= j[1]
+        self._cache.contar_acerto(servida)  # fora da janela a pergunta vai ao Google: não é acerto
+        if not servida:
             return None
         return sorted((e for e in j[2] if _no_periodo(e, inicio, fim)), key=_inicio_ordenavel)
 

@@ -7,18 +7,21 @@ Agenda, buscas na web, manchetes, clima e a lista de programas do PC usam este m
 - gravação em disco atômica (um arquivo pela metade nunca fica no lugar do bom);
 - o relógio é injetável (os testes não esperam de verdade).
 
-Em memória, o relógio certo é `time.monotonic` (não sofre com ajuste da hora do Windows); em arquivo é `time.time`,
-que sobrevive a reinício. Quem cria o cache escolhe.
+Relógio: em memória, `time.monotonic` (não sofre com ajuste da hora do Windows); em arquivo TEM que ser `time.time`,
+que sobrevive a reinício (com `arquivo`, o padrão já é esse; um relógio monotônico gravaria carimbos sem sentido).
+Entrada com carimbo no futuro (hora do Windows mexida) ou inválido (NaN) vale vencida.
 
 Fora daqui (de propósito): credenciais com validade (token do Spotify, sessão da TV, sessão da piscina), que não
-são cache e nunca vão para `data/cache/`, e a lista de luzes da Alexa, que é configuração refeita por comando.
-Texto de terceiros que sai daqui (páginas lidas, buscas) continua sendo conteúdo externo para quem o usa: o cache
-não muda isso (a `Busca` vinda dele sai com `do_cache=True`).
+são cache e nunca vão para `data/cache/`; a lista de luzes da Alexa (configuração refeita por comando); as
+coordenadas do clima (memo de busca, sem validade); a cota da Tavily; e as consultas da memória do assistente
+(LRU próprio em `memory/store.py`). O que sai daqui continua valendo como texto de terceiros: quem o mostra ao modelo
+segue marcado como `conteudo_externo` (`tools/web.py`), que não depende de o valor vir do cache ou da rede.
 """
 
 from __future__ import annotations
 
 import logging
+import math
 import time
 from collections.abc import Callable
 from pathlib import Path
@@ -33,13 +36,13 @@ VERSAO_PADRAO = 1
 
 class Cache:
     def __init__(self, validade_s: float | None, *, arquivo: Path | None = None, maximo: int = 200,
-                 relogio: Callable[[], float] = time.time, versao: int = VERSAO_PADRAO, nome: str = "cache"):
+                 relogio: Callable[[], float] | None = None, versao: int = VERSAO_PADRAO, nome: str = "cache"):
         """`validade_s=None`: nunca vence por tempo (só sai por falta de espaço ou por `apagar`).
         `arquivo`: guarda em JSON (as entradas sobrevivem a reinício); sem ele, só em memória."""
         self.validade_s = validade_s
         self.arquivo = arquivo
         self.maximo = max(1, int(maximo))
-        self.relogio = relogio
+        self.relogio = relogio if relogio is not None else (lambda: time.time())  # lambda: um monkeypatch de time.time vale
         self.versao = versao
         self.nome = nome
         self.acertos = 0
@@ -50,24 +53,41 @@ class Cache:
             dados = ler_json(arquivo)
             if isinstance(dados, dict):
                 self._itens = {str(k): v for k, v in dados.items()
-                               if isinstance(v, dict) and "valor" in v and isinstance(v.get("quando"), int | float)
+                               if isinstance(v, dict) and "valor" in v and _numero_valido(v.get("quando"))
                                and v.get("v", VERSAO_PADRAO) == versao}
+
+    def __bool__(self) -> bool:  # um cache vazio continua sendo um cache (`cache or Cache(...)` não pode trocá-lo)
+        return True
 
     # ------------------------------------------------------------------ leitura
 
     def _idade(self, item: dict[str, Any]) -> float:
         return self.relogio() - float(item["quando"])
 
-    def pegar(self, chave: str, validade_s: float | None = None) -> Any | None:
-        """O valor guardado, ou None se não há ou venceu. `validade_s`: outra validade só para esta leitura (as
-        manchetes valem 30 min no mesmo arquivo em que as buscas valem 6 h)."""
-        item = self._itens.get(chave)
+    def _vale(self, item: dict[str, Any], validade_s: float | None) -> bool:
         limite = self.validade_s if validade_s is None else validade_s
-        if item is None or (limite is not None and self._idade(item) > limite):
-            self.faltas += 1
+        if limite is None:
+            return True
+        return 0 <= self._idade(item) <= limite  # idade negativa = carimbo do futuro: vale vencido
+
+    def pegar(self, chave: str, validade_s: float | None = None, *, contar: bool = True) -> Any | None:
+        """O valor guardado, ou None se não há ou venceu. `validade_s`: outra validade só para esta leitura (as
+        manchetes valem 30 min no mesmo arquivo em que as buscas valem 6 h). `contar=False`: quem lê decide depois,
+        com `contar_acerto`, se foi acerto (a agenda acha a janela mas pode precisar de dias fora dela)."""
+        item = self._itens.get(chave)
+        if item is None or not self._vale(item, validade_s):
+            if contar:
+                self.faltas += 1
             return None
-        self.acertos += 1
+        if contar:
+            self.acertos += 1
         return item["valor"]
+
+    def contar_acerto(self, acerto: bool) -> None:
+        if acerto:
+            self.acertos += 1
+        else:
+            self.faltas += 1
 
     def pegar_velho(self, chave: str) -> tuple[Any, float] | None:
         """(valor, idade em segundos) mesmo vencido: para responder "dado de 20 min atrás" quando a fonte falha."""
@@ -88,6 +108,9 @@ class Cache:
         item: dict[str, Any] = {"quando": self.relogio(), "valor": valor}
         if self.versao != VERSAO_PADRAO:
             item["v"] = self.versao
+        if self.arquivo is not None and not self._serializavel(item):
+            return  # um valor que não vira JSON não pode travar a gravação de todos os outros
+        self._itens.pop(chave, None)  # a ordem do dict reflete a recência (a chave renovada é a última a sair)
         self._itens[chave] = item
         if len(self._itens) > self.maximo:  # tira os mais velhos
             sobra = len(self._itens) - self.maximo
@@ -108,12 +131,29 @@ class Cache:
             self._salvar()
         return len(saem)
 
+    def _serializavel(self, item: dict[str, Any]) -> bool:
+        import json
+
+        try:
+            json.dumps(item, ensure_ascii=False).encode("utf-8")  # pega até o substituto Unicode solto
+            return True
+        except (TypeError, ValueError) as e:
+            self._avisar(f"valor que não vira JSON, não guardado: {type(e).__name__}")
+            return False
+
     def _salvar(self) -> None:
         if self.arquivo is None:
             return
         try:
-            gravar_json(self.arquivo, self._itens)
-        except (OSError, TypeError, ValueError) as e:  # disco cheio, arquivo em uso, valor que não vira JSON
-            if not self._avisou:
-                self._avisou = True
-                log.warning("não deu para gravar o cache %s (aviso único): %s", self.nome, e)
+            gravar_json(self.arquivo, self._itens, duravel=False)  # cache: arquivo ruim já vira cache vazio
+        except (OSError, TypeError, ValueError) as e:  # disco cheio, arquivo em uso
+            self._avisar(f"não deu para gravar: {e}")
+
+    def _avisar(self, texto: str) -> None:
+        if not self._avisou:
+            self._avisou = True
+            log.warning("cache %s (aviso único): %s", self.nome, texto)
+
+
+def _numero_valido(v: Any) -> bool:
+    return isinstance(v, int | float) and not isinstance(v, bool) and math.isfinite(v)

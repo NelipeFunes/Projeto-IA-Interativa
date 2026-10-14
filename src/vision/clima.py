@@ -92,7 +92,6 @@ class Clima:
         self.cidade = " ".join(str(cidade or "").split())
         self.arquivo = pasta_cache / "clima.json"
         self._transporte = transporte
-        self._relogio = relogio
         self._previsoes = Cache(VALIDADE_S, relogio=relogio, maximo=MAX_CIDADES, nome="clima")  # só em memória
 
     def _cliente(self) -> httpx.AsyncClient:

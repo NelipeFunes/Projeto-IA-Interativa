@@ -8,7 +8,7 @@ from datetime import timedelta
 import pytest
 
 from vision import tempo
-from vision.tools.agenda import LIMITE_GOOGLE, Agenda, _no_periodo
+from vision.tools.agenda import JANELA, LIMITE_GOOGLE, Agenda, _no_periodo
 from vision.tools.base import ErroFerramenta
 from vision.tools.mcp_host import ResultadoMCP
 
@@ -101,7 +101,7 @@ async def test_foto_tirada_durante_uma_mudanca_e_descartada(agenda, contador):
     agenda._geracao += 1  # o que o _invalidar faz quando a agenda muda
     liberar.set()
     await velha
-    assert agenda._cache.pegar("janela") is None
+    assert agenda._cache.pegar(JANELA) is None
 
 
 def test_periodo_igual_ao_do_google():
@@ -141,7 +141,7 @@ async def test_resposta_sem_eventos_nao_vira_agenda_vazia(cfg):
     ag = Agenda(cfg, Resposta("Serviço instável, tente de novo"))  # texto, não JSON
     with pytest.raises(ErroFerramenta):
         await ag.atualizar_cache()
-    assert ag._cache.pegar("janela") is None
+    assert ag._cache.pegar(JANELA) is None
 
 
 async def test_calendario_no_limite_do_google_nao_entra_no_cache(cfg):
@@ -153,6 +153,49 @@ async def test_calendario_no_limite_do_google_nao_entra_no_cache(cfg):
     host = Resposta(json.dumps({"events": eventos}))
     ag = Agenda(cfg, host)
     await ag.atualizar_cache()
-    assert ag._cache.pegar("janela") is None  # pode ter faltado evento: a pergunta vai direto ao Google
+    assert ag._cache.pegar(JANELA) is None  # pode ter faltado evento: a pergunta vai direto ao Google
     await ag.listar({"data_inicio": hoje})
     assert host.listas == 2
+
+
+async def test_mudar_a_agenda_derruba_a_foto_velha_na_hora_antes_da_nova(agenda, contador):
+    await agenda.atualizar_cache()
+    assert agenda._cache.pegar(JANELA) is not None
+    liberar = asyncio.Event()
+    original = contador.chamar
+
+    async def lento(servidor, ferramenta, args):
+        if ferramenta == "list-events":
+            await liberar.wait()
+        return await original(servidor, ferramenta, args)
+
+    contador.chamar = lento
+    agenda._invalidar()  # o que criar/mudar/apagar faz
+    assert agenda._cache.pegar(JANELA) is None  # a foto de antes já saiu, mesmo com a nova ainda a caminho
+    liberar.set()
+    await agenda._atualizando
+    assert agenda._cache.pegar(JANELA) is not None
+
+
+async def test_calendario_que_passa_a_estourar_o_limite_derruba_a_foto_que_havia(cfg):
+    import json
+
+    hoje = tempo.agora().date().isoformat()
+    host = Resposta(json.dumps({"events": [{"id": "e", "calendarId": "primary", "start": {"date": hoje},
+                                            "end": {"date": hoje}}]}))
+    ag = Agenda(cfg, host)
+    await ag.atualizar_cache()
+    assert ag._cache.pegar(JANELA) is not None
+    host.texto = json.dumps({"events": [{"id": f"e{i}", "calendarId": "primary", "start": {"date": hoje},
+                                         "end": {"date": hoje}} for i in range(LIMITE_GOOGLE)]})
+    await ag.atualizar_cache()
+    assert ag._cache.pegar(JANELA) is None  # a foto antiga (que podia estar completa) não fica servindo
+
+
+async def test_estatistica_da_agenda_so_conta_acerto_quando_a_janela_serve(agenda, contador):
+    await agenda.atualizar_cache()
+    hoje = tempo.agora().date()
+    await agenda.listar({"data_inicio": hoje.isoformat()})  # dentro da janela: acerto
+    await agenda.listar({"data_inicio": (hoje + timedelta(days=agenda.cache_dias + 30)).isoformat()})  # fora: Google
+    e = agenda._cache.estatisticas()
+    assert (e["acertos"], e["faltas"]) == (1, 1)

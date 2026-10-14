@@ -223,10 +223,14 @@ class Web:
         chave = "busca:" + normalizar(consulta)
         guardada = self.cache.pegar(chave)
         if guardada:
-            b = Busca(consulta, guardada.get("resposta", ""),
-                      [Resultado(**r) for r in guardada.get("resultados", [])], guardada.get("fonte", "?"), True)
-            self._lembrar_links(b.resultados)
-            return b
+            try:
+                b = Busca(consulta, guardada.get("resposta", ""),
+                          [Resultado(**r) for r in guardada.get("resultados", [])], guardada.get("fonte", "?"), True)
+            except (TypeError, ValueError, AttributeError):  # arquivo adulterado ou de outro formato: busca de novo
+                self.cache.apagar(chave)
+            else:
+                self._lembrar_links(b.resultados)
+                return b
         busca = None
         if self.chave:
             try:
@@ -286,7 +290,7 @@ class Web:
         if guardada:
             try:
                 itens = [Noticia(**n) for n in guardada.get("itens", [])]
-            except (TypeError, ValueError):
+            except (TypeError, ValueError, AttributeError):
                 itens = None  # cache de outro formato: busca de novo
         if itens is None:
             try:
@@ -312,8 +316,10 @@ class Web:
             raise ErroWeb("Só abro links que vieram de uma busca (web_buscar). Use um link dos resultados.")
         chave = "ler:" + url
         guardada = self.cache.pegar(chave)
-        if guardada:
-            return guardada.get("texto", "")
+        if isinstance(guardada, dict) and isinstance(guardada.get("texto"), str):
+            return guardada["texto"]
+        if guardada is not None:  # formato errado: descarta e baixa de novo
+            self.cache.apagar(chave)
         texto_ = ""
         if self.chave:
             try:
