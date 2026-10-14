@@ -47,7 +47,7 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   (vozes Piper pt-BR) e o notebook do Colab (`data/ativacao/`); no Colab (GPU T4, ~2h30) ele treina e baixa
   `hey_vision.onnx`, que vai em `modelos/openwakeword/`. Depois, `scripts/ativacao/gravar_minha_voz.py` grava
   20 "Hey Vision" seus e 4 frases normais e treina o **verificador da sua voz** (um 2º filtro, local, que corrige o
-  sotaque e corta a TV) e mostra as notas para escolher `voz.limiar_ativacao`. As gravações ficam em
+  sotaque e corta a TV) e mostra as notas para escolher `voz.limiar_ativacao` (que também está na tela de Ajustes, como "Sensibilidade da ativação"; vale ao reiniciar). As gravações ficam em
   `data/ativacao/minha_voz/` e não saem do PC (o Colab só recebe as vozes sintéticas). Sem o modelo, fica só a
   transcrição, como antes.
 - **Microfone:** usa o primeiro da lista `voz.microfone` que tiver som. Se ele ficar mudo ou desligado por

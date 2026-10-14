@@ -40,7 +40,6 @@ Próximo código livre: **T-019**
 - [ ] **T-005** 🟡 **Testar na TV de verdade** o que só passou em simulação: desligar, canal, fonte/HDMI, setas, abrir Netflix e navegador, tocar link de mídia (UPnP), timer "desliga a TV em N minutos".
 - [ ] **T-006** 🟡 **Treinar o modelo de ativação no Google Colab** e pôr o `.onnx` em `modelos/openwakeword/` (passo a passo no README, no item **"Hey Vision" pelo modelo**). **Esperar a T-001:** como a frase vai virar "Hey balinha", treinar um modelo `hey_vision` agora seria trabalho jogado fora (~2h30 de Colab).
 - [ ] **T-007** 🟡 **Gravar a própria voz para o verificador** (`scripts/ativacao/gravar_minha_voz.py`) depois do T-001 e do T-006 (a voz gravada é para a frase nova), e reiniciar o Vision. As gravações ficam em `data/` e não saem do PC.
-- [ ] **T-008** 🟢 **Expor `voz.limiar_ativacao` na tela de Ajustes** (hoje só no `config.yaml`).
 - [ ] **T-009** 🟢 **Login do Orbit pela tela de Conexões** (se o Orbit mandar código por e-mail, a tela pede).
 - [ ] **T-010** 🟢 **Calibrar o microfone** com o headset ligado (`vision teste voz`).
 - [ ] **T-011** 🟢 **Ligar a TV pela rede:** impossível (o Wi-Fi dela desliga junto). Alternativa: um controle infravermelho (Broadlink RM4 Mini, `python-broadlink`) como segundo backend. O cliente da TV já é separado das ferramentas para isso.
@@ -127,6 +126,8 @@ Próximo código livre: **T-019**
 - [~] **T-015** 🟡 **Ativação pelo som:** código e README prontos (PR #45); falta o treino no Colab e as gravações (T-006 e T-007), que agora esperam a T-001 (a frase vai virar "Hey balinha").
 
 ## Concluídas
+
+- [x] **T-008** **Limiar de ativação na tela de Ajustes** (14/10): campo "Sensibilidade da ativação pelo som" (`voz.limiar_ativacao`, de 0,1 a 0,95, vale ao reiniciar), com validação, testes e a demonstração da janela.
 
 - [x] **T-016** **Controle da TV Samsung (série J) pela rede** (05/10): teclas por PIN, volume e mudo pelo UPnP, YouTube pelo DIAL com OK no perfil, busca de vídeo, timer com ação, cartão em Conexões. PRs [#46](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/46) e [#47](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/47).
 - [x] Abrir Spotify e navegador da TV pelo ID do app, "abre o X na TV" por voz (06/10), PR [#48](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/48).

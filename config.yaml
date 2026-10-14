@@ -155,7 +155,8 @@ voz:
   registrar_ativacao: false
   palavra_ativacao: hey_vision   # modelos/openwakeword/hey_vision.onnx (o antigo: hey_jarvis)
   # Nota mínima do modelo para acordar. Com o hey_jarvis, inglês nativo dava 0,99 e a sua voz 0,47–0,86 (30/09).
-  # Ajuste com as suas gravações: scripts/ativacao/gravar_minha_voz.py mostra as notas.
+  # Ajuste com as suas gravações: scripts/ativacao/gravar_minha_voz.py mostra as notas. Também na tela de
+  # Ajustes (vale ao reiniciar).
   limiar_ativacao: 0.5
   # Com o verificador da sua voz (modelos/openwakeword/hey_vision_verificador.pkl): a partir desta nota do modelo, é
   # o verificador quem dá a nota final. Baixo para pegar um "Hey Vision" seu que o modelo achou fraco.

@@ -16,7 +16,7 @@ RAIZ = Path(__file__).resolve().parents[2]
 AJUSTES_LOCAIS = "config-local.yaml"
 # Só estas chaves saem do arquivo local (as mesmas de vision/ajustes.py): o resto é ignorado.
 CHAVES_AJUSTAVEIS = {"assistente.nome", "voz.voz_piper", "voz.velocidade_fala", "voz.conversa_silencio_max_s",
-                     "voz.microfone", "clima.cidade"}  # a cidade é dado pessoal: só no arquivo local
+                     "voz.microfone", "voz.limiar_ativacao", "clima.cidade"}  # a cidade é dado pessoal: só no arquivo local
 # O interruptor de cada conexão na tela de Conexões (vision/conexoes.py): só aceita true/false.
 CHAVES_LIGA_DESLIGA = {"mcp.google-calendar.ativo", "spotify.ativo", "alexa.ativo", "mcp.wispr.ativo",
                        "web.ativo", "mcp.orbit.ativo", "tv.ativo"}

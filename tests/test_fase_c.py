@@ -85,6 +85,11 @@ def test_ajustes_mostram_so_vozes_em_portugues_e_o_microfone_atual(cfg_ajustes):
     ({"voz.velocidade_fala": "1.0"}, "número"),
     ({"voz.velocidade_fala": True}, "número"),
     ({"voz.conversa_silencio_max_s": 5}, "entre"),
+    ({"voz.limiar_ativacao": 0}, "entre"),
+    ({"voz.limiar_ativacao": 0.05}, "entre"),
+    ({"voz.limiar_ativacao": 1}, "entre"),
+    ({"voz.limiar_ativacao": "0.5"}, "número"),
+    ({"voz.limiar_ativacao": True}, "número"),
     ({"voz.voz_piper": "../../segredo"}, "instalada"),
     ({"voz.voz_piper": "en_US-lessac-medium"}, "instalada"),
     ({"voz.microfone": "Microfone de outro PC"}, "encontrado"),
@@ -102,6 +107,18 @@ def test_ajustes_validos_e_o_que_pede_reinicio(cfg_ajustes):
     assert m["voz.microfone"] == ["Microfone (C920)", "HyperX"]  # o escolhido primeiro, os outros de reserva
     assert ajustes.precisa_reiniciar(m, cfg_ajustes)  # nome e microfone só valem ao reiniciar
     assert not ajustes.precisa_reiniciar({"voz.velocidade_fala": 1.1}, cfg_ajustes)
+
+
+def test_limiar_de_ativacao_pela_tela_vale_ao_reiniciar_e_chega_ao_laco(cfg_ajustes):
+    m = ajustes.validar(cfg_ajustes, {"voz.limiar_ativacao": 0.35})
+    assert m == {"voz.limiar_ativacao": 0.35}
+    assert ajustes.precisa_reiniciar(m, cfg_ajustes)  # o modelo é carregado com o limiar, ao iniciar
+    assert not ajustes.precisa_reiniciar({"voz.limiar_ativacao": cfg_ajustes.get("voz.limiar_ativacao")}, cfg_ajustes)
+    campo = next(c for c in ajustes.ler(cfg_ajustes)["campos"] if c["chave"] == "voz.limiar_ativacao")
+    assert (campo["minimo"], campo["maximo"], campo["aoVivo"]) == (0.1, 0.95, False)
+    assert ajustes.ler(cfg_ajustes)["valores"]["voz.limiar_ativacao"] == 0.5  # o padrão do config.yaml
+    config.salvar_ajustes(cfg_ajustes, m)  # grava no config local e o laço lê a mesma chave
+    assert float(cfg_ajustes.get("voz.limiar_ativacao", 0.5)) == 0.35
 
 
 def test_ajustes_salvos_ficam_fora_do_git_e_voltam_ao_carregar(cfg, monkeypatch, tmp_path):

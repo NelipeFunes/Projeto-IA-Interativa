@@ -31,6 +31,10 @@ LISTA = [
     Ajuste("voz.conversa_silencio_max_s", "numero", "Fecha a conversa depois de quantos segundos sem falar",
            ao_vivo=True, minimo=30, maximo=600),
     Ajuste("voz.microfone", "escolha", "Microfone", ao_vivo=False),
+    # Nota mínima do modelo de ativação (voz.ativacao: modelo ou ambos). Menor = acorda mais fácil, e pode acordar
+    # sem querer; maior = exige uma fala mais clara. Vale ao reiniciar: o modelo é carregado com o limiar.
+    Ajuste("voz.limiar_ativacao", "numero", "Sensibilidade da ativação pelo som (nota mínima: menor acorda mais fácil, "
+           "mas pode acordar sem querer)", ao_vivo=False, minimo=0.1, maximo=0.95),
     Ajuste("clima.cidade", "texto", "Cidade do clima e do \"bom dia\"", ao_vivo=False, maximo=60),
 ]
 POR_CHAVE = {a.chave: a for a in LISTA}
