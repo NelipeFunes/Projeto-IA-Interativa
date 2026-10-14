@@ -12,7 +12,8 @@ from vision import config
 
 def _silenciar_logs() -> None:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
-    for nome in ("httpx", "httpcore", "mcp", "openwakeword", "samsungtvws"):  # samsungtvws: loga o token da TV
+    for nome in ("httpx", "httpcore", "mcp", "openwakeword", "samsungtvws",  # samsungtvws: loga o token da TV
+                 "botocore", "boto3", "pycognito"):  # o login da Tholz (piscina)
         logging.getLogger(nome).setLevel(logging.WARNING)
 
 
@@ -120,6 +121,8 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("alexa-luzes", help="atualiza a lista de luzes da Alexa (depois de renomear no app)")
     tv = sub.add_parser("tv-parear", help="pareia o Vision com a TV Samsung (PIN na tela da TV)")
     tv.add_argument("--ip", help="IP da TV na sua rede (fica em data/config-local.yaml)")
+    sub.add_parser("piscina-login", help="entra na sua conta da Tholz (piscina), só leitura por enquanto")
+    sub.add_parser("piscina-ler", help="lê os dispositivos da piscina e mostra o formato da resposta")
     sub.add_parser("wispr-login", help="liga o Vision às suas reuniões e notas do Wispr Flow (login no navegador)")
     s = sub.add_parser("spotify-login", help="liga o Vision ao seu Spotify (Premium) para tocar música")
     s.add_argument("--client-id", help="Client ID do app criado em developer.spotify.com")
@@ -195,6 +198,14 @@ def main(argv: list[str] | None = None) -> int:
         from vision.tv import parear_interativo
 
         return _depois_do_login(asyncio.run(parear_interativo(cfg, args.ip)))
+    elif args.comando == "piscina-login":
+        from vision.piscina import login_interativo
+
+        return asyncio.run(login_interativo(cfg))
+    elif args.comando == "piscina-ler":
+        from vision.piscina import ler_interativo
+
+        return asyncio.run(ler_interativo(cfg))
     elif args.comando == "wispr-login":
         from vision.wispr import login
 
