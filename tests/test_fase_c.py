@@ -85,6 +85,14 @@ def test_ajustes_mostram_so_vozes_em_portugues_e_o_microfone_atual(cfg_ajustes):
     ({"voz.velocidade_fala": "1.0"}, "número"),
     ({"voz.velocidade_fala": True}, "número"),
     ({"voz.conversa_silencio_max_s": 5}, "entre"),
+    ({"voz.limiar_ativacao": 0}, "entre"),
+    ({"voz.limiar_ativacao": 0.1}, "entre"),
+    ({"voz.limiar_ativacao": float("nan")}, "entre"),
+    ({"voz.limiar_ativacao": float("inf")}, "entre"),
+    ({"voz.limiar_ativacao": float("-inf")}, "entre"),
+    ({"voz.limiar_ativacao": 1}, "entre"),
+    ({"voz.limiar_ativacao": "0.5"}, "número"),
+    ({"voz.limiar_ativacao": True}, "número"),
     ({"voz.voz_piper": "../../segredo"}, "instalada"),
     ({"voz.voz_piper": "en_US-lessac-medium"}, "instalada"),
     ({"voz.microfone": "Microfone de outro PC"}, "encontrado"),
@@ -102,6 +110,20 @@ def test_ajustes_validos_e_o_que_pede_reinicio(cfg_ajustes):
     assert m["voz.microfone"] == ["Microfone (C920)", "HyperX"]  # o escolhido primeiro, os outros de reserva
     assert ajustes.precisa_reiniciar(m, cfg_ajustes)  # nome e microfone só valem ao reiniciar
     assert not ajustes.precisa_reiniciar({"voz.velocidade_fala": 1.1}, cfg_ajustes)
+
+
+def test_limiar_de_ativacao_pela_tela_vale_ao_reiniciar_e_chega_ao_laco(cfg_ajustes):
+    m = ajustes.validar(cfg_ajustes, {"voz.limiar_ativacao": 0.35})
+    assert m == {"voz.limiar_ativacao": 0.35}
+    assert ajustes.precisa_reiniciar(m, cfg_ajustes)  # o modelo é carregado com o limiar, ao iniciar
+    assert not ajustes.precisa_reiniciar({"voz.limiar_ativacao": cfg_ajustes.get("voz.limiar_ativacao")}, cfg_ajustes)
+    campo = next(c for c in ajustes.ler(cfg_ajustes)["campos"] if c["chave"] == "voz.limiar_ativacao")
+    assert (campo["minimo"], campo["maximo"], campo["aoVivo"]) == (0.15, 0.95, False)
+    assert ajustes.validar(cfg_ajustes, {"voz.limiar_ativacao": 0.15}) == {"voz.limiar_ativacao": 0.15}
+    assert ajustes.validar(cfg_ajustes, {"voz.limiar_ativacao": 0.47}) == {"voz.limiar_ativacao": 0.47}  # fora da grade de 0,05
+    assert ajustes.ler(cfg_ajustes)["valores"]["voz.limiar_ativacao"] == 0.5  # o padrão do config.yaml
+    config.salvar_ajustes(cfg_ajustes, m)  # grava no config local e o laço lê a mesma chave
+    assert float(cfg_ajustes.get("voz.limiar_ativacao", 0.5)) == 0.35
 
 
 def test_ajustes_salvos_ficam_fora_do_git_e_voltam_ao_carregar(cfg, monkeypatch, tmp_path):
@@ -219,7 +241,8 @@ def test_arquivo_local_so_muda_as_chaves_da_tela(cfg, monkeypatch, tmp_path):
     """Revisão do PR 8: data/config-local.yaml não vira porta para servidor, modelo ou caminho de arquivo."""
     from vision import ajustes as aj
 
-    assert config.CHAVES_AJUSTAVEIS == set(aj.POR_CHAVE)  # as duas listas andam juntas
+    # as duas listas andam juntas (mais os interruptores da tela de Conexões, que só aceitam true/false)
+    assert config.CHAVES_AJUSTAVEIS == set(aj.POR_CHAVE) | config.CHAVES_LIGA_DESLIGA
     (tmp_path / "raiz" / "data").mkdir(parents=True)
     (tmp_path / "raiz" / "data" / config.AJUSTES_LOCAIS).write_text(
         'servidor.porta: 80\nmodelo.host: "http://outro"\nvoz.voz_piper: "../../x"\nvoz.velocidade_fala: 1.3\n',
@@ -248,3 +271,189 @@ async def test_no_jogo_o_pre_carregamento_espera_o_jogo_fechar(agente):
     assert not a.llm.carregado
     await a.liberar_modelo()  # o jogo fechou
     assert a.llm.carregado
+
+
+
+def test_comandos_de_calibracao_pelo_websocket(cfg):
+    barramento = Barramento()
+    recebidos = []
+
+    async def calibrar():
+        recebidos.append("calibrar")
+
+    async def esquecer(apelido=None):
+        recebidos.append(("esquecer", apelido))
+        barramento.publicar({"tipo": "fim"})
+
+    async def painel():
+        return {"tipo": "painel"}
+
+    controle = Controle(painel=painel, calibrar_ativacao=calibrar, esquecer_apelidos=esquecer)
+    c = TestClient(criar_app(cfg, token=TOKEN, barramento=barramento, controle=controle))
+    with c.websocket_connect("/ws", headers={"Origin": ORIGEM}) as ws:
+        ws.send_json({"tipo": "ola", "token": TOKEN})
+        assert ws.receive_json()["tipo"] == "painel"
+        ws.send_json({"tipo": "calibrar_ativacao"})
+        ws.send_json({"tipo": "esquecer_apelidos", "apelido": 5})  # não é texto: ignorado
+        ws.send_json({"tipo": "esquecer_apelidos"})
+        assert ws.receive_json() == {"tipo": "fim"}
+    assert recebidos == ["calibrar", ("esquecer", None)]
+
+
+
+async def test_calibracao_so_grava_o_que_foi_sugerido_e_aceito(cfg):
+    """Revisão do PR 43: o fim da calibração só SUGERE; gravar é o clique em Aceitar, e só do que foi sugerido."""
+    from vision.nucleo import Nucleo
+    from vision.voice import comandos
+
+    comandos.definir_apelidos([])
+    n = Nucleo(cfg, com_voz=False)
+    eventos = []
+    n.barramento.publicar = eventos.append
+    ouvidos = [{"texto": t, "acordou": False} for t in ("Deliving", "Deliving", "Hey deliving", "", "")]
+    await n._fim_calibracao(ouvidos, ["deliving"])
+    assert eventos[-1]["sugeridos"] == ["deliving"] and comandos.ler_apelidos(cfg.dados) == []
+    await n.aceitar_apelidos(["brasil", "deliving"])  # "brasil" não foi sugerido: fica de fora
+    assert comandos.ler_apelidos(cfg.dados) == ["deliving"] and comandos.APELIDOS == {"deliving"}
+    await n.aceitar_apelidos(["deliving"])  # a sugestão já foi usada: não aceita de novo
+    await n.esquecer_apelidos("deliving")
+    assert comandos.ler_apelidos(cfg.dados) == [] and comandos.APELIDOS == set()
+    comandos.definir_apelidos([])
+
+
+@pytest.mark.parametrize("valor,esperado", [
+    ("-1m", "-1m"), ("30m", "30m"), (-1, -1), ("-1", -1), ("600", 600), (1.5, 1), (None, "30m"), (True, "30m"),
+    ("inf", -1), (float("inf"), -1), (float("nan"), -1),
+])
+def test_manter_carregado_no_formato_do_ollama(cfg, valor, esperado):
+    """O Ollama recusa "-1" como texto ("missing unit"): número puro vira int (02/10)."""
+    cfg.bruto.setdefault("modelo", {})["manter_carregado"] = valor
+    if valor is None:
+        del cfg.bruto["modelo"]["manter_carregado"]
+    assert config.manter_carregado(cfg) == esperado
+
+
+def test_config_deixa_o_modelo_sempre_carregado():
+    c = config.carregar(config.Path(__file__).resolve().parents[1] / "config.yaml")
+    assert config.manter_carregado(c) == "-1m"
+
+
+
+async def test_no_modo_jogo_a_resposta_nao_prende_o_modelo():
+    """Revisão do PR 44: com "-1m", uma pergunta pelo atalho no jogo deixava o modelo na VRAM até o jogo fechar."""
+    from types import SimpleNamespace
+
+    from vision.brain.llm import MANTER_NO_JOGO, OllamaLLM
+
+    class ClienteFalso:
+        def __init__(self):
+            self.chamadas = []
+            self.ao_chat = None
+
+        async def chat(self, **kw):
+            self.chamadas.append(("chat", kw["keep_alive"]))
+            if self.ao_chat:
+                await self.ao_chat()
+            return SimpleNamespace(message=SimpleNamespace(content="ok", tool_calls=None), eval_count=1,
+                                   total_duration=1)
+
+        async def generate(self, **kw):
+            self.chamadas.append(("generate", kw["keep_alive"]))
+
+    llm = OllamaLLM("m", "http://x", False, 8192, 0.3, "-1m")
+    llm.cliente = c = ClienteFalso()
+    await llm.conversar([], None)
+    await llm.descarregar()  # o CS2 abriu
+    await llm.conversar([], None)  # pergunta pelo atalho no jogo
+    await llm.carregar()  # o jogo fechou
+    await llm.conversar([], None)
+    assert c.chamadas == [("chat", "-1m"), ("generate", 0), ("chat", MANTER_NO_JOGO), ("generate", "-1m"),
+                          ("chat", "-1m")]
+    c.chamadas.clear()
+    c.ao_chat = llm.descarregar  # o jogo abre NO MEIO de uma resposta
+    await llm.conversar([], None)
+    assert c.chamadas == [("chat", "-1m"), ("generate", 0), ("generate", 0)]  # o fim dela não desfaz o descarregar
+
+
+async def test_resposta_cortada_no_meio_do_jogo_tambem_descarrega():
+    """2ª revisão do PR 44: o Interrompido (você falou por cima) saía antes da correção da corrida."""
+    from types import SimpleNamespace
+
+    from vision.brain.llm import Interrompido, OllamaLLM
+
+    llm = OllamaLLM("m", "http://x", False, 8192, 0.3, "-1m")
+    chamadas = []
+
+    class Fluxo:
+        def __aiter__(self):
+            return self
+
+        async def __anext__(self):
+            await llm.descarregar()  # o CS2 abre enquanto a resposta sai
+            return SimpleNamespace(message=SimpleNamespace(content="oi", tool_calls=None), done=False)
+
+        async def aclose(self):
+            pass
+
+    class Cliente:
+        async def chat(self, **kw):
+            chamadas.append(("chat", kw["keep_alive"]))
+            return Fluxo()
+
+        async def generate(self, **kw):
+            chamadas.append(("generate", kw["keep_alive"]))
+
+    llm.cliente = Cliente()
+
+    def corta(_t):
+        raise Interrompido()
+
+    with pytest.raises(Interrompido):
+        await llm.conversar([], None, ao_texto=corta)
+    assert chamadas == [("chat", "-1m"), ("generate", 0), ("generate", 0)]
+
+
+async def test_vigia_do_jogo_nao_morre_se_o_ollama_falhar(caplog):
+    import asyncio
+    import os
+
+    import psutil
+
+    from vision.voice.loop import LoopVoz
+
+    tentativas = []
+
+    class AgenteQuebrado:
+        async def descarregar(self):
+            tentativas.append(1)
+            raise ConnectionError("Ollama subindo")
+
+        async def carregar(self):
+            pass
+
+        async def liberar_modelo(self):
+            pass
+
+    laco = LoopVoz.__new__(LoopVoz)
+    laco.agente, laco.jogando, laco.estado, laco.voz = AgenteQuebrado(), False, "falando", None
+    laco.escrever = lambda _t: None
+    este = psutil.Process(os.getpid()).name()  # "o jogo" é o próprio processo do teste: está aberto
+    with pytest.raises(TimeoutError):  # ainda rodando depois da falha: não morreu
+        await asyncio.wait_for(laco.vigiar_jogos([este], 0.02), 0.3)
+    assert "vigia do modo jogo falhou" in caplog.text
+    assert len(tentativas) >= 2 and not laco.jogando  # tenta de novo a cada checagem, não desiste
+
+
+async def test_ao_fechar_o_vision_o_modelo_sai_da_placa():
+    from vision.brain.llm import OllamaLLM
+
+    chamadas = []
+
+    class Cliente:
+        async def generate(self, **kw):
+            chamadas.append(kw["keep_alive"])
+
+    llm = OllamaLLM("m", "http://x", False, 8192, 0.3, "-1m")
+    llm.cliente = Cliente()
+    await llm.soltar()
+    assert chamadas == [0] and llm.manter == "-1m"  # só solta agora; não muda o configurado

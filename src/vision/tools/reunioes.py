@@ -35,7 +35,7 @@ class Reunioes:
         r = await self.host.chamar(self.servidor, ferramenta, args)
         if not r.ok:
             if "indisponível" in r.texto or "login" in r.texto.lower() or "401" in r.texto:
-                raise ErroFerramenta("O Wispr Flow está sem login. Diga ao Felipe para rodar `vision wispr-login`.")
+                raise ErroFerramenta("O Wispr Flow está sem login. Diga ao Felipe para reconectar nos Ajustes, em Conexões.")
             raise ErroFerramenta(f"Wispr Flow: {r.texto[:300]}")
         try:
             dados = json.loads(r.texto)

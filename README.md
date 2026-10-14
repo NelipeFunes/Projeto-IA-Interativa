@@ -35,8 +35,42 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
 - **Conversa:** "Hey Vision" acorda (um bipe, e ele já ouve); daí tudo o que você fala vai para ele, sem repetir
   o nome, até "Vision, standby" ou 2 minutos de silêncio. Fora da conversa, o que você fala perto do PC
   é transcrito só para achar o nome e descartado (não vai para a tela, o log nem o disco).
+  Se ele não entende o seu "Hey Vision", use **⚙ → Geral → Calibrar**: a cada bipe, diga "Hey Vision" (5 vezes).
+  Ele mostra como o STT escreveu o seu "Vision" (só fala curta que se repete na maioria das vezes e não é palavra
+  comum) e pergunta se pode usar; aceitando, guarda em `data/ativacao.json` (até 5; o × tira uma). O que você fala
+  na calibração aparece só na tela; no log, só se acordou ou não.
+  Para entender por que ele não acorda, `voz.registrar_ativacao: true` no `config.yaml` escreve no log o que ele
+  ouviu no começo de cada fala (desligue depois: com isso ligado, o que se fala perto do PC vai para o log).
+- **"Hey Vision" pelo modelo** (`voz.ativacao: ambos`, padrão): além de achar o nome no texto, um modelo
+  openWakeWord reconhece o **som** do "Hey Vision", sem passar pelo STT, e o que vem depois do nome é o pedido.
+  O modelo não vem pronto (é seu): `scripts/ativacao/preparar_treino.py` gera amostras com sotaque brasileiro
+  (vozes Piper pt-BR) e o notebook do Colab (`data/ativacao/`); no Colab (GPU T4, ~2h30) ele treina e baixa
+  `hey_vision.onnx`, que vai em `modelos/openwakeword/`. Depois, `scripts/ativacao/gravar_minha_voz.py` grava
+  20 "Hey Vision" seus e 4 frases normais e treina o **verificador da sua voz** (um 2º filtro, local, que corrige o
+  sotaque e corta a TV) e mostra as notas para escolher `voz.limiar_ativacao` (que também está na tela de Ajustes, como "Sensibilidade da ativação", de 0,15 a 0,95; vale ao reiniciar). As gravações ficam em
+  `data/ativacao/minha_voz/` e não saem do PC (o Colab só recebe as vozes sintéticas). Sem o modelo, fica só a
+  transcrição, como antes.
+- **Microfone:** usa o primeiro da lista `voz.microfone` que tiver som. Se ele ficar mudo ou desligado por
+  1 minuto (headset sem fio), passa para o próximo; quando o primeiro volta, volta para ele. Fica no log.
 - **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.
 - **Janela fechada:** falando com ele, aparece uma bolha no canto, sem tirar o foco (não aparece no modo jogo).
+- **Conexões (⚙ → Conexões):** Google Agenda, Spotify, Alexa, Wispr Flow, a chave da Tavily, o Orbit e a TV, sem
+  terminal. Cada um tem um interruptor; os logins abrem a página do próprio serviço no navegador (o Vision não
+  vê a senha dessas contas). Chave e senha digitadas ali vão para o `.env` e nunca voltam para a tela. Como as
+  conexões são montadas ao iniciar, a tela oferece "Reiniciar agora" quando algo muda. Os comandos
+  `vision google-login`, `spotify-login` etc. continuam valendo.
+- **Volume:** com o Spotify tocando, "aumenta/abaixa o volume" mexe no volume do próprio Spotify; com ele no
+  máximo, sobe o do Windows (e tira do mudo). Sem Spotify tocando, ou dizendo "volume do PC", é o Windows.
+- **Lista de fazeres:** as tarefas do Orbit. "O que tem na minha lista?", "adiciona trocar o óleo para sexta",
+  "já paguei o IPVA" (marca como feita), "muda a prioridade de X"; apagar pede "sim". O login é pela tela de
+  Conexões (se o Orbit mandar um código por e-mail, a tela pede o código).
+- **TV Samsung (2015, série J):** "desliga a TV", "volume da TV no 10", "canal 13", "abre o Spotify na TV",
+  "toca blank space no YouTube da TV" (busca no DuckDuckGo e toca o clipe mais visto), "desliga a TV em
+  30 minutos" (timer que desliga, sem alarme). Pareie uma vez com a TV ligada: ⚙ → Conexões → TV Samsung (IP da
+  TV e o PIN que aparece nela) ou `vision tv-parear`. O IP fica em `data/config-local.yaml` e o pareamento em
+  `data/tv/`, fora do git. Volume e YouTube vão pelo UPnP e pelo DIAL (sem pareamento); as teclas, pelo protocolo
+  criptografado dessas TVs. Ligar não dá: com a TV desligada o Wi-Fi dela também desliga. Um link de mídia
+  ("toca este link na TV") sempre pede "sim".
 - **Log:** `data/logs/nucleo.log` e `data/logs/janela.log`.
 
 ### Vision.exe (duplo clique)
@@ -83,6 +117,7 @@ vision voz               # "Hey Vision" (ou ctrl+alt+j) abre a conversa; "Vision
 vision teste             # checagem geral (ollama, agenda, orbit, voz)
 vision teste voz         # testa o "Hey Vision" e o "standby" com a sua voz
 vision google-login      # a cada 7 dias (app do Google em modo teste)
+vision tv-parear         # pareia com a TV Samsung (PIN na tela dela)
 vision memorias          # o que o Vision lembra de você
 vision dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Vision"
 vision acordar
@@ -104,12 +139,14 @@ git config core.hooksPath .githooks  # uma vez: barra push com termo de data/ter
 ## Como funciona
 
 ```
-microfone → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? abre a conversa → …
+microfone → openWakeWord ("Hey Vision" pelo som) ┐
+          → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? ┴ abre a conversa → …
          → Agente (Qwen3.5 + ferramentas) → Piper (voz, frase a frase) → fone
                   │
                   ├── agenda_*   → MCP @cocal/google-calendar-mcp (node/)
                   ├── financas_*, tarefas_* → MCP do Orbit (mcp_servers/orbit)
                   ├── web_buscar / web_ler → Tavily (ou DuckDuckGo, sem chave)
+                  ├── tv_*        → TV Samsung na rede de casa (teclas, UPnP, DIAL)
                   └── guardar_memoria / buscar_memoria / esquecer → data/memoria.db
 ```
 
@@ -128,6 +165,11 @@ microfone → Silero VAD (fala) → Parakeet (texto) → "Hey Vision"? abre a co
   pede "sim", e `web_ler` não abre endereço da rede local.
 - **Cache:** a agenda (ontem até +7 dias) fica em memória e é refeita a cada 5 min; buscas na web ficam 6 h em
   `data/cache/` (pode apagar a pasta quando quiser).
+- **Medição:** cada ferramenta deixa em `data/medicoes/` o nome, quanto demorou, se terminou sem erro e uma
+  impressão curta dos argumentos (para saber se a mesma pergunta voltou). O conteúdo não é gravado em texto, mas a
+  impressão pode ser adivinhada para argumento simples; por isso fica em `data/`, fora do git, e ferramentas de
+  escrita não gravam impressão. `vision medicao` mostra o resumo e quanto um cache poderia ter poupado.
+  Desligue com `medicao.ativo: false`.
 - **Modo jogo:** com o `cs2.exe` aberto, o modelo sai da VRAM e o "Hey Vision" pausa (o atalho continua).
 
 ## Arquivos que você edita

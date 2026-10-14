@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import math
 import os
 import sys
 from dataclasses import dataclass, field
@@ -17,7 +18,13 @@ RAIZ = Path(sys.executable).resolve().parent if getattr(sys, "frozen", False) el
 AJUSTES_LOCAIS = "config-local.yaml"
 # Só estas chaves saem do arquivo local (as mesmas de vision/ajustes.py): o resto é ignorado.
 CHAVES_AJUSTAVEIS = {"assistente.nome", "voz.voz_piper", "voz.velocidade_fala", "voz.conversa_silencio_max_s",
-                     "voz.microfone", "clima.cidade"}  # a cidade é dado pessoal: só no arquivo local
+                     "voz.microfone", "voz.limiar_ativacao", "clima.cidade"}  # a cidade é dado pessoal: só no arquivo local
+# O interruptor de cada conexão na tela de Conexões (vision/conexoes.py): só aceita true/false.
+CHAVES_LIGA_DESLIGA = {"mcp.google-calendar.ativo", "spotify.ativo", "alexa.ativo", "mcp.wispr.ativo",
+                       "web.ativo", "mcp.orbit.ativo", "tv.ativo"}
+CHAVES_AJUSTAVEIS |= CHAVES_LIGA_DESLIGA
+# Gravadas pela tela de Conexões (não pela de Ajustes). O IP da TV é da sua rede: só no arquivo local.
+CHAVES_DE_CONEXAO = {"tv.ip"}
 
 
 @dataclass
@@ -41,15 +48,34 @@ class Config:
         return p if p.is_absolute() else self.raiz / p
 
 
+def manter_carregado(cfg: Config) -> str | int:
+    """`modelo.manter_carregado` como o Ollama aceita: "30m", "-1m" ou um número de segundos (negativo = sempre).
+    "-1" como texto (sem unidade) o Ollama recusa ("missing unit"): número puro vira int (02/10)."""
+    valor = cfg.get("modelo.manter_carregado", "30m")
+    if isinstance(valor, bool):
+        return "30m"
+    try:
+        numero = float(valor) if isinstance(valor, int | float) else float(str(valor).strip())
+    except ValueError:
+        return str(valor).strip() or "30m"
+    return int(numero) if math.isfinite(numero) else -1  # "inf" = sempre (int(inf) levantaria OverflowError)
+
+
 def carregar(arquivo: Path | None = None, sobrescrever: dict[str, Any] | None = None) -> Config:
-    load_dotenv(RAIZ / ".env")
+    # Sem interpolação: uma senha com "${" (gravada pela tela de Conexões) chega como foi digitada.
+    load_dotenv(RAIZ / ".env", interpolate=False)
     arquivo = arquivo or RAIZ / "config.yaml"
     bruto = yaml.safe_load(arquivo.read_text(encoding="utf-8")) or {}
     if os.environ.get("VISION_SEM_AJUSTES") != "1":  # os testes não herdam o que você mudou na janela
         for chave, valor in ler_ajustes(RAIZ / "data" / AJUSTES_LOCAIS).items():
             if chave == "clima.cidade" and not (isinstance(valor, str) and len(valor) <= 60):
                 continue
-            if chave in CHAVES_AJUSTAVEIS and not (chave == "voz.voz_piper" and not _nome_de_arquivo(valor)):
+            if chave == "tv.ip" and not _ip_local(valor):
+                continue
+            if chave in CHAVES_LIGA_DESLIGA and not isinstance(valor, bool):
+                continue
+            valido = not (chave == "voz.voz_piper" and not _nome_de_arquivo(valor))
+            if (chave in CHAVES_AJUSTAVEIS or chave in CHAVES_DE_CONEXAO) and valido:
                 _definir(bruto, chave, valor)
     for chave, valor in (sobrescrever or {}).items():
         _definir(bruto, chave, valor)
@@ -65,6 +91,13 @@ def ler_ajustes(arquivo: Path) -> dict[str, Any]:
     except (OSError, yaml.YAMLError):
         return {}
     return {str(k): v for k, v in dados.items()} if isinstance(dados, dict) else {}
+
+
+def _ip_local(valor: Any) -> bool:
+    """tv.ip: só um IPv4 da rede local (a TV). A regra é a mesma do cliente da TV (vision/tv.py)."""
+    from vision.tv import ip_valido
+
+    return ip_valido(valor) is not None
 
 
 def _nome_de_arquivo(valor: Any) -> bool:

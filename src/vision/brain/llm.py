@@ -40,15 +40,21 @@ class LLM(Protocol):
     async def carregar(self) -> None: ...
 
 
+# No modo jogo, uma pergunta pelo atalho (ou pela janela) carrega o modelo de novo: com manter_carregado "-1m" ele
+# ficaria preso na VRAM até o jogo fechar (revisão do PR 44). Depois de descarregar, cada resposta só segura 2 min.
+MANTER_NO_JOGO = "2m"
+
+
 class OllamaLLM:
-    def __init__(self, modelo: str, host: str, pensar: bool, contexto: int, temperatura: float, manter: str):
+    def __init__(self, modelo: str, host: str, pensar: bool, contexto: int, temperatura: float, manter: str | int):
         import ollama
 
         self.modelo = modelo
         self.cliente = ollama.AsyncClient(host=host, timeout=300)
         self.pensar = pensar
         self.opcoes = {"num_ctx": contexto, "temperature": temperatura}
-        self.manter = manter
+        self.manter_normal = manter
+        self.manter = manter  # o que vale agora: MANTER_NO_JOGO depois de descarregar, o normal depois de carregar
 
     async def conversar(self, mensagens, ferramentas, ao_texto=None) -> RespostaLLM:
         comum = dict(
@@ -60,7 +66,10 @@ class OllamaLLM:
             keep_alive=self.manter,
         )
         if ao_texto is None:
-            r = await self.cliente.chat(**comum)
+            try:
+                r = await self.cliente.chat(**comum)
+            finally:
+                await self._jogo_comecou_no_meio(comum["keep_alive"])
             return RespostaLLM(
                 texto=r.message.content or "",
                 chamadas=_chamadas(r.message.tool_calls),
@@ -81,15 +90,32 @@ class OllamaLLM:
             fechar = getattr(fluxo, "aclose", None)
             if fechar is not None:
                 await fechar()  # sem esperar o coletor de lixo: o Ollama para de gerar quando a conexão cai
+            # Também quando a resposta é cortada (Interrompido) ou falha: o jogo pode ter aberto no meio (2ª revisão)
+            await self._jogo_comecou_no_meio(comum["keep_alive"])
         return RespostaLLM("".join(texto), chamadas, tokens, segundos)
+
+    async def _jogo_comecou_no_meio(self, usado) -> None:
+        """O jogo abriu enquanto esta resposta saía: ela terminou com o keep_alive de antes e desfez o descarregar."""
+        if self.manter == MANTER_NO_JOGO and usado != MANTER_NO_JOGO:
+            try:
+                await self.cliente.generate(model=self.modelo, prompt="", keep_alive=0)
+            except Exception:  # noqa: BLE001 - não esconde o erro da própria resposta (está num finally)
+                pass
+
+    async def soltar(self) -> None:
+        """O Vision está fechando: com "-1m" o Ollama seguraria o modelo na placa para sempre, e um jogo aberto
+        depois (sem o Vision para descarregar) ficaria sem os 3,2 GB (2ª revisão do PR 44)."""
+        await self.cliente.generate(model=self.modelo, prompt="", keep_alive=0)
 
     async def carregar(self) -> None:
         """Põe o modelo na VRAM já com o contexto certo. Sem o num_ctx, o Ollama carrega com o máximo do
         modelo (262 mil tokens no Qwen3.5: 13 GB, só 35% na GPU) e recarrega na primeira pergunta de verdade."""
+        self.manter = self.manter_normal  # fim do jogo: volta a ficar o tempo configurado
         await self.cliente.generate(model=self.modelo, prompt="", options=self.opcoes, keep_alive=self.manter)
 
     async def descarregar(self) -> None:
-        """Tira o modelo da VRAM (modo jogo)."""
+        """Tira o modelo da VRAM (modo jogo). Até carregar de novo, cada resposta só o segura por 2 min."""
+        self.manter = MANTER_NO_JOGO
         await self.cliente.generate(model=self.modelo, prompt="", keep_alive=0)
 
 

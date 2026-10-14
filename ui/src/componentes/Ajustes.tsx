@@ -1,15 +1,26 @@
 import { motion } from "motion/react";
-import { useEffect, useState } from "react";
-import type { CampoAjuste, DadosAjustes, ValorAjuste } from "../tipos";
+import { type ReactNode, useEffect, useState } from "react";
+import type { CampoAjuste, DadosAjustes, DadosCalibracao, ValorAjuste } from "../tipos";
 
 const INICIO = "inicia_com_windows";
 
-/** Tela de ajustes: o núcleo manda os valores e as opções; aqui só se escolhe e manda o que mudou. */
-export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir }: {
+export type Aba = "geral" | "conexoes";
+
+/** Tela de ajustes: o núcleo manda os valores e as opções; aqui só se escolhe e manda o que mudou.
+ *  A aba "Conexões" (Google, Spotify, Alexa…) vem pronta de fora, em `conexoes`. */
+export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir, conexoes, aba, aoTrocarAba, calibracao, aoCalibrar,
+  aoEsquecerApelidos, aoAceitarApelidos }: {
   dados: DadosAjustes | null;
   aoFechar: () => void;
   aoSalvar: (valores: Record<string, ValorAjuste>) => void;
   aoOuvir: (voz: string) => void;
+  conexoes: ReactNode;
+  aba: Aba;
+  aoTrocarAba: (aba: Aba) => void;
+  calibracao: DadosCalibracao | null;
+  aoCalibrar: () => void;
+  aoEsquecerApelidos: (apelido?: string) => void;
+  aoAceitarApelidos: (apelidos: string[]) => void;
 }) {
   const [form, setForm] = useState<Record<string, ValorAjuste>>(dados?.valores ?? {});
   useEffect(() => {
@@ -31,26 +42,33 @@ export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir }: {
   return (
     <motion.div className="ajustes-fundo" initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
       onMouseDown={(e) => e.target === e.currentTarget && aoFechar()}>
-      <motion.form
-        className="painel ajustes"
+      <motion.div
+        className={`painel ajustes${aba === "conexoes" ? " ajustes-largo" : ""}`}
         role="dialog"
         aria-label="Ajustes"
         initial={{ y: 12, opacity: 0 }}
         animate={{ y: 0, opacity: 1 }}
-        onSubmit={(e) => {
-          e.preventDefault();
-          if (mudou) aoSalvar(mudancas);
-        }}
       >
         <div className="painel-cabeca">
           <span className="painel-icone">⚙</span>
           <h2>Ajustes</h2>
+          <div className="abas" role="tablist">
+            <button type="button" role="tab" aria-selected={aba === "geral"} className={aba === "geral" ? "aba ativa" : "aba"}
+              onClick={() => aoTrocarAba("geral")}>Geral</button>
+            <button type="button" role="tab" aria-selected={aba === "conexoes"}
+              className={aba === "conexoes" ? "aba ativa" : "aba"} onClick={() => aoTrocarAba("conexoes")}>Conexões</button>
+          </div>
           <button type="button" className="ajustes-fechar" aria-label="Fechar ajustes" onClick={aoFechar}>✕</button>
         </div>
-        {!dados ? (
+        {aba === "conexoes" ? (
+          <div className="ajustes-corpo">{conexoes}</div>
+        ) : !dados ? (
           <p className="vazio">Carregando…</p>
         ) : (
-          <div className="ajustes-corpo">
+          <form className="ajustes-corpo" onSubmit={(e) => {
+            e.preventDefault();
+            if (mudou) aoSalvar(mudancas);
+          }}>
             {dados.campos.map((c) => (
               <Campo key={c.chave} campo={c} valor={form[c.chave] ?? null} opcoes={dados.opcoes[c.chave] ?? []}
                 aoMudar={(v) => mudar(c.chave, v)} aoOuvir={c.chave === "voz.voz_piper" ? aoOuvir : undefined} />
@@ -59,14 +77,16 @@ export function Ajustes({ dados, aoFechar, aoSalvar, aoOuvir }: {
               <input type="checkbox" checked={form[INICIO] === true} onChange={(e) => mudar(INICIO, e.target.checked)} />
               <span>Iniciar com o Windows</span>
             </label>
+            <Calibracao dados={calibracao} apelidos={calibracao?.apelidos ?? dados.apelidos ?? []} aoCalibrar={aoCalibrar}
+              aoEsquecer={aoEsquecerApelidos} aoAceitar={aoAceitarApelidos} />
             <Mensagem dados={dados} />
             <div className="ajustes-botoes">
               <button type="button" className="botao botao-nao" onClick={aoFechar}>Fechar</button>
               <button type="submit" className="botao botao-sim" disabled={!mudou}>Salvar</button>
             </div>
-          </div>
+          </form>
         )}
-      </motion.form>
+      </motion.div>
     </motion.div>
   );
 }
@@ -96,7 +116,7 @@ function Campo({ campo, valor, opcoes, aoMudar, aoOuvir }: {
         ) : campo.tipo === "numero" ? (
           <input id={id} type="number" value={typeof valor === "number" ? valor : ""}
             min={campo.minimo ?? undefined} max={campo.maximo ?? undefined}
-            step={campo.maximo !== null && campo.maximo !== undefined && campo.maximo <= 5 ? 0.05 : 10}
+            step={campo.maximo !== null && campo.maximo !== undefined && campo.maximo <= 5 ? "any" : 10}
             onChange={(e) => aoMudar(e.target.value === "" ? null : Number(e.target.value))} />
         ) : (
           <input id={id} type="text" maxLength={campo.maximo ?? 20} value={typeof valor === "string" ? valor : ""}
@@ -106,6 +126,72 @@ function Campo({ campo, valor, opcoes, aoMudar, aoOuvir }: {
           <button type="button" className="ajuste-ouvir" onClick={() => aoOuvir(valor)} title="Ouvir esta voz">
             ▶ Ouvir
           </button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** "Calibrar o Hey Vision": 5 vezes, com bipe; o núcleo aprende como o STT escreve o seu "Vision". */
+function Calibracao({ dados, apelidos, aoCalibrar, aoEsquecer, aoAceitar }: {
+  dados: DadosCalibracao | null;
+  apelidos: string[];
+  aoCalibrar: () => void;
+  aoEsquecer: (apelido?: string) => void;
+  aoAceitar: (apelidos: string[]) => void;
+}) {
+  const rodando = dados?.rodando === true;
+  const sugeridos = !rodando ? (dados?.sugeridos ?? []) : [];
+  return (
+    <div className="ajuste calibracao">
+      <span>"Hey Vision"</span>
+      <span className="conexao-dica">
+        Se ele não entende quando você chama, calibre: a cada bipe, diga "Hey Vision" (5 vezes). Ele aprende como
+        escreve o seu "Vision".
+      </span>
+      {rodando && (
+        <p className="conexao-andamento rodando" role="status">
+          <span className="girando" aria-hidden="true" />
+          <span>{dados?.etapa ? `Depois do bipe, diga "Hey Vision" (${dados.etapa} de ${dados.de})…` : "Preparando…"}</span>
+        </p>
+      )}
+      {dados?.ouvidos && dados.ouvidos.length > 0 && (
+        <ol className="calibracao-ouvidos">
+          {dados.ouvidos.map((o, i) => (
+            <li key={i} className={o.acordou ? "ok" : "erro"}>
+              {o.texto ? `"${o.texto}"` : "(não ouvi nada)"} {o.acordou ? "✓" : "✗"}
+            </li>
+          ))}
+        </ol>
+      )}
+      {!rodando && dados?.dica && <p className="ajustes-msg">{dados.dica}</p>}
+      {!rodando && dados?.erro && <p className="ajustes-msg erro">{dados.erro}</p>}
+      {sugeridos.length > 0 && (
+        <div className="conexao-botoes">
+          <span>
+            Usar {sugeridos.map((a) => `"${a}"`).join(", ")} como "Vision"? Só aceite se não for uma palavra que se
+            fala no dia a dia (senão a TV ou uma conversa também acordam o Vision).
+          </span>
+          <button type="button" className="botao botao-sim" onClick={() => aoAceitar(sugeridos)}>Aceitar</button>
+        </div>
+      )}
+      {apelidos.length > 0 && (
+        <div className="calibracao-apelidos">
+          <span className="conexao-dica">Grafias aprendidas:</span>
+          {apelidos.map((a) => (
+            <button type="button" key={a} className="calibracao-apelido" disabled={rodando} title="Esquecer esta"
+              onClick={() => aoEsquecer(a)}>
+              {a} ×
+            </button>
+          ))}
+        </div>
+      )}
+      <div className="conexao-botoes">
+        <button type="button" className="botao botao-sim" disabled={rodando} onClick={aoCalibrar}>
+          {rodando ? "Calibrando…" : "Calibrar"}
+        </button>
+        {apelidos.length > 1 && !rodando && (
+          <button type="button" className="botao botao-nao" onClick={() => aoEsquecer()}>Esquecer todas</button>
         )}
       </div>
     </div>

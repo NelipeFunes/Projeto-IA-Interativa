@@ -53,10 +53,10 @@ async def test_acender_com_brilho_e_apagar():
 
 async def test_sem_login_ou_alexa_fora_do_ar_vira_mensagem():
     c = Casa(AlexaFalsa(luzes=[]))
-    with pytest.raises(ErroFerramenta, match="alexa-login"):
+    with pytest.raises(ErroFerramenta, match="Conexões"):
         await c._mudar(True)({"luz": "quarto"})
-    c = Casa(AlexaFalsa(falha=alexa.SemLogin("a sessão da Alexa venceu: rode `vision alexa-login`")))
-    with pytest.raises(ErroFerramenta, match="alexa-login"):
+    c = Casa(AlexaFalsa(falha=alexa.SemLogin("a sessão da Alexa venceu: reconecte a Alexa nos Ajustes, em Conexões")))
+    with pytest.raises(ErroFerramenta, match="Conexões"):
         await c._mudar(False)({"luz": "quarto"})
     c = Casa(AlexaFalsa(falha=RuntimeError("timeout")))
     with pytest.raises(ErroFerramenta, match="não respondeu"):
@@ -152,7 +152,7 @@ async def test_sessao_que_nao_volta_pede_login(com_alexa):
 
     a, _logins, respostas, _ = com_alexa
     respostas += [AlexapyLoginError(), AlexapyLoginError()]
-    with pytest.raises(alexa.SemLogin, match="alexa-login"):
+    with pytest.raises(alexa.SemLogin, match="Conexões"):
         await a.mudar_luz("e1", False)
     assert a.login is None  # nada quebrado fica guardado para a próxima vez
 
@@ -245,7 +245,7 @@ def test_ordem_estavel_das_luzes_repetidas():
 
 async def test_atualizar_lista_sem_login(cfg, capsys):
     assert await alexa.atualizar_lista(cfg) == 1
-    assert "alexa-login" in capsys.readouterr().out
+    assert "Conexões" in capsys.readouterr().out
 
 
 async def test_modelo_que_diz_feito_sem_fazer_nao_engana():

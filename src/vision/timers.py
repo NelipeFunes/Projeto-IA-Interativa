@@ -24,6 +24,9 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 ATRASO_MAXIMO_S = 3600  # venceu com o núcleo desligado há mais que isso: o aviso já não serve
+# Timer com ação (desligar a TV) vencido com o núcleo fora: depois disso não age. Você pode ter religado a TV
+# no meio-tempo, e ela desligaria na sua cara (revisão do PR 46).
+ATRASO_MAXIMO_ACAO_S = 120
 MAXIMO_TIMERS = 20
 
 
@@ -34,8 +37,14 @@ class Timer:
     fim: float  # time.time() do fim
     rotulo: str  # "10 minutos", "às 15:00": para falar e listar
     alarme: bool = False  # True = horário marcado ("me avisa às 15h"), False = contagem ("timer de 10 min")
+    # O que fazer no fim, além de avisar (pedido de 05/10: "desliga a TV em 30 minutos"). Só um nome da lista
+    # fechada de ações (montagem.py); o resultado vai para `resultado` quando dispara.
+    acao: str = ""
+    resultado: str = ""
 
     def aviso(self) -> str:
+        if self.acao:
+            return self.resultado or "Timer acabou."
         if self.alarme:
             return f"Alarme {self.rotulo}" + (f": {self.nome}." if self.nome else ".")
         return f"O timer {f'{self.nome!r} ' if self.nome else ''}de {self.rotulo} acabou."
@@ -66,6 +75,9 @@ class Timers:
                 continue
             if agora - t.fim > ATRASO_MAXIMO_S:
                 continue
+            if t.acao and agora - t.fim > ATRASO_MAXIMO_ACAO_S:
+                log.info("timer com ação venceu com o Vision fechado; não fiz a ação: %s", t.acao)
+                continue
             self._agendar(t)
         self._gravar()
 
@@ -76,10 +88,10 @@ class Timers:
 
     # ------------------------------------------------------------------ operações
 
-    def criar(self, segundos: float, rotulo: str, nome: str = "", alarme: bool = False) -> Timer:
+    def criar(self, segundos: float, rotulo: str, nome: str = "", alarme: bool = False, acao: str = "") -> Timer:
         if len(self._timers) >= MAXIMO_TIMERS:
             raise ValueError(f"Já tem {MAXIMO_TIMERS} timers ligados.")
-        t = Timer(uuid.uuid4().hex[:8], nome.strip(), self.relogio() + segundos, rotulo, alarme)
+        t = Timer(uuid.uuid4().hex[:8], nome.strip(), self.relogio() + segundos, rotulo, alarme, acao)
         self._agendar(t)
         self._gravar()
         return t

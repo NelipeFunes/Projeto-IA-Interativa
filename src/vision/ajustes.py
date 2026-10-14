@@ -31,6 +31,13 @@ LISTA = [
     Ajuste("voz.conversa_silencio_max_s", "numero", "Fecha a conversa depois de quantos segundos sem falar",
            ao_vivo=True, minimo=30, maximo=600),
     Ajuste("voz.microfone", "escolha", "Microfone", ao_vivo=False),
+    # Nota mínima do modelo de ativação (voz.ativacao: modelo ou ambos). Menor = acorda mais fácil, e pode acordar
+    # sem querer; maior = exige uma fala mais clara. Vale ao reiniciar: o modelo é carregado com o limiar.
+    # Piso de 0,15 (o mesmo do vision teste voz): abaixo disso qualquer fala da TV acorda e, no modo "sensiveis",
+    # quase toda escrita roda sem "Confirma?" (revisão do PR 55).
+    Ajuste("voz.limiar_ativacao", "numero", "Sensibilidade da ativação pelo som (nota mínima: menor acorda mais fácil; "
+           "abaixo de 0,3 a TV pode acordar o assistente e ele executar comandos)", ao_vivo=False, minimo=0.15,
+           maximo=0.95),
     Ajuste("clima.cidade", "texto", "Cidade do clima e do \"bom dia\"", ao_vivo=False, maximo=60),
 ]
 POR_CHAVE = {a.chave: a for a in LISTA}
@@ -92,9 +99,9 @@ def validar(cfg: Config, dados: Any) -> dict[str, Any]:
             mudancas[chave] = texto
         elif a.tipo == "numero":
             if isinstance(valor, bool) or not isinstance(valor, int | float):
-                raise ValueError(f"{a.rotulo}: precisa ser um número")
+                raise ValueError(f"{a.rotulo.split(' (')[0]}: precisa ser um número")
             if not (a.minimo is not None and a.maximo is not None and a.minimo <= valor <= a.maximo):
-                raise ValueError(f"{a.rotulo}: entre {a.minimo:g} e {a.maximo:g}")
+                raise ValueError(f"{a.rotulo.split(' (')[0]}: entre {a.minimo:g} e {a.maximo:g}")
             mudancas[chave] = round(float(valor), 2)
         elif chave == "voz.voz_piper":
             if valor not in vozes(cfg):

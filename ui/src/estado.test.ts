@@ -158,3 +158,28 @@ describe("eventos do núcleo", () => {
     expect(s.ajustes).toEqual({ valores: { "voz.velocidade_fala": 1.1 }, campos: [], opcoes: {}, salvo: true });
   });
 });
+
+describe("conexões", () => {
+  it("o estado das conexões vindo do núcleo fica guardado para a aba de Conexões", () => {
+    const dados = {
+      servicos: [{ id: "web", nome: "Busca na web", descricao: "", ligado: true, situacao: "falta" as const,
+        detalhe: "Sem chave.", campos: [], acao: "Salvar chave", desconectar: false }],
+      andamento: { web: { texto: "Chave da Tavily guardada.", rodando: false, ok: true } },
+      reiniciar: ["Busca na web"],
+    };
+    const s = aplicar([{ tipo: "conexoes", ...dados }]);
+    expect(s.conexoes).toEqual(dados);
+  });
+});
+
+
+describe("calibração", () => {
+  it("o evento da calibração não reinicia o formulário dos ajustes", () => {
+    const antes = aplicar([{ tipo: "ajustes", valores: { "voz.velocidade_fala": 1.1 }, campos: [], opcoes: {} }]);
+    const depois = reduzir(antes, { tipo: "calibracao", rodando: false, apelidos: [], dica: "Esqueci." });
+    expect(depois.ajustes).toBe(antes.ajustes);
+    expect(depois.calibracao?.apelidos).toEqual([]);
+    const outra = reduzir(depois, { tipo: "calibracao", rodando: true, etapa: 1, de: 5 });
+    expect(outra.calibracao?.apelidos).toEqual([]); // as grafias atuais não somem no meio da calibração
+  });
+});

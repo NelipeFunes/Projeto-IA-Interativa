@@ -91,7 +91,7 @@ class Casa:
     def _escolher(self, nome: Any) -> list[dict[str, str]]:
         luzes = self._rotuladas()
         if not luzes:
-            raise ErroFerramenta("Nenhuma luz conhecida. Diga ao Felipe para rodar `vision alexa-login`.")
+            raise ErroFerramenta("Nenhuma luz conhecida. Diga ao Felipe para conectar a Alexa nos Ajustes, em Conexões.")
         lista = ", ".join(x["rotulo"] for x in luzes)
         pedido = normalizar(nome or "")
         if pedido in TODAS:
@@ -148,7 +148,7 @@ class Casa:
 
     async def listar(self, _args: dict[str, Any]) -> str:
         if not self.alexa.luzes():
-            return "Nenhuma luz ligada ao Vision ainda (o Felipe precisa rodar `vision alexa-login`)."
+            return "Nenhuma luz ligada ao Vision ainda (o Felipe precisa conectar a Alexa nos Ajustes, em Conexões)."
         return "Luzes que o Vision controla (pela Alexa): " + self.resumo() + "."
 
     def resumo(self) -> str:

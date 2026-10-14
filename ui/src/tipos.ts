@@ -61,6 +61,62 @@ export interface DadosAjustes {
   erro?: string;
   salvo?: boolean;
   reiniciar?: boolean;
+  /** Como o STT escreve o "Vision" na sua voz, aprendido na calibração. */
+  apelidos?: string[];
+}
+
+/** A calibração do "Hey Vision": o núcleo manda a cada etapa e no fim. */
+export interface DadosCalibracao {
+  rodando: boolean;
+  etapa?: number;
+  de?: number;
+  ouvidos?: { texto: string; acordou: boolean }[];
+  /** Grafias novas do nome que a calibração achou: só valem se você aceitar. */
+  sugeridos?: string[];
+  apelidos?: string[];
+  acertos?: number;
+  dica?: string;
+  erro?: string;
+}
+
+/** Um campo do formulário de conexão. Segredos (tipo "senha") nunca vêm preenchidos do núcleo. */
+export interface CampoConexao {
+  nome: string;
+  rotulo: string;
+  tipo: "texto" | "email" | "senha" | "arquivo";
+  valor: string;
+  dica: string;
+  obrigatorio: boolean;
+}
+
+export type SituacaoConexao = "ok" | "atencao" | "falta" | "desligado";
+
+/** Um cartão da tela de Conexões (vision/conexoes.py). */
+export interface Servico {
+  id: string;
+  nome: string;
+  descricao: string;
+  ligado: boolean;
+  situacao: SituacaoConexao;
+  detalhe: string;
+  campos: CampoConexao[];
+  acao: string | null;
+  desconectar: boolean;
+  ajuda?: { rotulo: string; url: string };
+}
+
+/** A última frase de um login (o núcleo manda enquanto ele anda e quando acaba). */
+export interface Andamento {
+  texto: string;
+  rodando: boolean;
+  ok: boolean | null;
+}
+
+export interface DadosConexoes {
+  servicos: Servico[];
+  andamento: Record<string, Andamento>;
+  /** Nomes dos serviços que mudaram desde que o Vision iniciou: só valem depois de reiniciar. */
+  reiniciar: string[];
 }
 
 export type Evento =
@@ -75,6 +131,8 @@ export type Evento =
   | { tipo: "pendente_resolvido"; id: string; resultado: "executada" | "cancelada"; evento?: EventoAgenda | null }
   | { tipo: "aviso"; texto: string | null }
   | ({ tipo: "ajustes" } & DadosAjustes)
+  | ({ tipo: "conexoes" } & DadosConexoes)
+  | ({ tipo: "calibracao" } & DadosCalibracao)
   | {
       tipo: "painel";
       nome?: string;

@@ -82,7 +82,8 @@ class Musica:
                                onde=texto("SÓ se o Felipe disser onde tocar ('na Alexa', 'no Echo', 'no celular'). "
                                           "Sem isso, deixe vazio: toca no PC.")),
                        self.tocar, escrita=True, grupo="musica", confirmar=False, confirmar_se_externo=True,
-                       descrever=self.descrever_tocar, prazo_s=PRAZO_PC_S),
+                       # +10 s: abrir o Spotify do zero (até 22 s) mais a conferência de que tocou (revisão do PR 41)
+                       descrever=self.descrever_tocar, prazo_s=PRAZO_PC_S + 10),
             Ferramenta("musica_controlar", "Pausa, continua, pula ou volta a música do Spotify.",
                        esquema(["acao"], acao={"type": "string", "enum": ACOES}),
                        self.controlar, escrita=True, grupo="musica", confirmar=False, confirmar_se_externo=True,

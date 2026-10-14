@@ -1,5 +1,5 @@
 // Estado da tela e o redutor que aplica cada evento. Sem efeitos colaterais: fácil de testar.
-import type { DadosAjustes, Estado, Evento, EventoAgenda, Link, Memoria, Pendente, Status } from "./tipos";
+import type { DadosAjustes, DadosCalibracao, DadosConexoes, Estado, Evento, EventoAgenda, Link, Memoria, Pendente, Status } from "./tipos";
 
 export interface Mensagem {
   id: number;
@@ -34,6 +34,8 @@ export interface EstadoUI {
   estrela: number; // muda quando uma memória é guardada → dispara a estrela voando
   aviso: string | null;
   ajustes: DadosAjustes | null;
+  conexoes: DadosConexoes | null;
+  calibracao: DadosCalibracao | null;
   seq: number;
 }
 
@@ -51,6 +53,8 @@ export const inicial: EstadoUI = {
   estrela: 0,
   aviso: null,
   ajustes: null,
+  conexoes: null,
+  calibracao: null,
   seq: 0,
 };
 
@@ -71,8 +75,8 @@ const aparar = (conversa: Mensagem[]) =>
 export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
   const seq = s.seq + 1;
   switch (ev.tipo) {
-    case "reiniciar":
-      return { ...inicial, nome: s.nome, seq };
+    case "reiniciar": // recomeço do roteiro da demo: os ajustes e as conexões não são do roteiro, ficam
+      return { ...inicial, nome: s.nome, ajustes: s.ajustes, conexoes: s.conexoes, calibracao: s.calibracao, seq };
 
     case "limpar_conversa": // a bolha, quando reaparece: só a conversa nova, sem mexer no estado do orbe
       return { ...s, seq, conversa: [], ferramentasTurno: [], linksTurno: [] };
@@ -190,6 +194,19 @@ export function reduzir(s: EstadoUI, ev: Acao): EstadoUI {
     case "ajustes": {
       const { tipo: _tipo, ...dados } = ev;
       return { ...s, seq, ajustes: dados };
+    }
+
+    case "conexoes": {
+      const { tipo: _tipo, ...dados } = ev;
+      return { ...s, seq, conexoes: dados };
+    }
+
+    case "calibracao": {
+      // Não mexe em `ajustes`: trocar a referência dele reiniciaria o formulário e apagaria o que você editou e
+      // ainda não salvou (revisão do PR 43). As grafias atuais vêm daqui, na própria seção da calibração.
+      const { tipo: _tipo, ...dados } = ev;
+      const apelidos = dados.apelidos ?? s.calibracao?.apelidos;
+      return { ...s, seq, calibracao: { ...dados, ...(apelidos ? { apelidos } : {}) } };
     }
 
     case "painel":

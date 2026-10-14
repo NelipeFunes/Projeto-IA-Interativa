@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import difflib
+import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass, field
 from typing import Any
@@ -127,6 +128,7 @@ def numero(descricao: str) -> dict[str, Any]:
 @dataclass
 class Registro:
     ferramentas: dict[str, Ferramenta] = field(default_factory=dict)
+    medidor: Any = None  # vision.medicao.Medidor: cada chamada deixa nome, duração e resultado (T-018)
 
     def adicionar(self, *ferramentas: Ferramenta) -> None:
         for f in ferramentas:
@@ -141,6 +143,13 @@ class Registro:
     def nomes_do_grupo(self, grupo: str) -> list[str]:
         return [f.nome for f in self.ferramentas.values() if f.grupo == grupo]
 
+    def _medir(self, nome: str, args: dict[str, Any] | None, duracao_s: float, ok: bool) -> None:
+        if self.medidor is not None:
+            try:
+                self.medidor.registrar(nome, args, duracao_s, ok)
+            except Exception:  # noqa: BLE001 - medir nunca pode atrapalhar a ferramenta
+                pass
+
     async def rodar(self, nome: str, args: dict[str, Any]) -> tuple[bool, str]:
         """Executa e devolve (ok, texto). Nunca levanta: erro vira texto para o modelo."""
         ok, saida, _ = await self.rodar_com_dados(nome, args)
@@ -151,14 +160,25 @@ class Registro:
         f = self.ferramentas.get(nome)
         if f is None:
             return False, f"Ferramenta '{nome}' não existe. Use só as ferramentas listadas.", None
+        inicio = time.monotonic()
+        ok = False
+        medir = True
         try:
-            saida = await asyncio.wait_for(f.executar(f.normalizar_args(args)), timeout=f.prazo_s)
-        except TimeoutError:
-            return False, f"{nome} demorou demais (mais de {f.prazo_s or 0:.0f} s) e foi abandonada.", None
-        except ErroFerramenta as e:
-            return False, str(e), None
-        except Exception as e:  # noqa: BLE001 - qualquer falha vira resposta, não derruba a conversa
-            return False, f"Erro ao executar {nome}: {type(e).__name__}: {e}", None
+            try:
+                saida = await asyncio.wait_for(f.executar(f.normalizar_args(args)), timeout=f.prazo_s)
+            except TimeoutError:
+                return False, f"{nome} demorou demais (mais de {f.prazo_s or 0:.0f} s) e foi abandonada.", None
+            except ErroFerramenta as e:
+                return False, str(e), None
+            except Exception as e:  # noqa: BLE001 - qualquer falha vira resposta, não derruba a conversa
+                return False, f"Erro ao executar {nome}: {type(e).__name__}: {e}", None
+            ok = True
+        except asyncio.CancelledError:
+            medir = False  # cancelada de fora (prazo do protocolo, desligamento): não é falha da ferramenta
+            raise
+        finally:
+            if medir:  # escrita não grava impressão dos argumentos: não existe cache de escrita
+                self._medir(nome, None if f.escrita else args, time.monotonic() - inicio, ok)
         dados = saida.dados if isinstance(saida, ComDados) else None
         saida = str(saida)
         if len(saida) > LIMITE_RESULTADO:

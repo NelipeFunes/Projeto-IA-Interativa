@@ -78,5 +78,5 @@ async def test_servidor_fora_explica_login(cfg):
 
     h = HostMCP({"google-calendar": ConexaoMCP("google-calendar", None, 1)})  # nunca iniciado
     ag = Agenda(cfg, h)
-    with pytest.raises(ErroFerramenta, match="google-login"):
+    with pytest.raises(ErroFerramenta, match="Conexões"):
         await ag.listar({"data_inicio": tempo.agora().date().isoformat()})

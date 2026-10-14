@@ -64,6 +64,11 @@ def test_falas_que_nao_acordam(ouvido):
     "Pode dormir.",
     "Tchau, Vision.",
     "pode encerrar por favor",
+    # 02/10: "modo" não barra mais, e o Parakeet com sotaque
+    "Não, não, não, pode reparar, pode entrar em modo standby.",
+    "Pode entrar em modo standby",
+    "Stand you by.",
+    "Entra em standby",
 ])
 def test_despedidas(ouvido):
     assert e_despedida(ouvido)
@@ -83,6 +88,14 @@ def test_despedidas(ouvido):
     "Deixa a TV em standby",
     "A TV ficou em standby a noite toda",
     "Me explica o que é o modo standby da TV",
+    "Deixa em standby o PC",  # aparelho depois do standby
+    # revisão do PR 42: pergunta sobre o modo standby, a música, e "stand X by" que não é o Parakeet
+    "Me explica o modo standby",
+    "Quanto gasta o modo standby",
+    "Como ativo o modo standby no Windows",
+    "Toca Stand by Me do Ben E. King",
+    "Stand up by 5pm",
+    "stand 3 by 4",
     "Me explica o que é o modo standby da TV e quanto ele gasta de energia por mês aqui em casa, por favor, rapidinho",
     "Marca o dentista amanhã às nove",
     "Beleza, Vision, pode marcar o dentista",
@@ -137,3 +150,77 @@ def test_interrupcao_por_voz(ouvido, motivo):
     from vision.voice.comandos import e_interrupcao
 
     assert e_interrupcao(ouvido) == motivo
+
+
+
+# ------------------------------------------------------------------ calibração do "Hey Vision" (02/10)
+
+
+@pytest.fixture
+def sem_apelidos():
+    from vision.voice import comandos
+
+    comandos.definir_apelidos([])
+    yield comandos
+    comandos.definir_apelidos([])
+
+
+def test_aprende_a_grafia_que_se_repete_e_nao_acordou(sem_apelidos):
+    c = sem_apelidos
+    ouvidos = ["Deliving", "Hey Vision", "Deliving.", "Hey, deliving!", "Divisão"]
+    assert c.aprender_apelidos(ouvidos) == ["deliving"]  # 3 vezes; "Divisão" saiu 1 vez só (e é palavra comum)
+    assert c.achar_ativacao("Deliving, que horas são?") is None
+    c.definir_apelidos(["deliving"])
+    assert c.achar_ativacao("Deliving, que horas são?") == "que horas são?"
+    assert c.achar_ativacao("Hey deliving") == ""
+
+
+@pytest.mark.parametrize("ouvidos", [
+    ["Yeah.", "Yeah", "yeah!"],  # palavra comum, mesmo repetida
+    ["Do not", "Do not", "Do not"],  # curta demais
+    ["Visita", "Visita", "Visita"],  # palavra do dia a dia: a visita acordaria o Vision
+    ["Deliving", "Bijon", "Vixon"],  # cada vez uma: nada seguro para aprender
+    ["", "", ""],
+])
+def test_nao_aprende_o_que_acordaria_a_toa(sem_apelidos, ouvidos):
+    assert sem_apelidos.aprender_apelidos(ouvidos) == []
+
+
+def test_apelidos_gravados_voltam_e_os_invalidos_ficam_de_fora(sem_apelidos, tmp_path):
+    c = sem_apelidos
+    c.gravar_apelidos(tmp_path, ["deliving", "bijon"])
+    assert c.ler_apelidos(tmp_path) == ["bijon", "deliving"]
+    (tmp_path / c.ARQUIVO_APELIDOS).write_text('{"apelidos": ["ok", "visita", "../x", 3, "deliving"]}', encoding="utf-8")
+    assert c.ler_apelidos(tmp_path) == ["deliving"]
+    (tmp_path / c.ARQUIVO_APELIDOS).write_text("{{{", encoding="utf-8")
+    assert c.ler_apelidos(tmp_path) == []
+
+def test_stand_you_by_tambem_interrompe():
+    from vision.voice.comandos import e_interrupcao
+
+    assert e_interrupcao("Stand you by.") == "standby"
+    assert e_interrupcao("Toca Stand by Me") is None
+
+
+
+# ------------------------------------------------------------------ revisão do PR 43
+
+
+@pytest.mark.parametrize("ouvidos", [
+    ["E o Brasil venceu ontem", "E o Brasil perdeu", "Hey Vision", "x", "y"],  # frase longa da TV
+    ["E o Brasil", "E o Brasil", "E o Brasil", "a", "b"],  # palavra comum, mesmo curta e repetida
+    ["Como está o tempo hoje, gente", "Como fazer isso", "Como", "", ""],
+    ["Deliving", "Deliving", "Hey Vision", "Hey Vision", ""],  # 2 de 5: não é maioria
+])
+def test_tv_e_minoria_nao_ensinam(sem_apelidos, ouvidos):
+    assert sem_apelidos.aprender_apelidos(ouvidos) == []
+
+
+def test_no_maximo_cinco_grafias_minusculas(sem_apelidos, tmp_path):
+    c = sem_apelidos
+    c.definir_apelidos(["Deliving", "bijon", "vixon", "vijom", "bision", "vezion", "vishion"])
+    assert len(c.APELIDOS) == 5 and "deliving" in c.APELIDOS
+    c.gravar_apelidos(tmp_path, ["Deliving", "bijon", "vixon", "vijom", "bision", "vezion"])
+    assert len(c.ler_apelidos(tmp_path)) == 5
+    (tmp_path / c.ARQUIVO_APELIDOS).write_text("[" * 100_000 + "]" * 100_000, encoding="utf-8")
+    assert c.ler_apelidos(tmp_path) == []  # grande demais (ou aninhado demais): não derruba a voz

@@ -21,7 +21,9 @@ modelo:
   # 12k = 3,25 GB, 16k = 3,38 GB (qwen3.5:4b, medido no Ollama).
   contexto: 12288
   temperatura: 0.3
-  manter_carregado: 30m     # quanto tempo o modelo fica na VRAM depois da última fala
+  # Quanto tempo o modelo fica na VRAM depois da última fala. 02/10: sempre ("-1m"): com o modelo no HD (D:), carregar
+  # de novo levava de 4 a 29 s na 1ª pergunta. O modo jogo tira da placa quando o CS2 abre (3,2 GB de 8 GB fora dele).
+  manter_carregado: "-1m"
   host: http://127.0.0.1:11434
 
 memoria:
@@ -61,7 +63,7 @@ mcp:
       ENABLED_TOOLS: list-events,search-events,get-event,create-event,update-event,delete-event
     timeout_s: 30
   orbit:
-    ativo: false            # desligado em 30/09: Orbit suspenso no Render até virar o mês (01/10). Religue aqui.
+    ativo: true             # 02/10: de volta no Render. Login pela tela (Ajustes → Conexões → Orbit).
     comando: ".venv\\Scripts\\python.exe"
     args: ["mcp_servers/orbit/server.py"]
     timeout_s: 100          # o Render leva ~1 min para acordar
@@ -71,6 +73,10 @@ mcp:
     url: https://api.wisprflow.ai/connect/mcp
     oauth: data/wispr-oauth.json
     timeout_s: 30
+
+medicao:
+  ativo: true               # T-018: grava só nome, duração e resultado de cada ferramenta (nunca o conteúdo), em data/medicoes/
+  dias: 30                  # apaga o que for mais velho que isso. Resumo: vision medicao
 
 sistema:
   alertas: true             # avisa sozinho com placa de vídeo a 85°C+, memória ou disco a 95%+ (1x por hora cada)
@@ -110,6 +116,15 @@ alexa:
   # de ler reunião, agenda ou nota (texto de terceiros). true aqui faz as luzes perguntarem sempre.
   confirmar_luzes: false
 
+tv:
+  ativo: true               # TV Samsung de 2015 (série J) pela rede: teclas, volume, apps e YouTube
+  # O IP da TV NÃO fica aqui (é da sua rede): `vision tv-parear` ou Ajustes → Conexões grava tv.ip em
+  # data/config-local.yaml. Sem ele, as ferramentas da TV nem aparecem. A TV não liga pela rede.
+  volume_maximo: 50         # o máximo que o Vision põe pela voz (para um pedido errado não estourar)
+  # Os apps que "abre o X na TV" aceita. Os IDs estão em vision/tv.py (IDS_APPS); "Browser" é o navegador da TV.
+  apps: [YouTube, Netflix, Spotify, Browser]
+  youtube_ok_no_perfil: true  # YouTube fechado abre na tela de perfis: o Vision aperta OK no perfil marcado
+
 voz:
   microfone: [HyperX, C920]   # procura por nome, na ordem
   alto_falante: [HyperX]
@@ -130,14 +145,22 @@ voz:
   # Com a sua voz (30/09) os dois transcreveram igual ("…quanto eu gastei com iFood esse mês?"), mas o
   # base carrega em 3,2 s contra 7,7 s e transcreve mais rápido. Fica o base.
   stt: parakeet-base-int8
-  # Como ele acorda: "transcricao" = "Hey Vision" achado no texto do começo de cada fala curta (sem modelo pronto
-  # para esse nome); "modelo" = openWakeWord com a palavra abaixo (o "Hey Jarvis" de antes).
-  ativacao: transcricao
-  palavra_ativacao: hey_jarvis
-  # Inglês nativo dá 0,99; vozes sintéticas PT-BR dizendo "Hey Jarvis" deram 0,11–0,75; frases comuns ~0,00.
-  # Sua voz (30/09, microfone da webcam, porque o HyperX estava mudo): 0,47 e 0,86. O limiar 0,3 pega as duas.
-  # Recalibre com: vision teste voz
-  limiar_ativacao: 0.3
+  # Como ele acorda: "transcricao" = "Hey Vision" achado no texto do começo de cada fala curta; "modelo" = só o
+  # openWakeWord com a palavra abaixo (reconhece o som, sem passar por texto); "ambos" (03/10) = o modelo acorda e, se
+  # ele não pegar, a transcrição ainda vale. Sem o arquivo do modelo, "ambos" fica só com a transcrição (com aviso).
+  # O modelo hey_vision é treinado no Colab: scripts/ativacao/preparar_treino.py.
+  ativacao: ambos
+  # Diagnóstico do "Hey Vision": true escreve no log (data/logs/nucleo.log) o que foi entendido no começo de cada
+  # fala e se acordou. Desligado por padrão: ligado, o que se fala perto do PC vai para o log. Vale ao reiniciar.
+  registrar_ativacao: false
+  palavra_ativacao: hey_vision   # modelos/openwakeword/hey_vision.onnx (o antigo: hey_jarvis)
+  # Nota mínima do modelo para acordar. Com o hey_jarvis, inglês nativo dava 0,99 e a sua voz 0,47–0,86 (30/09).
+  # Ajuste com as suas gravações: scripts/ativacao/gravar_minha_voz.py mostra as notas. Também na tela de
+  # Ajustes (vale ao reiniciar).
+  limiar_ativacao: 0.5
+  # Com o verificador da sua voz (modelos/openwakeword/hey_vision_verificador.pkl): a partir desta nota do modelo, é
+  # o verificador quem dá a nota final. Baixo para pegar um "Hey Vision" seu que o modelo achou fraco.
+  limiar_verificador: 0.1
   atalho: ctrl+alt+j
   # Conversa: "Hey Vision" abre; tudo o que você fala vai para ele até "Vision, standby"
   # ou esse tempo sem ninguém falar (pedido de 30/09: antes a janela de 8 s pegava conversa que não era com ele).

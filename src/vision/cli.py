@@ -12,7 +12,7 @@ from vision import config
 
 def _silenciar_logs() -> None:
     logging.basicConfig(level=logging.WARNING, format="%(levelname)s %(name)s: %(message)s")
-    for nome in ("httpx", "httpcore", "mcp", "openwakeword"):
+    for nome in ("httpx", "httpcore", "mcp", "openwakeword", "samsungtvws"):  # samsungtvws: loga o token da TV
         logging.getLogger(nome).setLevel(logging.WARNING)
 
 
@@ -58,7 +58,7 @@ async def _dormir(cfg: config.Config, dormir: bool) -> None:
         print(f"{modelo} descarregado da VRAM. Palavra de ativação pausada (o atalho continua valendo).")
     else:
         flag.unlink(missing_ok=True)
-        await cliente.generate(model=modelo, prompt="", keep_alive=cfg.get("modelo.manter_carregado", "30m"),
+        await cliente.generate(model=modelo, prompt="", keep_alive=config.manter_carregado(cfg),
                                options={"num_ctx": int(cfg.get("modelo.contexto", 8192))})
         print(f"{modelo} carregado e pronto.")
 
@@ -91,6 +91,12 @@ def _abrir(cfg: config.Config) -> int:
     return 0
 
 
+def _depois_do_login(codigo: int) -> int:
+    if codigo == 0:
+        print("Reinicie o Vision para ele usar (bandeja → Sair e abrir de novo, ou Ajustes → Conexões → Reiniciar).")
+    return codigo
+
+
 def main(argv: list[str] | None = None) -> int:
     sys.stdout.reconfigure(encoding="utf-8")  # type: ignore[attr-defined]
     ap = argparse.ArgumentParser(prog="vision", description="Assistente pessoal local do Felipe")
@@ -112,11 +118,15 @@ def main(argv: list[str] | None = None) -> int:
     sub.add_parser("google-login", help="refaz o login do Google Agenda (a cada 7 dias)")
     sub.add_parser("alexa-login", help="liga o Vision às luzes da sua Alexa (login da Amazon no navegador)")
     sub.add_parser("alexa-luzes", help="atualiza a lista de luzes da Alexa (depois de renomear no app)")
+    tv = sub.add_parser("tv-parear", help="pareia o Vision com a TV Samsung (PIN na tela da TV)")
+    tv.add_argument("--ip", help="IP da TV na sua rede (fica em data/config-local.yaml)")
     sub.add_parser("wispr-login", help="liga o Vision às suas reuniões e notas do Wispr Flow (login no navegador)")
     s = sub.add_parser("spotify-login", help="liga o Vision ao seu Spotify (Premium) para tocar música")
     s.add_argument("--client-id", help="Client ID do app criado em developer.spotify.com")
     sub.add_parser("dormir", help="tira o modelo da VRAM e pausa a palavra de ativação")
     sub.add_parser("acordar", help="carrega o modelo e reativa a palavra de ativação")
+    m = sub.add_parser("medicao", help="quanto cada ferramenta demora e quantas perguntas se repetem (base do cache)")
+    m.add_argument("--dias", type=int, default=7, help="quantos dias olhar (padrão: 7)")
     sub.add_parser("memorias", help="lista o que o assistente lembra")
     sub.add_parser("wyoming", help="serviço Wyoming (fala → texto e voz) para o Home Assistant e os satélites")
     f = sub.add_parser("falar", help="fala um texto com a voz configurada (teste de voz)")
@@ -176,21 +186,31 @@ def main(argv: list[str] | None = None) -> int:
     elif args.comando == "alexa-login":
         from vision.alexa import login_interativo
 
-        return asyncio.run(login_interativo(cfg))
+        return _depois_do_login(asyncio.run(login_interativo(cfg)))
     elif args.comando == "alexa-luzes":
         from vision.alexa import atualizar_lista
 
         return asyncio.run(atualizar_lista(cfg))
+    elif args.comando == "tv-parear":
+        from vision.tv import parear_interativo
+
+        return _depois_do_login(asyncio.run(parear_interativo(cfg, args.ip)))
     elif args.comando == "wispr-login":
         from vision.wispr import login
 
-        return asyncio.run(login(cfg))
+        return _depois_do_login(asyncio.run(login(cfg)))
     elif args.comando == "spotify-login":
         from vision.spotify import login as spotify_login
 
-        return asyncio.run(spotify_login(cfg, args.client_id))
+        return _depois_do_login(asyncio.run(spotify_login(cfg, args.client_id)))
     elif args.comando in ("dormir", "acordar"):
         asyncio.run(_dormir(cfg, args.comando == "dormir"))
+    elif args.comando == "medicao":
+        from vision.medicao import relatorio
+
+        if args.dias < 1:
+            ap.error("--dias precisa ser 1 ou mais")
+        print(relatorio(cfg.dados / "medicoes", args.dias))
     elif args.comando == "memorias":
         asyncio.run(_memorias(cfg))
     elif args.comando == "falar":

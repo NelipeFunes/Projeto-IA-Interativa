@@ -42,6 +42,11 @@ ESCOPOS = "user-read-playback-state user-modify-playback-state user-read-current
 URL_CONTAS = "https://accounts.spotify.com"
 URL_API = "https://api.spotify.com/v1"
 PRAZO_LOGIN_S = 300
+# 02/10: "ele para a que está tocando mas não segue". Com uma música avulsa (`uris`) o Spotify do PC às vezes
+# carrega a faixa e fica parado, e a API responde 204 do mesmo jeito. Depois de mandar tocar, o Vision confere
+# por até CONFERIR_TOCAR_S; parada, ele dá play de novo uma vez. Sem tocar, avisa em vez de dizer "Tocando".
+CONFERIR_TOCAR_S = 4.0
+INTERVALO_CONFERIR_S = 0.7
 ESPERA_DISPOSITIVO_S = 22  # Spotify abrindo do zero leva ~10 s; cabe no prazo de 30 s da ferramenta
 
 
@@ -121,12 +126,13 @@ def _atender(recebido: asyncio.Future, estado: str):
     return atender
 
 
-async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open) -> int:
-    """`vision spotify-login [--client-id ID]`: login no navegador; guarda o Client ID e os tokens."""
+async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open, avisar=print) -> int:
+    """`vision spotify-login [--client-id ID]` e a tela de Conexões: login no navegador; guarda o Client ID e os
+    tokens. `avisar` recebe cada linha de andamento (o terminal imprime; a tela mostra)."""
     client_id = (client_id or ler(cfg).get("client_id") or "").strip()
     if not client_id:
-        print("Falta o Client ID do seu app do Spotify. Crie um em https://developer.spotify.com/dashboard")
-        print(f"(Web API, endereço de retorno {RETORNO}) e rode: vision spotify-login --client-id SEU_CLIENT_ID")
+        avisar("Falta o Client ID do seu app do Spotify. Crie um em https://developer.spotify.com/dashboard")
+        avisar(f"(Web API, endereço de retorno {RETORNO}) e rode: vision spotify-login --client-id SEU_CLIENT_ID")
         return 1
     verificador, desafio = _pkce()
     estado = secrets.token_urlsafe(24)
@@ -134,22 +140,22 @@ async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open
     try:
         servidor = await asyncio.start_server(_atender(recebido, estado), "127.0.0.1", PORTA_RETORNO)
     except OSError:
-        print(f"A porta {PORTA_RETORNO} está ocupada. Feche o que estiver usando e tente de novo.")
+        avisar(f"A porta {PORTA_RETORNO} está ocupada. Feche o que estiver usando e tente de novo.")
         return 1
     url = f"{URL_CONTAS}/authorize?" + urlencode({
         "client_id": client_id, "response_type": "code", "redirect_uri": RETORNO, "scope": ESCOPOS,
         "code_challenge_method": "S256", "code_challenge": desafio, "state": estado})
     try:
-        print("Abrindo o navegador para o login do Spotify (se não abrir, cole este endereço):")
-        print(url)
+        avisar("Abrindo o navegador para o login do Spotify...")
+        avisar(f"Se não abrir, cole este endereço no navegador: {url}")
         abrir(url)
         try:
             codigo = await asyncio.wait_for(recebido, PRAZO_LOGIN_S)
         except TimeoutError:
-            print("O login não foi concluído a tempo (5 min). Rode `vision spotify-login` de novo.")
+            avisar("O login não foi concluído a tempo (5 min). Tente de novo.")
             return 1
         except SemLogin as e:
-            print(e)
+            avisar(str(e))
             return 1
     finally:
         servidor.close()
@@ -159,11 +165,11 @@ async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open
                 "grant_type": "authorization_code", "code": codigo, "redirect_uri": RETORNO,
                 "client_id": client_id, "code_verifier": verificador})
     except httpx.HTTPError as e:
-        print(f"Não consegui falar com o Spotify ({type(e).__name__}). Confira a internet e tente de novo.")
+        avisar(f"Não consegui falar com o Spotify ({type(e).__name__}). Confira a internet e tente de novo.")
         return 1
     t = r.json() if r.status_code == 200 else {}
     if not t.get("access_token") or not t.get("refresh_token"):
-        print(f"O Spotify não aceitou o código ({r.status_code}): {r.text[:200]}")
+        avisar(f"O Spotify não aceitou o código ({r.status_code}): {r.text[:200]}")
         return 1
     gravar(cfg, {"client_id": client_id, "access_token": t["access_token"], "refresh_token": t["refresh_token"],
                  "expira": time.time() + int(t.get("expires_in", 3600)) - 60})
@@ -172,10 +178,9 @@ async def login(cfg: Config, client_id: str | None = None, abrir=webbrowser.open
             dispositivos = await sp.dispositivos()
     except (ErroSpotify, SemLogin) as e:
         dispositivos = []
-        print(f"(login guardado, mas não consegui listar os dispositivos agora: {e})")
-    print(f"Spotify ligado. Login guardado em {arquivo(cfg)}.")
-    print("Dispositivos agora:", ", ".join(d.get("name", "?") for d in dispositivos) or "nenhum (abra o Spotify)")
-    print("Reinicie o Vision (bandeja → Sair, e abrir de novo) para ele usar.")
+        avisar(f"(login guardado, mas não consegui listar os dispositivos agora: {e})")
+    nomes = ", ".join(d.get("name", "?") for d in dispositivos) or "nenhum (abra o Spotify)"
+    avisar(f"Spotify ligado. Dispositivos agora: {nomes}.")
     return 0
 
 
@@ -205,7 +210,7 @@ class Spotify:
         async with self._trava:
             d = ler(self.cfg)
             if not d.get("refresh_token") or not d.get("client_id"):
-                raise SemLogin("O Spotify não está ligado. Diga ao Felipe para rodar `vision spotify-login`.")
+                raise SemLogin("O Spotify não está ligado. Diga ao Felipe para conectar nos Ajustes, em Conexões.")
             if not forcar and d.get("access_token") and time.time() < float(d.get("expira", 0)):
                 return d["access_token"]
             try:
@@ -214,8 +219,8 @@ class Spotify:
             except httpx.HTTPError as e:  # sem internet: mensagem, não exceção crua (revisão do PR 21)
                 raise ErroSpotify(f"O Spotify não respondeu ({type(e).__name__}).") from e
             if r.status_code in (400, 401):
-                raise SemLogin("O login do Spotify expirou ou foi revogado. Diga ao Felipe para rodar "
-                               "`vision spotify-login`.")
+                raise SemLogin("O login do Spotify expirou ou foi revogado. Diga ao Felipe para reconectar "
+                               "nos Ajustes, em Conexões.")
             if r.status_code != 200:
                 raise ErroSpotify(f"O Spotify não renovou o acesso agora ({r.status_code}). Tente de novo.")
             t = r.json()
@@ -304,7 +309,70 @@ class Spotify:
         if r.status_code not in (200, 202, 204):
             raise ErroSpotify(f"O Spotify não conseguiu tocar ({r.status_code}).")
         tocando = descrever_item(item, tipo)
+        await self._conferir_tocando(disp["id"], item, tipo, tocando)
         return f"{tocando} ({disp.get('name') or 'outro aparelho'})" if onde else tocando
+
+    async def _conferir_tocando(self, aparelho: str, item: dict[str, Any], tipo: str, tocando: str) -> None:
+        """Espera o que foi pedido aparecer tocando. Carregado e parado: um play de novo (uma vez)."""
+        esperado = item.get("uri")
+        deu_play_de_novo = False
+        agora: dict[str, Any] | None = None
+        for _ in range(max(1, round(CONFERIR_TOCAR_S / INTERVALO_CONFERIR_S))):
+            await self._dormir(INTERVALO_CONFERIR_S)
+            try:
+                agora = await self._player()
+            except ErroSpotify as e:  # a conferência é um extra: um 502 nela não desfaz o play que já foi
+                log.warning("não consegui conferir se o Spotify tocou: %s", e)
+                continue
+            atual = (agora or {}).get("item") or {}
+            contexto = ((agora or {}).get("context") or {}).get("uri")
+            # A faixa pode vir "religada" para outra versão do mercado (linked_from guarda a pedida).
+            e_o_pedido = esperado in (atual.get("uri"), (atual.get("linked_from") or {}).get("uri")) \
+                if tipo == "musica" else contexto == esperado
+            if agora and e_o_pedido and agora.get("is_playing"):
+                return
+            if agora and e_o_pedido and not deu_play_de_novo:
+                deu_play_de_novo = True
+                await self._api("PUT", "/me/player/play", params={"device_id": aparelho})
+        if agora is None or agora.get("is_playing"):
+            # Tocando algo que não deu para casar com o pedido (álbum sem `context`, faixa trocada pelo Spotify), ou
+            # sem conseguir conferir: fica o "Tocando" (revisão do PR 41: não transformar sucesso em erro).
+            log.info("tocar: não deu para confirmar que é %s, mas o Spotify está tocando", tocando)
+            return
+        raise ErroSpotify(f"Mandei tocar {tocando}, mas o Spotify não começou. Tente de novo ou dê play no "
+                          "app do Spotify.")
+
+    async def _player(self) -> dict[str, Any] | None:
+        """O estado do player (aparelho, volume, o que toca). None: nada ativo na conta."""
+        r = await self._api("GET", "/me/player")
+        if r.status_code == 204 or not r.content:
+            return None
+        if r.status_code != 200:
+            raise ErroSpotify(f"Não consegui ver o player do Spotify ({r.status_code}).")
+        dados = r.json()
+        return dados if isinstance(dados, dict) else None
+
+    async def volume_atual(self) -> dict[str, Any] | None:
+        """{"volume", "tocando", "aparelho", "id"} do aparelho ativo, ou None (nada ativo, ou o aparelho não deixa
+        mudar o volume pela API, como alguns celulares)."""
+        agora = await self._player()
+        disp = (agora or {}).get("device") or {}
+        if not disp or not disp.get("supports_volume", True) or disp.get("volume_percent") is None:
+            return None
+        return {"volume": int(disp["volume_percent"]), "tocando": bool(agora.get("is_playing")),
+                "aparelho": disp.get("name") or "Spotify", "id": disp.get("id"), "tipo": disp.get("type")}
+
+    async def mudar_volume(self, nivel: int, aparelho: str | None = None) -> None:
+        params: dict[str, Any] = {"volume_percent": max(0, min(100, int(nivel)))}
+        if aparelho:
+            params["device_id"] = aparelho
+        r = await self._api("PUT", "/me/player/volume", params=params)
+        if r.status_code == 404:
+            raise ErroSpotify("Nada está tocando no Spotify agora.")
+        if r.status_code == 403:
+            raise ErroSpotify("Esse aparelho não deixa mudar o volume pelo Spotify.")
+        if r.status_code not in (200, 202, 204):
+            raise ErroSpotify(f"O Spotify não mudou o volume ({r.status_code}).")
 
     async def controlar(self, acao: str) -> str:
         metodo, caminho, feito = {

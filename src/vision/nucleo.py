@@ -33,13 +33,14 @@ from logging.handlers import RotatingFileHandler
 from pathlib import Path
 from typing import Any
 
-from vision import ajustes, config, empacotado, inicializacao
+from vision import ajustes, config, conexoes, empacotado, inicializacao
 from vision.eventos import Barramento
 from vision.voice.loop import FALA_DE_ERRO
 
 log = logging.getLogger("vision.nucleo")
 
 NOME_MUTEX = "Local\\VisionNucleo"
+ESPERA_REINICIO_S = 20  # o núcleo novo espera o velho soltar o mutex (e a porta) ao reiniciar pela tela
 # A agenda muda por fora (celular): a cada 5 min o cache dela é refeito e a tela recebe uma foto nova.
 ATUALIZAR_PAINEL_S = 300
 VIGIAR_SISTEMA_S = 120  # placa quente, memória ou disco no fim: avisa (uma vez por hora cada um)
@@ -83,7 +84,17 @@ class InstanciaUnica:
         k32.CreateMutexW.argtypes = (ctypes.c_void_p, ctypes.c_bool, ctypes.c_wchar_p)
         self.handle = k32.CreateMutexW(None, False, self.nome)
         ERROR_ALREADY_EXISTS = 183
-        return bool(self.handle) and ctypes.get_last_error() != ERROR_ALREADY_EXISTS
+        if bool(self.handle) and ctypes.get_last_error() != ERROR_ALREADY_EXISTS:
+            return True
+        self.soltar()  # o handle de um mutex que já era de outro núcleo não segura nada
+        return False
+
+    def soltar(self) -> None:
+        if sys.platform == "win32" and self.handle:
+            k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+            k32.CloseHandle.argtypes = (ctypes.c_void_p,)
+            k32.CloseHandle(self.handle)
+        self.handle = None
 
 
 def nucleo_rodando(nome: str = NOME_MUTEX) -> bool:
@@ -237,6 +248,16 @@ class Nucleo:
         self.bandeja: Any = None
         self.loop: asyncio.AbstractEventLoop | None = None
         self.parar: asyncio.Event | None = None
+        self.reiniciar_ao_sair = False
+        # Conexões: o que o Vision montou ao iniciar (mudou depois, a tela pede para reiniciar), os logins em
+        # andamento (um por serviço) e a última frase de cada um para a tela.
+        self.conexoes_inicio = conexoes.assinatura(cfg)
+        self.logins: dict[str, tuple[asyncio.Task, threading.Event]] = {}
+        self.andamento: dict[str, dict[str, Any]] = {}
+        self._sugestoes: list[str] = []  # grafias do nome que a última calibração sugeriu (a tela aceita ou não)
+        # Desconectados nesta sessão: a Alexa e o Wispr do núcleo ainda têm a sessão na memória e a regravariam
+        # no disco (revisão do PR 38). Ficam no aviso de reiniciar até o Vision reiniciar.
+        self.desconectados: set[str] = set()
 
     # ---------- o que a tela pode pedir ----------
 
@@ -270,13 +291,199 @@ class Nucleo:
 
         return Controle(texto=texto, confirmar=confirmar, ouvir=ouvir, parar_fala=parar_fala,
                         abrir_janela=self.abrir_janela, painel=self.painel, ler_ajustes=self.ler_ajustes,
-                        salvar_ajustes=self.salvar_ajustes, amostra_voz=self.amostra_voz)
+                        salvar_ajustes=self.salvar_ajustes, amostra_voz=self.amostra_voz,
+                        ler_conexoes=self.ler_conexoes, conectar=self.conectar, desconectar=self.desconectar,
+                        ligar_conexao=self.ligar_conexao, cancelar_conexao=self.cancelar_conexao,
+                        reiniciar=self.reiniciar, calibrar_ativacao=self.calibrar_ativacao,
+                        esquecer_apelidos=self.esquecer_apelidos, aceitar_apelidos=self.aceitar_apelidos)
+
+    # ---------- calibração do "Hey Vision" ----------
+
+    VEZES_CALIBRACAO = 5
+
+    async def calibrar_ativacao(self) -> None:
+        if self.laco is None:
+            self.barramento.publicar({"tipo": "calibracao", "rodando": False, "erro": "A voz está desligada."})
+            return
+        if not self.laco.calibrando:
+            self._sugestoes = []  # uma calibração nova (mesmo que cancelada depois) invalida as sugestões da anterior
+        motivo = self.laco.pedir_calibracao(self.VEZES_CALIBRACAO, self._fim_calibracao)
+        if motivo:
+            if motivo != "A calibração já está rodando.":  # o 2º clique não apaga a tela da que está rodando
+                self.barramento.publicar({"tipo": "calibracao", "rodando": False, "erro": motivo})
+            return
+        self.barramento.publicar({"tipo": "calibracao", "rodando": True, "etapa": 0, "de": self.VEZES_CALIBRACAO,
+                                  "ouvidos": []})
+        await asyncio.sleep(8)  # o laço pega no próximo bloco do microfone; se não pegou, ele está parado
+        if self.laco is not None and self.laco.calibracao_agendada():
+            self.laco.cancelar_calibracao_agendada()
+            self.barramento.publicar({"tipo": "calibracao", "rodando": False,
+                                      "erro": "A escuta não respondeu (o microfone parou?). Tente de novo."})
+
+    async def _fim_calibracao(self, ouvidos: list[dict[str, Any]], aprendidos: list[str]) -> None:
+        """Nada é gravado aqui: as grafias novas são SUGESTÕES, e a tela pergunta (revisão do PR 43: a TV ou outra
+        pessoa na calibração podia ensinar "brasil", e "e o brasil..." acordaria o Vision)."""
+        from vision.voice import comandos
+
+        atuais = comandos.ler_apelidos(self.cfg.dados)
+        cabem = max(0, comandos.MAX_APELIDOS - len(atuais))
+        self._sugestoes = [a for a in aprendidos if a not in atuais][:cabem]
+        sugeridos = self._sugestoes
+        acertos = sum(1 for o in ouvidos if o["acordou"])
+        vazios = sum(1 for o in ouvidos if not o["texto"])
+        microfone = self.laco.entrada.nome if self.laco is not None else "?"
+        if vazios * 2 >= len(ouvidos):
+            dica = (f"Quase não ouvi nada no microfone ({microfone}). Confira se ele está ligado e sem mudo; "
+                    "o headset ouve bem melhor que a webcam.")
+            if sugeridos:
+                dica += f" Mesmo assim, ele escreveu o seu \"Vision\" como: {', '.join(sugeridos)}."
+        elif acertos == len(ouvidos):
+            dica = "Ele já entende o seu \"Hey Vision\" em todas as vezes."
+        elif sugeridos:
+            dica = (f"Ele escreve o seu \"Vision\" como: {', '.join(sugeridos)}. Se foi mesmo você chamando, aceite "
+                    "para ele passar a acordar com isso.")
+        elif aprendidos:
+            dica = f"Já são {comandos.MAX_APELIDOS} grafias guardadas: tire uma antes de aceitar outra."
+        else:
+            dica = ("Saiu diferente a cada vez e não deu para aprender uma grafia segura. Tente de novo, mais perto "
+                    f"do microfone ({microfone}).")
+        self.barramento.publicar({"tipo": "calibracao", "rodando": False, "ouvidos": ouvidos, "sugeridos": sugeridos,
+                                  "apelidos": atuais, "acertos": acertos, "dica": dica})
+
+    async def aceitar_apelidos(self, apelidos: list[str]) -> None:
+        """O clique em "Aceitar": só vale o que a última calibração sugeriu (a tela não inventa grafia)."""
+        from vision.voice import comandos
+
+        novos = [a for a in apelidos if a in self._sugestoes]
+        todos = (comandos.ler_apelidos(self.cfg.dados) + novos)[: comandos.MAX_APELIDOS]
+        if novos:
+            await asyncio.to_thread(comandos.gravar_apelidos, self.cfg.dados, todos)
+            comandos.definir_apelidos(todos)
+            log.info("calibração: %d grafia(s) nova(s) do nome aceitas", len(novos))
+        self._sugestoes = []
+        self.barramento.publicar({"tipo": "calibracao", "rodando": False, "apelidos": sorted(comandos.APELIDOS),
+                                  "dica": "Pronto: teste o \"Hey Vision\" agora." if novos else ""})
+
+    async def esquecer_apelidos(self, apelido: str | None = None) -> None:
+        """Um só (o × da tela) ou todos."""
+        from vision.voice import comandos
+
+        self._sugestoes = []
+        todos = [] if apelido is None else [a for a in comandos.ler_apelidos(self.cfg.dados) if a != apelido]
+        await asyncio.to_thread(comandos.gravar_apelidos, self.cfg.dados, todos)
+        comandos.definir_apelidos(todos)
+        log.info("calibração: grafia(s) do nome esquecida(s)")
+        self.barramento.publicar({"tipo": "calibracao", "rodando": False, "apelidos": sorted(comandos.APELIDOS),
+                                  "dica": "Esqueci." if apelido else "Esqueci as grafias aprendidas."})
+
+    # ---------- tela de conexões ----------
+
+    async def ler_conexoes(self) -> None:
+        status = self.j.host.status() if self.j is not None else {}
+        servicos = await asyncio.to_thread(conexoes.estado, self.cfg, status)
+        reiniciar = await asyncio.to_thread(conexoes.mudou_desde, self.cfg, self.conexoes_inicio)
+        reiniciar += [s.nome for s in conexoes.SERVICOS if s.id in self.desconectados and s.nome not in reiniciar]
+        self.barramento.publicar({"tipo": "conexoes", "servicos": servicos, "andamento": dict(self.andamento),
+                                  "reiniciar": reiniciar})
+
+    def _andamento(self, servico: str, texto: str, *, rodando: bool, ok: bool | None = None) -> None:
+        # 2.000: o endereço de autorização do Wispr (com registro do cliente) passa de 500 e o link sairia cortado.
+        self.andamento[servico] = {"texto": str(texto)[:2000], "rodando": rodando, "ok": ok}
+
+    async def conectar(self, servico: str, dados: dict[str, Any]) -> None:
+        if servico in self.logins:
+            return  # já tem um login deste serviço em andamento: a tela mostra o dele
+        try:
+            limpos = conexoes.validar(servico, dados)
+        except ValueError as e:
+            self._andamento(str(servico)[:20], str(e), rodando=False, ok=False)
+            await self.ler_conexoes()
+            return
+        cancelar = threading.Event()
+        assert self.loop is not None
+        loop = self.loop
+        frases: list[str] = []  # a última vira o resultado ("Spotify ligado...", "E-mail inválido.")
+
+        def aplicar(texto: str) -> None:
+            if servico in self.logins:
+                frases.append(texto)
+                self._andamento(servico, texto, rodando=True)
+                asyncio.ensure_future(self.ler_conexoes())
+
+        def avisar(texto: str) -> None:
+            try:
+                no_loop = asyncio.get_running_loop() is loop
+            except RuntimeError:
+                no_loop = False
+            if no_loop:  # Spotify, Alexa e Wispr: na hora (adiada, a última frase chegaria depois do fim)
+                aplicar(texto)
+            else:  # o login do Google roda numa thread
+                loop.call_soon_threadsafe(aplicar, texto)
+
+        async def rodar() -> None:
+            try:
+                ok = await conexoes.conectar(self.cfg, servico, limpos, avisar, cancelar)
+                padrao = "Pronto." if ok else "Falta um passo seu." if ok is None else "Não deu certo."
+                self._andamento(servico, frases[-1] if frases else padrao, rodando=False, ok=ok)
+                log.info("conexão %s: %s", servico, "feita" if ok else "esperando o código" if ok is None
+                         else "não concluída")
+            except asyncio.CancelledError:
+                self._andamento(servico, "Cancelado.", rodando=False, ok=False)
+                raise
+            except Exception as e:  # noqa: BLE001 - credencial recusada, rede: a tela recebe a frase
+                log.exception("falha ao conectar %s", servico)
+                self._andamento(servico, f"Não deu certo: {e}", rodando=False, ok=False)
+            finally:
+                self.logins.pop(servico, None)
+                with contextlib.suppress(Exception):
+                    await self.ler_conexoes()
+
+        self._andamento(servico, "Conectando…", rodando=True)
+        self.logins[servico] = (asyncio.create_task(rodar()), cancelar)
+        await self.ler_conexoes()
+
+    async def cancelar_conexao(self, servico: str) -> None:
+        if (login := self.logins.get(servico)) is not None:
+            login[1].set()  # o do Google roda numa thread: ela vê o aviso e mata o Node
+            login[0].cancel()
+
+    async def desconectar(self, servico: str) -> None:
+        if servico in self.logins or servico not in conexoes.POR_ID:
+            return
+        try:
+            texto = await asyncio.to_thread(conexoes.desconectar, self.cfg, servico)
+            if servico in ("alexa", "wispr", "tv"):
+                self.desconectados.add(servico)
+                texto += " Reinicie para o Vision soltar a sessão que está em uso."
+            self._andamento(servico, texto, rodando=False, ok=True)
+            log.info("conexão %s: desconectada", servico)
+        except (ValueError, OSError) as e:
+            self._andamento(servico, f"Não consegui desconectar: {e}", rodando=False, ok=False)
+        await self.ler_conexoes()
+
+    async def ligar_conexao(self, servico: str, ligado: bool) -> None:
+        s = conexoes.POR_ID.get(servico)
+        if s is None:
+            return
+        config.salvar_ajustes(self.cfg, {s.chave_ligado: ligado})
+        self._andamento(servico, "Ligado." if ligado else "Desligado.", rodando=False, ok=True)
+        await self.ler_conexoes()
+
+    def reiniciar(self) -> None:
+        """Pela tela: encerra e sobe um núcleo novo (as conexões só são montadas ao iniciar)."""
+        log.info("reiniciando a pedido da tela")
+        self.reiniciar_ao_sair = True
+        if self.parar is not None:
+            self.parar.set()
 
     # ---------- tela de ajustes ----------
 
     async def ler_ajustes(self, **extra: Any) -> None:
+        from vision.voice.comandos import APELIDOS
+
         dados = await asyncio.to_thread(ajustes.ler, self.cfg)  # a lista de microfones consulta o áudio
         dados["valores"]["inicia_com_windows"] = inicializacao.ativo()
+        dados["apelidos"] = sorted(APELIDOS)  # o que a calibração do "Hey Vision" aprendeu
         self.barramento.publicar({"tipo": "ajustes", **dados, **extra})
 
     async def salvar_ajustes(self, valores: dict[str, Any]) -> None:
@@ -558,6 +765,15 @@ class Nucleo:
                     log.info("encerrando")
                     for t in tarefas:
                         t.cancel()
+                    soltar = getattr(j.agente.llm, "soltar", None)
+                    if soltar is not None and not self.reiniciar_ao_sair:
+                        # Fechando de vez: o modelo sai da placa (com "-1m" ficaria lá até reiniciar o Ollama, e um
+                        # jogo aberto depois, sem o Vision, ficaria sem os 3,2 GB). Morte súbita ainda o deixa lá.
+                        with contextlib.suppress(Exception):
+                            await asyncio.wait_for(soltar(), 3)
+                    for t, cancelar in list(self.logins.values()):
+                        cancelar.set()
+                        t.cancel()
                     self.janela.encerrar()
                     servidor.should_exit = True
                     with contextlib.suppress(Exception):
@@ -566,10 +782,11 @@ class Nucleo:
                         acesso.unlink(missing_ok=True)
 
     def _timer_acabou(self, t: Any) -> None:
-        """Fim de timer: alarme e fala (pelo laço de voz) e aviso na bandeja e na tela."""
+        """Fim de timer: alarme e fala (pelo laço de voz) e aviso na bandeja e na tela. Timer com ação
+        ("desliga a TV em 30 minutos") fez a ação e só avisa na tela: sem alarme (você pode estar dormindo)."""
         texto = t.aviso()
         self.barramento.publicar({"tipo": "aviso", "texto": texto})
-        if self.laco is not None:
+        if self.laco is not None and not getattr(t, "acao", ""):
             self.laco.pedir_alarme(texto)
 
     async def _subir_voz(self, pilha: contextlib.ExitStack, tarefas: list[asyncio.Task]) -> None:
@@ -618,7 +835,14 @@ def main(argv: list[str] | None = None, *, console: bool = False) -> int:
     arquivo_log = configurar_log(cfg, console=console)
     abrir = "--abrir" in argv
     unica = InstanciaUnica()
-    if not unica.pegar():
+    pegou = unica.pegar()
+    if not pegou and "--reiniciando" in argv:
+        # O núcleo velho ainda está fechando (a porta, a janela): espera ele sair em vez de só pedir a janela.
+        fim = time.monotonic() + ESPERA_REINICIO_S
+        while not pegou and time.monotonic() < fim:
+            time.sleep(0.5)
+            pegou = unica.pegar()
+    if not pegou:
         ok = pedir_janela(cfg)
         log.info("já existe um núcleo rodando; %s", "janela aberta" if ok else "não consegui falar com ele")
         return 0 if ok else 1
@@ -628,14 +852,34 @@ def main(argv: list[str] | None = None, *, console: bool = False) -> int:
     except Exception:  # noqa: BLE001 - sem o atalho, o resto funciona
         log.exception("não consegui criar o atalho de inicialização")
     log.info("núcleo iniciando (log em %s)", arquivo_log)
+    nucleo = Nucleo(cfg, abrir_janela=abrir, com_voz="--sem-voz" not in argv)
+    codigo = 0
     try:
-        asyncio.run(Nucleo(cfg, abrir_janela=abrir, com_voz="--sem-voz" not in argv).rodar())
+        asyncio.run(nucleo.rodar())
     except KeyboardInterrupt:
         pass
     except Exception:  # noqa: BLE001
         log.exception("o núcleo caiu")
-        return 1
-    return 0
+        codigo = 1
+    if nucleo.reiniciar_ao_sair:  # mesmo se o encerramento deu erro: o pedido foi reiniciar, não sair
+        unica.soltar()
+        try:
+            subir_de_novo(cfg, ["--sem-voz"] if "--sem-voz" in argv else [])
+        except Exception:  # noqa: BLE001 - antivírus, exe movido: fica no log (pythonw não tem console)
+            log.exception("não consegui subir o núcleo novo; abra o Vision de novo")
+            return 1
+    return codigo
+
+
+def subir_de_novo(cfg: config.Config, extra_argv: list[str] | None = None) -> None:
+    """Sobe o núcleo novo, já com a janela. As variáveis que a tela grava no .env ficam de fora do ambiente
+    herdado: o novo lê o .env de novo (load_dotenv não troca o que já veio do processo pai)."""
+    exe, extra = inicializacao.alvo()
+    env = {k: v for k, v in os.environ.items() if k not in conexoes.CHAVES_ENV}
+    subprocess.Popen([str(exe), *extra.split(), "--abrir", "--reiniciando", *(extra_argv or [])], cwd=cfg.raiz,
+                     env=env, close_fds=True,
+                     creationflags=getattr(subprocess, "DETACHED_PROCESS", 0) | getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    log.info("núcleo novo pedido (%s)", exe.name)
 
 
 if __name__ == "__main__":

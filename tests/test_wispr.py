@@ -62,7 +62,7 @@ async def test_ler_sem_id_e_erro_de_login_viram_mensagem_para_o_felipe(cfg):
     from vision.tools.base import ErroFerramenta
 
     r = Reunioes(cfg, HostFalso({"search_meetings": ResultadoMCP(False, "servidor 'wispr' indisponível: x")}))
-    with pytest.raises(ErroFerramenta, match="wispr-login"):
+    with pytest.raises(ErroFerramenta, match="Conexões"):
         await r.buscar({})
     with pytest.raises(ErroFerramenta, match="id"):
         await r.ler({})

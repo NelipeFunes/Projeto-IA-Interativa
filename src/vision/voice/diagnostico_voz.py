@@ -33,7 +33,6 @@ async def rodar(cfg: Config, p: Callable[[str, str], None], OK: str, ERRO: str, 
     arquivos = {
         f"voz {voz_nome}": cfg.modelos / "piper" / f"{voz_nome}.onnx",
         f"STT {cfg.get('voz.stt')}": cfg.modelos / cfg.get("voz.stt", "parakeet-base-int8"),
-        "hey_jarvis": cfg.modelos / "openwakeword" / "hey_jarvis_v0.1.onnx",
         "silero VAD": cfg.modelos / "openwakeword" / "silero_vad.onnx",
     }
     for nome, caminho in arquivos.items():
@@ -43,6 +42,15 @@ async def rodar(cfg: Config, p: Callable[[str, str], None], OK: str, ERRO: str, 
     if not ok:
         p(AVISO, "rode: .venv\\Scripts\\python scripts\\baixar_modelos.py")
         return False
+
+    if cfg.get("voz.ativacao", "transcricao") in ("modelo", "ambos"):
+        from vision.voice.loop import carregar_ativacao
+
+        mensagens: list[str] = []
+        ativacao, _ = carregar_ativacao(cfg, mensagens.append)
+        p(OK if ativacao is not None else AVISO, mensagens[-1].removeprefix("[aviso] "))
+        if ativacao is not None and not ativacao.com_verificador:
+            p(AVISO, "sem o verificador da sua voz: rode scripts/ativacao/gravar_minha_voz.py")
 
     mic, nome_mic, notas = escolher_microfone(cfg.get("voz.microfone", []))
     alto, nome_alto = achar_dispositivo(cfg.get("voz.alto_falante", []), entrada=False)
@@ -97,7 +105,14 @@ async def _calibrar(cfg, p, OK, ERRO, AVISO, ok, mic, nome_alto, voz, audio) -> 
 
     from vision.voice.wake import PalavraAtivacao
 
-    ativ = PalavraAtivacao(cfg.modelos / "openwakeword", limiar=1.0)
+    palavra = str(cfg.get("voz.palavra_ativacao", "hey_vision"))
+    nome = palavra.replace("_", " ").title()  # "hey_vision" → "Hey Vision"
+    try:
+        ativ = PalavraAtivacao(cfg.modelos / "openwakeword", palavra, limiar=1.0,
+                               limiar_verificador=float(cfg.get("voz.limiar_verificador", 0.1)))
+    except Exception as e:  # noqa: BLE001 - sem o modelo, o resto do diagnóstico continua
+        p(ERRO, f"modelo de ativação '{palavra}' indisponível: {e}")
+        return _comparar_stt(cfg, p, OK, ERRO, mic, False)
 
     def medir() -> float:
         pcm = _gravar(mic, 3.0)
@@ -110,27 +125,27 @@ async def _calibrar(cfg, p, OK, ERRO, AVISO, ok, mic, nome_alto, voz, audio) -> 
 
     # Uma tentativa perdida (falou fora da janela de 3 s) dá ~0,01 e não diz nada sobre a sua voz:
     # em 30/09 um 0,01 assim puxou a sugestão para baixo e gerou um alarme falso. Repete essas.
-    print("\nAgora 3 vezes 'Hey Jarvis'. Depois de apertar Enter você tem 3 segundos.")
+    print(f"\nAgora 3 vezes '{nome}'. Depois de apertar Enter você tem 3 segundos.")
     scores = []
     for i in range(3):
         for tentativa in range(2):
-            input(f"\n[{i + 1}/3] Aperte Enter e diga 'Hey Jarvis'...")
+            input(f"\n[{i + 1}/3] Aperte Enter e diga '{nome}'...")
             pico = medir()
             print(f"   score: {pico:.2f}")
             if pico >= 0.1 or tentativa == 1:
                 break
-            print("   não ouvi 'Hey Jarvis' nessa; vamos repetir esta.")
+            print(f"   não ouvi '{nome}' nessa; vamos repetir esta.")
         scores.append(pico)
     validos = [s for s in scores if s >= 0.1]
-    atual = float(cfg.get("voz.limiar_ativacao", 0.3))
+    atual = float(cfg.get("voz.limiar_ativacao", 0.5))
     if not validos:
-        p(AVISO, f"'Hey Jarvis' não foi reconhecido (scores {', '.join(f'{s:.2f}' for s in scores)}). "
-                 "Tente falar mais perto do microfone e 'Hei Djárvis' mais em inglês, ou use o atalho.")
+        p(AVISO, f"'{nome}' não foi reconhecido (scores {', '.join(f'{s:.2f}' for s in scores)}). "
+                 "Tente falar mais perto do microfone, ou use o atalho.")
     else:
         sugerido = max(0.15, min(0.5, round(min(validos) * 0.6, 2)))
         pegou = sum(s >= atual for s in scores)
         p(OK if pegou == len(scores) else AVISO,
-          f"'Hey Jarvis': scores {', '.join(f'{s:.2f}' for s in scores)}; com o limiar atual ({atual}) "
+          f"'{nome}': scores {', '.join(f'{s:.2f}' for s in scores)}; com o limiar atual ({atual}) "
           f"pegaria {pegou} de {len(scores)}; sugerido: {sugerido}")
     preferido = (cfg.get("voz.microfone") or [None])[0]
     if preferido:

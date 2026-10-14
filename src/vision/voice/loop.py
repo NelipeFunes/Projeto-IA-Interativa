@@ -33,8 +33,8 @@ import numpy as np
 
 from vision.brain.agent import Agente
 from vision.voice.audio import TAXA, alarme, bipe, bipe_desligar
-from vision.voice.comandos import achar_ativacao, e_despedida, e_interrupcao
-from vision.voice.wake import DetectorFala, PalavraAtivacao
+from vision.voice.comandos import achar_ativacao, aprender_apelidos, e_despedida, e_interrupcao
+from vision.voice.wake import LIMIAR_VERIFICADOR, DetectorFala, PalavraAtivacao
 
 log = logging.getLogger(__name__)
 
@@ -70,6 +70,7 @@ def fatiar(texto: str, primeira: bool) -> tuple[list[str], str]:
     *completas, resto = FIM_DE_FRASE.split(texto)
     return prontas + completas, resto
 BLOCO_S = 0.08
+PRAZO_FALA_CALIBRACAO_S = 14.0  # 6 s esperando a voz + 4 s de fala + folga: em relógio, se o microfone parar
 TRECHO_ATIVACAO_S = 2.5  # para achar o nome, basta transcrever o começo da fala (mais leve para a CPU)
 MAXIMO_CANDIDATO_S = 12.0  # fala mais longa que isso, esperando, não é alguém chamando: nem transcreve
 ALARME = object()  # marca, na fila de falas de fora, um aviso de fim de timer
@@ -119,8 +120,12 @@ class LoopVoz:
         vigia: DetectorFala | None = None,
         interromper_apos_s: float = INTERROMPER_APOS_S,
         piper_ate_caracteres: int = PIPER_ATE_CARACTERES,
+        registrar_ativacao: bool = False,
     ):
         self.agente = agente
+        # Diagnóstico (voz.registrar_ativacao): escreve o que o STT ouviu no começo de cada fala, esperando o
+        # "Hey Vision". Desligado por padrão: ligado, a conversa perto do PC vai para o log.
+        self.registrar_ativacao = registrar_ativacao
         # Com o XTTS: resposta de uma frase só até esse tamanho ("Acendi a luz do quarto.") sai pelo Piper, na hora.
         self.piper_ate_caracteres = piper_ate_caracteres
         self.voz = voz
@@ -163,6 +168,9 @@ class LoopVoz:
         self.interrompido_por: str | None = None
         # O começo da sua fala que cortou a dele: o laço continua a gravação daí, sem perder nada.
         self._retomar: list[np.ndarray] | None = None
+        # Calibração do "Hey Vision" (Ajustes): pedida pela tela, roda no laço quando ele está livre.
+        self._calibracao: tuple[int, Callable[[list[dict[str, Any]], list[str]], Any]] | None = None
+        self.calibrando = False
 
     # ------------------------------------------------------------------ eventos para a tela
 
@@ -185,6 +193,89 @@ class LoopVoz:
             self._emitir({"tipo": "estado", "valor": estado})
 
     # ------------------------------------------------------------------ controles externos
+
+    # ------------------------------------------------------------------ calibração do "Hey Vision"
+
+    def pedir_calibracao(self, vezes: int, ao_fim: Callable[[list[dict[str, Any]], list[str]], Any]) -> str | None:
+        """Agenda a calibração; o laço roda quando estiver livre. Devolve o motivo se não der agora."""
+        if self.calibrando or self._calibracao is not None:
+            return "A calibração já está rodando."
+        if self._pausado():
+            return "A escuta está pausada (bandeja ou modo jogo): retome antes de calibrar."
+        if not self.ativacao_por_texto:
+            return "A calibração é para o \"Hey Vision\" por transcrição (voz.ativacao: transcricao)."
+        self._calibracao = (max(1, min(10, int(vezes))), ao_fim)
+        return None
+
+    def calibracao_agendada(self) -> bool:
+        """Pedida e ainda não começada (o núcleo cancela se o laço não pegar a tempo)."""
+        return self._calibracao is not None and not self.calibrando
+
+    def cancelar_calibracao_agendada(self) -> None:
+        if not self.calibrando:
+            self._calibracao = None
+
+    async def _calibrar(self, vezes: int, ao_fim) -> None:
+        """Bipe, uma fala sua, o que o STT entendeu no começo dela (como no "Hey Vision"); `vezes` vezes. No fim, as
+        grafias que se repetiram e não acordaram (comandos.aprender_apelidos) vão para `ao_fim`."""
+        # (`calibrando` já vem True do `rodar`: um 2º pedido durante o _fechar_conversa é recusado; revisão do PR 43)
+        ouvidos: list[dict[str, Any]] = []
+        try:
+            if self.em_conversa:  # dentro do try: um bipe que falhe aqui não deixa `calibrando` preso (2ª revisão)
+                await self._fechar_conversa(falar=False)
+            for i in range(vezes):
+                if self._pausado():  # pausou na bandeja ou abriu o jogo no meio: pausa é pausa (revisão do PR 43)
+                    self._emitir({"tipo": "calibracao", "rodando": False,
+                                  "erro": "Calibração cancelada: a escuta foi pausada (bandeja ou modo jogo)."})
+                    return
+                self._emitir({"tipo": "calibracao", "rodando": True, "etapa": i + 1, "de": vezes, "ouvidos": ouvidos})
+                self._mostrar("ouvindo")
+                await self._bipe(subindo=True)
+                self.entrada.descartar()  # o bipe que saiu na caixa de som não é você
+                try:
+                    pcm = await asyncio.wait_for(self._uma_fala(), PRAZO_FALA_CALIBRACAO_S)
+                except TimeoutError:  # o microfone parou de entregar: a vez fica vazia, a calibração não trava
+                    pcm = np.zeros(0, np.int16)
+                texto = await self._transcrever(pcm[: int(TRECHO_ATIVACAO_S * TAXA)]) if pcm.size else ""
+                acordou = achar_ativacao(texto) is not None
+                ouvidos = [*ouvidos, {"texto": texto.strip(), "acordou": acordou}]
+                # No log só se acordou: o que se fala na sala não vai para o log (revisão do PR 43).
+                self.escrever(f"[calibração] {i + 1}/{vezes}: {'acordou' if acordou else 'não acordou'}")
+        finally:
+            self.calibrando = False
+            self._mostrar("ocioso")
+            # Nada de antes vaza para depois: o atalho apertado no meio, o começo de fala guardado.
+            self.pre_fala.clear()
+            self.voz_seguida = 0
+            self.acionar.clear()
+        aprendidos = aprender_apelidos([o["texto"] for o in ouvidos])
+        resultado = ao_fim(ouvidos, aprendidos)
+        if asyncio.iscoroutine(resultado):
+            await resultado
+
+    async def _uma_fala(self, espera_s: float = 6.0, maximo_s: float = 4.0) -> np.ndarray:
+        """Uma fala, do começo da voz até o silêncio. Ninguém falou em `espera_s`: vazio. Tempo de áudio (blocos)."""
+        self.detector.zerar()
+        antes: deque[np.ndarray] = deque(maxlen=4)
+        gravado: list[np.ndarray] = []
+        seguida = esperados = 0
+        async for bloco in self.entrada.blocos():
+            if not gravado:
+                antes.append(bloco)
+                esperados += 1
+                seguida = seguida + 1 if self.detector.tem_voz(bloco) else 0
+                if seguida >= 2:
+                    gravado = list(antes)
+                    self.detector.zerar()
+                    for b in gravado:
+                        self.detector.bloco(b)
+                elif esperados * BLOCO_S >= espera_s:
+                    return np.zeros(0, np.int16)
+                continue
+            gravado.append(bloco)
+            if self.detector.bloco(bloco) or len(gravado) * BLOCO_S >= maximo_s:
+                return np.concatenate(gravado)
+        return np.concatenate(gravado) if gravado else np.zeros(0, np.int16)
 
     def apertou_atalho(self) -> None:
         """Chamado pela thread do teclado (via call_soon_threadsafe)."""
@@ -212,6 +303,17 @@ class LoopVoz:
         self._retomar = None
         self._mostrar("ocioso")
         async for bloco in self.entrada.blocos():
+            if self.estado == "ocioso" and self._calibracao is not None and self._retomar is None:
+                vezes, ao_fim = self._calibracao
+                self.calibrando = True  # antes de qualquer await: um 2º pedido agora é recusado
+                self._calibracao = None
+                try:
+                    await self._calibrar(vezes, ao_fim)
+                except Exception:  # noqa: BLE001 - uma calibração que dá erro não desliga a voz
+                    log.exception("a calibração falhou")
+                    self._emitir({"tipo": "calibracao", "rodando": False, "erro": "A calibração deu erro; veja o log."})
+                self.entrada.descartar()
+                continue
             if self.estado == "ocioso" and self._retomar is not None:
                 # Você começou a falar por cima dele: a gravação já começou (no vigia) e segue com este bloco.
                 # (Só com a conversa aberta há retomada: ver `_vigiar_interrupcao`.)
@@ -247,6 +349,19 @@ class LoopVoz:
                 continue
 
             gravado.append(bloco)
+            if (origem == "candidato" and self.ativacao is not None and self.escuta_ligada()
+                    and self.ativacao.ouvir(bloco)):
+                # Modo "ambos": o VAD começa a gravar em 160 ms e o "Hey Vision" leva ~1 s, então quase sempre é aqui,
+                # no meio da fala, que o modelo reconhece o nome. O que veio até aqui é o chamado ("Hey Deliving", como
+                # o STT escreveria): fica de fora; o que vier depois é o pedido (ou nada, e a conversa fica aberta).
+                # Só o bipe, nunca a `voz.saudacao`: você já está falando, e a saudação atropelaria o pedido.
+                self._acordou_pelo_modelo()
+                await self._bipe(subindo=True)  # o microfone guarda o que você falar durante o bipe: nada se perde
+                gravado, origem = [], "modelo"
+                self.detector.zerar()
+                self.escrever("…ouvindo")
+                self._mostrar("ouvindo")
+                continue
             if origem == "candidato" and self.acionar.is_set():
                 # Atalho no meio de uma fala qualquer: vira gravação para ele, sem perder o que você já disse.
                 self.acionar.clear()
@@ -310,19 +425,24 @@ class LoopVoz:
             return "conversa" if self._comecou_a_falar(bloco) else ""
         if not self.escuta_ligada():
             return ""
-        if not self.ativacao_por_texto:  # openWakeWord ("Hey Jarvis")
-            if self.ativacao is not None and self.ativacao.ouvir(bloco):
-                self.agente.cancelar_pendente("voz", "voz")  # como no "Hey Vision": nada de antes é confirmado
-                self.pergunta_em = None
-                self._abrir_conversa()
-                if self.saudacao.strip():  # sem saudação, o bipe é o do laço (origem "atalho"): um só
-                    await self._dizer(self.saudacao)
-                    if self._retomar is not None:
-                        return ""  # falou por cima da saudação: o próximo bloco retoma a sua fala (ver rodar)
-                    self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
-                return "atalho"
+        # openWakeWord (voz.ativacao "modelo" ou "ambos"): ouve todo bloco, e acorda pelo som do "Hey Vision".
+        if self.ativacao is not None and self.ativacao.ouvir(bloco):
+            self._acordou_pelo_modelo()
+            if self.saudacao.strip():  # sem saudação, o bipe é o do laço (origem "atalho"): um só
+                await self._dizer(self.saudacao)
+                if self._retomar is not None:
+                    return ""  # falou por cima da saudação: o próximo bloco retoma a sua fala (ver rodar)
+                self.entrada.descartar()  # a saudação que saiu na caixa de som não é você falando
+            return "atalho"
+        if not self.ativacao_por_texto:  # só o modelo ("Hey Jarvis" de antes)
             return ""
         return "candidato" if self._comecou_a_falar(bloco) else ""
+
+    def _acordou_pelo_modelo(self) -> None:
+        self.escrever(f"(ativação pelo modelo: nota {self.ativacao.ultimo_score:.2f})")
+        self.agente.cancelar_pendente("voz", "voz")  # como no "Hey Vision": nada de antes é confirmado
+        self.pergunta_em = None
+        self._abrir_conversa()
 
     def _comecou_a_falar(self, bloco: np.ndarray) -> bool:
         self.voz_seguida = self.voz_seguida + 1 if self.detector.tem_voz(bloco) else 0
@@ -357,8 +477,10 @@ class LoopVoz:
         comeco = pcm[: int(TRECHO_ATIVACAO_S * TAXA)]
         texto = await self._transcrever(comeco)
         resto = achar_ativacao(texto)
+        if self.registrar_ativacao:
+            self.escrever(f"(ativação) ouvi {texto!r}: {'acordou' if resto is not None else 'não acordou'}")
         if resto is None:
-            return  # não era com ele: nada é guardado nem mostrado
+            return  # não era com ele: nada é guardado nem mostrado (a não ser com voz.registrar_ativacao)
         if pcm.size > comeco.size:  # a fala continua: o pedido vem inteiro (nunca o trecho cortado em 2,5 s)
             inteiro = await self._transcrever(pcm)
             if inteiro.strip():  # se o STT falhou só aqui, fica o que já foi ouvido no começo
@@ -766,27 +888,39 @@ class LoopVoz:
 
         primeira = True
         while True:
-            agora = await asyncio.to_thread(rodando)
-            if primeira and not agora:
-                await self.agente.carregar()  # o núcleo acabou de subir sem jogo aberto: modelo pronto
+            try:
+                await self._checar_jogo(rodando, primeira)
+            except asyncio.CancelledError:
+                raise
+            except Exception:  # noqa: BLE001 - Ollama fora do ar: o vigia não morre calado (2ª revisão do PR 44)
+                log.exception("o vigia do modo jogo falhou nesta checagem; tenta de novo na próxima")
             primeira = False
-            if agora and not self.jogando:
-                self.jogando = True
-                if self.estado == "ocioso":
-                    self._mostrar("ocioso")  # vira "jogo"
+            await asyncio.sleep(a_cada_s)
+
+    async def _checar_jogo(self, rodando, primeira: bool) -> None:
+        agora = await asyncio.to_thread(rodando)
+        if primeira and not agora:
+            await self.agente.carregar()  # o núcleo acabou de subir sem jogo aberto: modelo pronto
+        if agora and not self.jogando:
+            self.jogando = True
+            if self.estado == "ocioso":
+                self._mostrar("ocioso")  # vira "jogo"
+            try:
                 await self.agente.descarregar()
                 await self._voz_na_placa(False)
-                self.escrever("[modo jogo] modelo fora da VRAM; 'Hey Vision' pausado, o atalho continua valendo.")
-            elif not agora and self.jogando:
-                self.jogando = False
-                if self.estado == "ocioso":
-                    self._mostrar("ocioso")
-                self.escrever("[modo jogo] fim do jogo; 'Hey Vision' de volta.")
-                await self._voz_na_placa(True)  # antes do Qwen: com ele de volta, a VRAM pode não caber
-                await self.agente.liberar_modelo()
-            elif not agora and getattr(self.voz, "descansando", False):
-                await self._voz_na_placa(True)  # a volta falhou (VRAM cheia): tenta de novo a cada checagem
-            await asyncio.sleep(a_cada_s)
+            except Exception:
+                self.jogando = False  # não deu: a próxima checagem tenta de novo (3ª revisão do PR 44)
+                raise
+            self.escrever("[modo jogo] modelo fora da VRAM; 'Hey Vision' pausado, o atalho continua valendo.")
+        elif not agora and self.jogando:
+            self.jogando = False
+            if self.estado == "ocioso":
+                self._mostrar("ocioso")
+            self.escrever("[modo jogo] fim do jogo; 'Hey Vision' de volta.")
+            await self._voz_na_placa(True)  # antes do Qwen: com ele de volta, a VRAM pode não caber
+            await self.agente.liberar_modelo()
+        elif not agora and getattr(self.voz, "descansando", False):
+            await self._voz_na_placa(True)  # a volta falhou (VRAM cheia): tenta de novo a cada checagem
 
     async def _voz_na_placa(self, sim: bool) -> None:
         """XTTS: sai da VRAM durante o jogo (fala com o Piper) e volta depois. O Piper não usa a placa."""
@@ -802,6 +936,26 @@ class LoopVoz:
                 log.exception("não consegui mover a voz %s da placa de vídeo", "para a" if sim else "para fora")
             else:  # a nova tentativa a cada checagem não enche o log de tracebacks (2ª revisão do PR 22)
                 log.warning("voz ainda fora da placa (%d tentativas): %s", self._falhas_placa, e)
+
+
+def carregar_ativacao(cfg, escrever: Callable[[str], None]) -> tuple[PalavraAtivacao | None, bool]:
+    """Como ele acorda (voz.ativacao): (modelo openWakeWord ou None, se também acha o nome na transcrição).
+    "transcricao" e "ambos" acham o nome no texto; "modelo" e "ambos" usam o modelo. Sem o arquivo do modelo, "ambos"
+    fica só com a transcrição, e "modelo", só com o atalho."""
+    modo = str(cfg.get("voz.ativacao", "transcricao"))
+    por_texto = modo != "modelo"
+    if modo not in ("modelo", "ambos"):
+        return None, por_texto
+    try:
+        ativacao = PalavraAtivacao(cfg.modelos / "openwakeword", cfg.get("voz.palavra_ativacao", "hey_vision"),
+                                   float(cfg.get("voz.limiar_ativacao", 0.5)),
+                                   float(cfg.get("voz.limiar_verificador", LIMIAR_VERIFICADOR)))
+    except Exception as e:  # noqa: BLE001
+        escrever(f"[aviso] modelo de ativação indisponível ({e}); {'fica só a transcrição' if por_texto else 'use o atalho'}.")
+        return None, por_texto
+    escrever(f"Ativação pelo modelo {ativacao.nome}" + (" com o verificador da sua voz" if ativacao.com_verificador else "")
+             + (" e pela transcrição" if por_texto else ""))
+    return ativacao, por_texto
 
 
 @contextmanager
@@ -823,18 +977,14 @@ def preparar_voz(
     from vision.voice.tts import carregar_voz, descrever
     from vision.voice.wake import Atalho
 
+    from vision.voice.comandos import definir_apelidos, ler_apelidos
+
     t = time.perf_counter()
+    definir_apelidos(ler_apelidos(cfg.dados))  # o que a calibração aprendeu (data/ativacao.json)
     voz = voz or carregar_voz(cfg)  # o núcleo carrega antes, numa thread: o XTTS leva 15–30 s
     stt = carregar_transcritor(cfg)
     pasta_oww = cfg.modelos / "openwakeword"
-    ativacao = None
-    por_texto = cfg.get("voz.ativacao", "transcricao") != "modelo"
-    if com_ativacao and not por_texto:
-        try:
-            ativacao = PalavraAtivacao(pasta_oww, cfg.get("voz.palavra_ativacao", "hey_jarvis"),
-                                       float(cfg.get("voz.limiar_ativacao", 0.3)))
-        except Exception as e:  # noqa: BLE001
-            escrever(f"[aviso] palavra de ativação indisponível ({e}); use o atalho.")
+    ativacao, por_texto = carregar_ativacao(cfg, escrever) if com_ativacao else (None, False)
     detector = DetectorFala(pasta_oww / "silero_vad.onnx", int(cfg.get("voz.silencio_fim_ms", 800)),
                             float(cfg.get("voz.maximo_fala_s", 20)))
     saida = Saida(cfg)
@@ -842,7 +992,7 @@ def preparar_voz(
     with Microfone(cfg) as mic:
         laco = LoopVoz(agente, voz, stt, mic, saida, detector, ativacao,
                        flag_dormindo=cfg.dados / "dormindo.flag", escrever=escrever, ao_evento=ao_evento,
-                       ativacao_por_texto=com_ativacao and por_texto,
+                       ativacao_por_texto=por_texto,
                        silencio_max_s=float(cfg.get("voz.conversa_silencio_max_s", 120)),
                        prazo_confirmacao_s=float(cfg.get("voz.confirmacao_prazo_s", 30)),
                        saudacao=cfg.get("voz.saudacao") or "",
@@ -850,11 +1000,16 @@ def preparar_voz(
                        vigia=(DetectorFala(pasta_oww / "silero_vad.onnx", 500, 60)
                               if cfg.get("voz.interromper_por_voz", True) else None),
                        interromper_apos_s=float(cfg.get("voz.interromper_apos_s", INTERROMPER_APOS_S)),
-                       piper_ate_caracteres=int(cfg.get("voz.piper_ate_caracteres", PIPER_ATE_CARACTERES)))
+                       piper_ate_caracteres=int(cfg.get("voz.piper_ate_caracteres", PIPER_ATE_CARACTERES)),
+                       registrar_ativacao=bool(cfg.get("voz.registrar_ativacao", False)))
         loop = asyncio.get_running_loop()
         atalho = Atalho(cfg.get("voz.atalho", "ctrl+alt+j"), lambda: loop.call_soon_threadsafe(laco.apertou_atalho))
         for nota in mic.notas:
             escrever(f"  [microfone] {nota}")
+        mic.ao_trocar = escrever  # mudo/desligado → o próximo da lista; o preferido voltou → volta (vai ao log)
+        if laco.registrar_ativacao:
+            escrever("[aviso] voz.registrar_ativacao ligado: o começo do que se fala perto do PC vai para o log. "
+                     "Desligue no config.yaml quando terminar.")
         escrever(f"Microfone: {mic.nome} · Saída: {saida.nome}")
         try:
             yield laco, atalho
