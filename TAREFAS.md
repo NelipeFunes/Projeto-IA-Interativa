@@ -8,7 +8,7 @@ Como usar:
 - Concluída leva a data e o PR (quando houver). Mudança neste arquivo também passa por branch e PR.
 - Este repositório é **público**: só tarefas técnicas aqui. Nada de dado pessoal, rotina ou credencial.
 
-Próximo código livre: **T-020**
+Próximo código livre: **T-021**
 
 ---
 
@@ -36,7 +36,7 @@ Próximo código livre: **T-020**
     - Treinar o novo modelo para "Hey balinha", com vozes pt-BR e negativas parecidas ("balão", "balanço", "linha"), antes de gravar a própria voz.
 - [ ] **T-002** 🔴 **Reiniciar o Vision** para carregar as ferramentas da TV (PRs #46–#48) e testar por voz: "abre o Spotify na TV", "toca blank space no YouTube da TV".
 - [ ] **T-003** 🔴 **Parear de novo as teclas da TV** (o pareamento venceu em 06/10). Só dá com a TV ligada: Ajustes → Conexões → TV Samsung, ou `vision tv-parear`.
-- [ ] **T-004** 🟡 **Descobrir por que o pareamento da TV vence** (suspeita: a TV reinicia ou renova a sessão). Olhar o log e anotar quando as teclas deixam de reagir.
+- [ ] **T-004** 🟡 **Descobrir por que o pareamento da TV vence** (parte da T-020) (suspeita: a TV reinicia ou renova a sessão). Olhar o log e anotar quando as teclas deixam de reagir.
 - [ ] **T-005** 🟡 **Testar na TV de verdade** o que só passou em simulação: desligar, canal, fonte/HDMI, setas, abrir Netflix e navegador, tocar link de mídia (UPnP), timer "desliga a TV em N minutos".
 - [ ] **T-006** 🟡 **Treinar o modelo de ativação no Google Colab** e pôr o `.onnx` em `modelos/openwakeword/` (passo a passo no README, no item **"Hey Vision" pelo modelo**). **Esperar a T-001:** como a frase vai virar "Hey balinha", treinar um modelo `hey_vision` agora seria trabalho jogado fora (~2h30 de Colab).
 - [ ] **T-007** 🟡 **Gravar a própria voz para o verificador** (`scripts/ativacao/gravar_minha_voz.py`) depois do T-001 e do T-006 (a voz gravada é para a frase nova), e reiniciar o Vision. As gravações ficam em `data/` e não saem do PC.
@@ -45,6 +45,16 @@ Próximo código livre: **T-020**
 - [ ] **T-012** 🟢 **Servidor dedicado para o modelo** (PC com GPU menor, rodando só o Ollama; `modelo.host` aponta para ele). Antes: rever o modo jogo e o "modelo sempre carregado", que supõem o Ollama no mesmo PC, e travar a porta 11434 por firewall só para o IP do PC principal.
 - [ ] **T-013** 🟢 **Pausar e retomar música na TV** por voz (tecla `pausa` já existe; depende do T-003).
 - [ ] **T-019** 🟢 **Pacote independente: Orbit e piscina.** (a) **Piscina:** o login usa `pycognito`, `boto3` e `botocore` (PR da T-017 etapa 1), que o pacote ainda não levou nem foi testado com eles; se faltar arquivo do botocore, `--collect-data botocore` ou `--collect-all` para `botocore` e `pycognito` em `scripts/empacotar.py`; o `app.json` da piscina não vai no pacote (`data/` sai vazio). (b) **Orbit:** o servidor MCP do Orbit (`mcp_servers/orbit/server.py`) é chamado com `.venv\\Scripts\\python.exe`, que não existe ao lado do `Vision.exe`. Fazer o servidor rodar pelo próprio executável (um subcomando, como os outros papéis do `Vision.exe`) e ajustar o `config.yaml` do pacote em `scripts/empacotar.py` (`montar_pasta` já reescreve o caminho do Node). Conferir que as dependências do `orbit_api.py` entram no pacote. Achado na revisão do PR #37.
+- [ ] **T-020** 🟡 **TV: pareamento fixo, sem repetir o PIN toda vez** (pedido de 14/10) — **no backlog, de propósito: o Felipe quer reservar um tempo para investigar e fazer algo bem feito, não quer mexer mais na TV agora.**
+  - **O problema:** as teclas da TV (pausa, setas, canal, fonte, desligar) dependem de um pareamento por PIN que vence (suspeita: ao desligar ou reiniciar a TV; T-004). Ele não quer parear de novo a cada vez que liga a TV nem "caçar código". Volume, mudo e abrir apps (YouTube, Netflix, Spotify) funcionam sem pareamento.
+  - **Limite que vale para qualquer solução:** o PIN é a autorização do dono na própria TV. Nada de contornar, adivinhar ou refazer o pareamento sem o PIN que a TV mostra; a solução é guardar bem o pareamento que o dono autorizou, deixá-lo raro e rápido de refazer, ou trocar o canal por um que não dependa dele.
+  - **Opções levantadas em 14/10 (a investigar, da mais barata à mais completa):**
+    1. **Medir quando o pareamento vence** (é a T-004): registrar no log a hora do pareamento, a hora em que as teclas deixaram de ser confirmadas e o que a TV fez no meio (ligou, desligou, reiniciou, trocou de fonte). Alguns dias de uso respondem se vence ao desligar, por tempo parado ou aleatoriamente; sem essa resposta qualquer solução é palpite.
+    2. **Repareamento sem atrito:** o Vision percebe o pareamento morto (já percebe), mostra um aviso na tela e o PIN é digitado num campo só, na tela de Conexões, sem terminal. Dá para tentar o repareamento sozinho quando a TV ligar (a tela do PIN aparece na TV e o Felipe só digita).
+    3. **Depender menos das teclas:** conferir quais ações têm alternativa sem pareamento (volume e mudo por UPnP e apps por DIAL e pela API de apps já são assim) e se pausa/retomar, desligar ou fonte têm outro caminho oficial na TV.
+    4. **Controle infravermelho (T-011):** um Broadlink RM4 Mini (cerca de R$ 150, `python-broadlink`) manda as mesmas teclas do controle remoto sem pareamento e **liga** a TV, o que a rede não faz. É a única opção que resolve tudo; o cliente da TV (`vision/tv.py`) já é separado das ferramentas para aceitar um segundo backend. Antes de comprar: confirmar que o modelo dele aprende os códigos da TV e onde o aparelho ficaria (linha de visada).
+  - **Já sabemos:** o pareamento são dois valores (token e id de sessão) que a TV entrega depois do PIN; ficam em `data/tv/sessao.json`; a TV confirma cada tecla com uma resposta cifrada, e resposta vazia quer dizer sessão morta (o Vision usa isso para avisar). A primeira tecla depois de conectar se perde (espera de 1 s). Reiniciar a TV pelo DIAL é perigoso (já reiniciou a TV): nunca fechar app por ele.
+  - **Quando retomar:** quando o Felipe reservar um tempo e a TV estiver ligada. Começar pela opção 1 junto com a T-004 e decidir a 4 com os dados.
 - [ ] **T-017** 🟡 **Controlar a piscina (Tholz) pelo Vision** (pedido de 10/10) — **decidido em 13/10: cliente próprio na nuvem da Tholz (uso pessoal). Etapa 1 (só leitura) com código pronto em 14/10; falta o login do Felipe para ver o formato real.**
   - **O que foi levantado (10/10, só leitura):**
     - **Equipamentos** (pela tela "Configurar dispositivos" do app Tholz Smart Home): módulo central **SmartPool 2ª Geração**; trocador de calor **Tholz TurboSilence**; clorador **THC45**; um módulo **TLZ Smart** do aquecimento solar. Cada um aparece como dispositivo separado no app. Não se sabe se cada um tem Wi-Fi próprio ou se passam pelo módulo central.
