@@ -208,7 +208,9 @@ def main(argv: list[str] | None = None) -> int:
     elif args.comando == "medicao":
         from vision.medicao import relatorio
 
-        print(relatorio(cfg.dados / "medicoes", max(1, args.dias)))
+        if args.dias < 1:
+            ap.error("--dias precisa ser 1 ou mais")
+        print(relatorio(cfg.dados / "medicoes", args.dias))
     elif args.comando == "memorias":
         asyncio.run(_memorias(cfg))
     elif args.comando == "falar":

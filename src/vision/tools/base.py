@@ -143,7 +143,7 @@ class Registro:
     def nomes_do_grupo(self, grupo: str) -> list[str]:
         return [f.nome for f in self.ferramentas.values() if f.grupo == grupo]
 
-    def _medir(self, nome: str, args: dict[str, Any], duracao_s: float, ok: bool) -> None:
+    def _medir(self, nome: str, args: dict[str, Any] | None, duracao_s: float, ok: bool) -> None:
         if self.medidor is not None:
             try:
                 self.medidor.registrar(nome, args, duracao_s, ok)
@@ -162,6 +162,7 @@ class Registro:
             return False, f"Ferramenta '{nome}' não existe. Use só as ferramentas listadas.", None
         inicio = time.monotonic()
         ok = False
+        medir = True
         try:
             try:
                 saida = await asyncio.wait_for(f.executar(f.normalizar_args(args)), timeout=f.prazo_s)
@@ -172,8 +173,12 @@ class Registro:
             except Exception as e:  # noqa: BLE001 - qualquer falha vira resposta, não derruba a conversa
                 return False, f"Erro ao executar {nome}: {type(e).__name__}: {e}", None
             ok = True
+        except asyncio.CancelledError:
+            medir = False  # cancelada de fora (prazo do protocolo, desligamento): não é falha da ferramenta
+            raise
         finally:
-            self._medir(nome, args, time.monotonic() - inicio, ok)
+            if medir:  # escrita não grava impressão dos argumentos: não existe cache de escrita
+                self._medir(nome, None if f.escrita else args, time.monotonic() - inicio, ok)
         dados = saida.dados if isinstance(saida, ComDados) else None
         saida = str(saida)
         if len(saida) > LIMITE_RESULTADO:
