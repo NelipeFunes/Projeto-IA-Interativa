@@ -32,6 +32,7 @@ dependencies = [
     "ddgs>=9,<10",
     "wyoming>=1.5,<2",
     "samsungtvws[async,encrypted]==3.0.6",
+    "pycognito==2024.5.1",
 ]
 
 [project.scripts]

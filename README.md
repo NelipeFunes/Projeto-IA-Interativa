@@ -71,6 +71,14 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   `data/tv/`, fora do git. Volume e YouTube vão pelo UPnP e pelo DIAL (sem pareamento); as teclas, pelo protocolo
   criptografado dessas TVs. Ligar não dá: com a TV desligada o Wi-Fi dela também desliga. Um link de mídia
   ("toca este link na TV") sempre pede "sim".
+- **Piscina Tholz (em construção, só leitura, T-017 etapa 1):** o app da Tholz fala com uma API na AWS autenticada
+  por login Cognito; `vision piscina-login` entra com a **sua** conta (e-mail e senha digitados no terminal, a senha
+  não é guardada; só a sessão, em `data/piscina/sessao.json`) e `vision piscina-ler` lê a lista de dispositivos,
+  guarda o JSON em `data/piscina/` e mostra só o formato. Os identificadores do backend (pool e client do login e
+  endereço da API) ficam em `data/piscina/app.json`, fora do git (o repositório é público): o cliente só fala com
+  uma API `*.execute-api.<região>.amazonaws.com` e com o Cognito da mesma região. Ainda não há ferramenta para o
+  modelo nem comando para a piscina. Os termos de uso da Tholz proíbem engenharia reversa: uso pessoal, por sua
+  conta e risco (a Tholz pode bloquear a conta ou mudar a API).
 - **Log:** `data/logs/nucleo.log` e `data/logs/janela.log`.
 
 ### Vision.exe (duplo clique)
@@ -123,6 +131,8 @@ vision teste             # checagem geral (ollama, agenda, orbit, voz)
 vision teste voz         # testa o "Hey Vision" e o "standby" com a sua voz
 vision google-login      # a cada 7 dias (app do Google em modo teste)
 vision tv-parear         # pareia com a TV Samsung (PIN na tela dela)
+vision piscina-login     # entra na sua conta da Tholz (piscina; só leitura por enquanto)
+vision piscina-ler       # lê os dispositivos da piscina e mostra só o formato da resposta
 vision memorias          # o que o Vision lembra de você
 vision dormir            # tira o modelo da VRAM (antes de jogar) / pausa o "Hey Vision"
 vision acordar
