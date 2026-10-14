@@ -14,11 +14,13 @@ from datetime import date, datetime, timedelta
 from typing import Any
 
 from vision import tempo
+from vision.cache import Cache
 from vision.config import Config
 from vision.tools.base import ComDados, ErroFerramenta, Ferramenta, esquema, numero, texto
 from vision.tools.mcp_host import HostMCP
 
 log = logging.getLogger(__name__)
+JANELA = "janela"  # a chave do cache: uma consulta só, de ontem até daqui a `agenda.cache_dias`
 LIMITE_GOOGLE = 250  # eventos por calendário numa página do Google (o MCP não pede a próxima)
 
 SEM_LOGIN = ("No valid Google account tokens", "invalid_grant", "No authenticated accounts", "Token has been expired")
@@ -38,7 +40,9 @@ class Agenda:
         # na hora. Mais velho que `cache_min`, ou fora da janela, consulta o Google como antes.
         self.cache_dias = int(cfg.get("agenda.cache_dias", 7))
         self.cache_s = float(cfg.get("agenda.cache_min", 10)) * 60
-        self._janela: tuple[date, date, list[dict[str, Any]], float] | None = None
+        # A janela (início, fim, eventos) fica no cache comum, em memória e com o relógio de `self.relogio`
+        # (trocável nos testes depois de criada a agenda).
+        self._cache = Cache(self.cache_s, relogio=lambda: self.relogio(), maximo=1, nome="agenda")
         self._tarefas: set[asyncio.Task] = set()  # referências vivas: a tarefa não some no meio
         self._atualizando: asyncio.Task | None = None  # a mais recente (os testes esperam por ela)
         self._geracao = 0
@@ -80,10 +84,10 @@ class Agenda:
         if any(n >= LIMITE_GOOGLE for n in por_calendario.values()):
             # O MCP não pagina: com 250 num calendário, o resto da janela pode ter ficado de fora.
             log.warning("agenda com %d eventos num calendário: sem cache", max(por_calendario.values()))
-            self._janela = None
+            self._cache.apagar(JANELA)
             return
         if geracao == self._geracao:  # a agenda mudou no meio da consulta: esta foto já nasceu velha
-            self._janela = (inicio, fim, eventos, self.relogio())
+            self._cache.guardar(JANELA, (inicio, fim, eventos))
 
     def _periodo(self, inicio: date, fim: date) -> dict[str, Any]:
         return {"calendarId": self.leitura, "timeMin": f"{inicio.isoformat()}T00:00:00",
@@ -91,7 +95,7 @@ class Agenda:
 
     def _invalidar(self) -> None:
         """Depois de criar, mudar ou apagar: o cache velho sai na hora e um novo vem em segundo plano."""
-        self._janela = None
+        self._cache.apagar(JANELA)
         self._geracao += 1
         self._atualizando = asyncio.create_task(self._atualizar_quieto())
         self._tarefas.add(self._atualizando)
@@ -104,8 +108,8 @@ class Agenda:
             log.warning("não deu para atualizar o cache da agenda: %s", e)
 
     def _do_cache(self, inicio: date, fim: date) -> list[dict[str, Any]] | None:
-        j = self._janela
-        if j is None or self.relogio() - j[3] > self.cache_s or inicio < j[0] or fim > j[1]:
+        j = self._cache.pegar(JANELA)  # None se não há ou passou de `agenda.cache_min`
+        if j is None or inicio < j[0] or fim > j[1]:
             return None
         return sorted((e for e in j[2] if _no_periodo(e, inicio, fim)), key=_inicio_ordenavel)
 

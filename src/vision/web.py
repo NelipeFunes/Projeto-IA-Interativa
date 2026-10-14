@@ -16,7 +16,6 @@ import logging
 import os
 import re
 import socket
-import time
 from collections import OrderedDict
 from dataclasses import asdict, dataclass, field
 from html.parser import HTMLParser
@@ -27,6 +26,7 @@ from urllib.parse import urlparse
 import httpx
 
 from vision import tempo
+from vision.cache import Cache
 
 log = logging.getLogger(__name__)
 
@@ -102,45 +102,6 @@ def _host_publico(url: str) -> bool:
         return bool(enderecos) and all(ipaddress.ip_address(e.split("%")[0]).is_global for e in enderecos)
     except ValueError:
         return False
-
-
-class CacheBuscas:
-    """Buscas recentes num JSON pequeno. Arquivo corrompido ou apagado = cache vazio, nunca erro."""
-
-    def __init__(self, arquivo: Path, validade_h: float = 6, maximo: int = 200):
-        self.arquivo = arquivo
-        self.validade_s = validade_h * 3600
-        self.maximo = maximo
-        self._itens: dict[str, dict[str, Any]] = {}
-        try:
-            dados = json.loads(arquivo.read_text(encoding="utf-8"))
-            if isinstance(dados, dict):
-                self._itens = {k: v for k, v in dados.items() if isinstance(v, dict)}
-        except (OSError, ValueError):
-            pass
-
-    def pegar(self, chave: str, agora: float | None = None) -> dict[str, Any] | None:
-        item = self._itens.get(chave)
-        agora = time.time() if agora is None else agora
-        if not item or agora - float(item.get("quando", 0)) > self.validade_s:
-            return None
-        return item.get("valor")
-
-    def guardar(self, chave: str, valor: dict[str, Any], agora: float | None = None) -> None:
-        self._itens[chave] = {"quando": time.time() if agora is None else agora, "valor": valor}
-        if len(self._itens) > self.maximo:  # tira os mais velhos
-            for velha in sorted(self._itens, key=lambda k: self._itens[k]["quando"])[: len(self._itens) - self.maximo]:
-                del self._itens[velha]
-        self._salvar()
-
-    def _salvar(self) -> None:
-        try:
-            self.arquivo.parent.mkdir(parents=True, exist_ok=True)
-            tmp = self.arquivo.with_suffix(".tmp")
-            tmp.write_text(json.dumps(self._itens, ensure_ascii=False), encoding="utf-8", newline="")
-            os.replace(tmp, self.arquivo)
-        except OSError as e:
-            log.warning("não deu para gravar o cache da web: %s", e)
 
 
 class Cota:
@@ -222,12 +183,16 @@ def _texto_de_html(pagina: str) -> str:
     return "\n".join(linha for linha in linhas if len(linha) > 1)
 
 
+VALIDADE_MANCHETES_S = 30 * 60
+
+
 class Web:
     def __init__(self, pasta_cache: Path, chave: str | None = None, *, validade_h: float = 6,
                  max_resultados: int = 5, pais: str = "brazil", limite_cota: int = 1000,
                  transporte: httpx.AsyncBaseTransport | None = None, buscar_ddg=None):
         self.chave = (chave if chave is not None else os.environ.get("TAVILY_API_KEY", "")).strip()
-        self.cache = CacheBuscas(pasta_cache / "web.json", validade_h)
+        # Buscas e páginas lidas valem `validade_h`; as manchetes, 30 min (pegar com outra validade). Em arquivo.
+        self.cache = Cache(validade_h * 3600, arquivo=pasta_cache / "web.json", maximo=200, nome="web")
         self.cota = Cota(pasta_cache / "web-cota.json", limite_cota, int(limite_cota * 0.9))
         self.max_resultados = max_resultados
         self.pais = pais
@@ -316,9 +281,9 @@ class Web:
         """Manchetes das últimas 24 h (DuckDuckGo Notícias: grátis, não gasta a cota da Tavily). Cache de 30 min."""
         tema = limpar_consulta(tema)[:80]  # como na busca: e-mail, telefone e CPF não saem (revisão do PR 35)
         chave = "noticias:" + normalizar(tema or "brasil")
-        guardada = self.cache.pegar(chave)
+        guardada = self.cache.pegar(chave, validade_s=VALIDADE_MANCHETES_S)
         itens: list[Noticia] | None = None
-        if guardada and time.time() - float(guardada.get("quando", 0)) < 1800:
+        if guardada:
             try:
                 itens = [Noticia(**n) for n in guardada.get("itens", [])]
             except (TypeError, ValueError):
@@ -334,7 +299,7 @@ class Web:
                              str(x.get("body") or "").strip())
                      for x in brutos or [] if url_valida(str(x.get("url") or "")) and x.get("title")]
             if itens:  # vazio pode ser falha passageira: não fica 30 min respondendo "nenhuma"
-                self.cache.guardar(chave, {"quando": time.time(), "itens": [asdict(n) for n in itens]})
+                self.cache.guardar(chave, {"itens": [asdict(n) for n in itens]})
         self._lembrar_links([Resultado(n.titulo, n.url, n.resumo) for n in itens])  # o web_ler pode abrir
         return itens
 

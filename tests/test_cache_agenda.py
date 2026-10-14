@@ -101,7 +101,7 @@ async def test_foto_tirada_durante_uma_mudanca_e_descartada(agenda, contador):
     agenda._geracao += 1  # o que o _invalidar faz quando a agenda muda
     liberar.set()
     await velha
-    assert agenda._janela is None
+    assert agenda._cache.pegar("janela") is None
 
 
 def test_periodo_igual_ao_do_google():
@@ -141,7 +141,7 @@ async def test_resposta_sem_eventos_nao_vira_agenda_vazia(cfg):
     ag = Agenda(cfg, Resposta("Serviço instável, tente de novo"))  # texto, não JSON
     with pytest.raises(ErroFerramenta):
         await ag.atualizar_cache()
-    assert ag._janela is None
+    assert ag._cache.pegar("janela") is None
 
 
 async def test_calendario_no_limite_do_google_nao_entra_no_cache(cfg):
@@ -153,6 +153,6 @@ async def test_calendario_no_limite_do_google_nao_entra_no_cache(cfg):
     host = Resposta(json.dumps({"events": eventos}))
     ag = Agenda(cfg, host)
     await ag.atualizar_cache()
-    assert ag._janela is None  # pode ter faltado evento: a pergunta vai direto ao Google
+    assert ag._cache.pegar("janela") is None  # pode ter faltado evento: a pergunta vai direto ao Google
     await ag.listar({"data_inicio": hoje})
     assert host.listas == 2

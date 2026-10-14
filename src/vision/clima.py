@@ -18,6 +18,8 @@ from typing import Any
 
 import httpx
 
+from vision.cache import Cache
+
 log = logging.getLogger(__name__)
 
 GEOCODING = "https://geocoding-api.open-meteo.com/v1/search"
@@ -91,7 +93,7 @@ class Clima:
         self.arquivo = pasta_cache / "clima.json"
         self._transporte = transporte
         self._relogio = relogio
-        self._previsoes: dict[str, tuple[float, Previsao]] = {}
+        self._previsoes = Cache(VALIDADE_S, relogio=relogio, maximo=MAX_CIDADES, nome="clima")  # só em memória
 
     def _cliente(self) -> httpx.AsyncClient:
         return httpx.AsyncClient(timeout=10, transport=self._transporte)
@@ -141,8 +143,8 @@ class Clima:
         if not CIDADE_VALIDA.match(cidade):
             raise ErroClima("isso não parece nome de cidade")
         chave = cidade.lower()
-        if (guardada := self._previsoes.get(chave)) and self._relogio() - guardada[0] < VALIDADE_S:
-            return guardada[1]
+        if (guardada := self._previsoes.pegar(chave)) is not None:
+            return guardada
         lat, lon, nome = await self._coordenadas(cidade)
         params = {
             "latitude": lat, "longitude": lon, "timezone": "America/Sao_Paulo", "forecast_days": 7,
@@ -160,9 +162,7 @@ class Clima:
             p = _ler(r.json(), nome)
         except (KeyError, TypeError, ValueError, IndexError) as e:
             raise ErroClima("resposta do serviço de clima fora do formato") from e
-        if len(self._previsoes) >= MAX_CIDADES:
-            self._previsoes.pop(next(iter(self._previsoes)))
-        self._previsoes[chave] = (self._relogio(), p)
+        self._previsoes.guardar(chave, p)
         return p
 
 

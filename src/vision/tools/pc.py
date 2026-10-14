@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus, urlparse
 
+from vision.cache import Cache
 from vision.tools.base import PRAZO_PC_S, ErroFerramenta, Ferramenta, esquema, numero, texto
 
 log = logging.getLogger(__name__)
@@ -165,8 +166,7 @@ class PC:
         self._volume = mudar_volume
         # O Spotify (vision/spotify.py), quando ligado: o volume mexe nele primeiro (vision/volume.py).
         self.spotify: Any = None
-        self._apps: list[dict[str, str]] = []
-        self._apps_em = 0.0
+        self._cache_apps = Cache(CACHE_APPS_S, relogio=time.monotonic, maximo=1, nome="apps-do-pc")  # em memória
 
     # ------------------------------------------------------------------ apoio
 
@@ -186,8 +186,8 @@ class PC:
 
     async def apps(self) -> list[dict[str, str]]:
         """Apps do Menu Iniciar (desktop e Store), com o id que o Windows usa para abrir. Em cache por 10 min."""
-        if self._apps and time.monotonic() - self._apps_em < CACHE_APPS_S:
-            return self._apps
+        if (guardados := self._cache_apps.pegar("apps")) is not None:
+            return guardados
         _, saida = await self._rodar(
             "powershell.exe", "-NoProfile", "-NonInteractive", "-Command",
             "[Console]::OutputEncoding=[Text.Encoding]::UTF8; Get-StartApps | ConvertTo-Json -Compress")
@@ -195,9 +195,10 @@ class PC:
             dados = json.loads(saida or "[]")
         except json.JSONDecodeError as e:
             raise ErroFerramenta("Não consegui ler a lista de programas do Windows.") from e
-        self._apps = [{"nome": a["Name"], "id": a["AppID"]} for a in (dados if isinstance(dados, list) else [dados])]
-        self._apps_em = time.monotonic()
-        return self._apps
+        apps = [{"nome": a["Name"], "id": a["AppID"]} for a in (dados if isinstance(dados, list) else [dados])]
+        if apps:  # lista vazia pode ser falha passageira: não fica 10 min respondendo "nenhum programa"
+            self._cache_apps.guardar("apps", apps)
+        return apps
 
     def escolher(self, pedido: str, apps: list[dict[str, str]]) -> dict[str, str] | None:
         alvo = normalizar(pedido)
