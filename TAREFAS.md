@@ -8,7 +8,7 @@ Como usar:
 - Concluída leva a data e o PR (quando houver). Mudança neste arquivo também passa por branch e PR.
 - Este repositório é **público**: só tarefas técnicas aqui. Nada de dado pessoal, rotina ou credencial.
 
-Próximo código livre: **T-019**
+Próximo código livre: **T-020**
 
 ---
 
@@ -40,11 +40,11 @@ Próximo código livre: **T-019**
 - [ ] **T-005** 🟡 **Testar na TV de verdade** o que só passou em simulação: desligar, canal, fonte/HDMI, setas, abrir Netflix e navegador, tocar link de mídia (UPnP), timer "desliga a TV em N minutos".
 - [ ] **T-006** 🟡 **Treinar o modelo de ativação no Google Colab** e pôr o `.onnx` em `modelos/openwakeword/` (passo a passo no README, no item **"Hey Vision" pelo modelo**). **Esperar a T-001:** como a frase vai virar "Hey balinha", treinar um modelo `hey_vision` agora seria trabalho jogado fora (~2h30 de Colab).
 - [ ] **T-007** 🟡 **Gravar a própria voz para o verificador** (`scripts/ativacao/gravar_minha_voz.py`) depois do T-001 e do T-006 (a voz gravada é para a frase nova), e reiniciar o Vision. As gravações ficam em `data/` e não saem do PC.
-- [ ] **T-009** 🟢 **Login do Orbit pela tela de Conexões** (se o Orbit mandar código por e-mail, a tela pede).
 - [ ] **T-010** 🟢 **Calibrar o microfone** com o headset ligado (`vision teste voz`).
 - [ ] **T-011** 🟢 **Ligar a TV pela rede:** impossível (o Wi-Fi dela desliga junto). Alternativa: um controle infravermelho (Broadlink RM4 Mini, `python-broadlink`) como segundo backend. O cliente da TV já é separado das ferramentas para isso.
 - [ ] **T-012** 🟢 **Servidor dedicado para o modelo** (PC com GPU menor, rodando só o Ollama; `modelo.host` aponta para ele). Antes: rever o modo jogo e o "modelo sempre carregado", que supõem o Ollama no mesmo PC, e travar a porta 11434 por firewall só para o IP do PC principal.
 - [ ] **T-013** 🟢 **Pausar e retomar música na TV** por voz (tecla `pausa` já existe; depende do T-003).
+- [ ] **T-019** 🟢 **Orbit no pacote independente:** o servidor MCP do Orbit (`mcp_servers/orbit/server.py`) é chamado com `.venv\\Scripts\\python.exe`, que não existe ao lado do `Vision.exe`. Fazer o servidor rodar pelo próprio executável (um subcomando, como os outros papéis do `Vision.exe`) e ajustar o `config.yaml` do pacote em `scripts/empacotar.py` (`montar_pasta` já reescreve o caminho do Node). Conferir que as dependências do `orbit_api.py` entram no pacote. Achado na revisão do PR #37.
 - [ ] **T-017** 🟡 **Controlar a piscina (Tholz) pelo Vision** (pedido de 10/10) — **decidido em 13/10: cliente próprio na nuvem da Tholz (uso pessoal). Só pesquisa e análise feitas; nada de código ainda.**
   - **O que foi levantado (10/10, só leitura):**
     - **Equipamentos** (pela tela "Configurar dispositivos" do app Tholz Smart Home): módulo central **SmartPool 2ª Geração**; trocador de calor **Tholz TurboSilence**; clorador **THC45**; um módulo **TLZ Smart** do aquecimento solar. Cada um aparece como dispositivo separado no app. Não se sabe se cada um tem Wi-Fi próprio ou se passam pelo módulo central.
@@ -122,10 +122,12 @@ Próximo código livre: **T-019**
     5. **Ajuste dos tempos** com os dados da etapa 1, *stale-if-error*, aviso da idade na resposta, botão de limpar e números no diagnóstico.
   - **Cuidados:** repositório público (nenhum dado pessoal em código, teste ou exemplo; o cache real fica em `data/cache/`, fora do git); cache de resultado de ferramenta de escrita é proibido; o cache nunca pode fazer o Vision agir sobre dado velho sem avisar (por exemplo, apagar um evento que já mudou: a escrita sempre relê o objeto pelo id na fonte; o id pode vir de uma lista velha do cache, então a confirmação mostra o que foi relido, não o que estava no cache).
 
-- [~] **T-014** 🟡 **PR #37: pacote independente** (instalação sem a pasta do projeto). Aberto; não mesclar sem revisão.
 - [~] **T-015** 🟡 **Ativação pelo som:** código e README prontos (PR #45); falta o treino no Colab e as gravações (T-006 e T-007), que agora esperam a T-001 (a frase vai virar "Hey balinha").
 
 ## Concluídas
+
+- [x] **T-014** **Pacote independente** (14/10, PR [#37](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/37)): `dist/Vision/Vision.exe` sem Python instalado (`scripts/empacotar.py`). Atualizado com a `main` em 14/10: conflitos em `nucleo.py` e `uv.lock` resolvidos, 1043 testes passam, o pacote foi gerado de novo (317 MB, sem modelos) e `Vision.exe medicao` e `Vision.exe tv-parear` rodaram; as bibliotecas da TV entraram no pacote. **Não testado:** voz, janela e Google Agenda a partir do pacote novo (precisam do PC com alguém por perto) e outro computador. **Limites:** o MCP do Orbit não sobe no pacote (chama o `.venv`; ver T-019) e pacote e projeto não rodam ao mesmo tempo (mutex único). Para gerar: `uv sync --no-default-groups --group empacotar` (com `UV_PROJECT_ENVIRONMENT=.venv-pacote`) e `scripts/empacotar.py`.
+- [x] **T-009** **Login do Orbit pela tela de Conexões, com o código do e-mail** (02/10, PR [#40](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/40)): estava pronta e a tarefa ficou desatualizada no quadro (conferido em 14/10: `conexoes.py` com o desafio do código, e os testes de `test_conexoes.py`).
 
 - [x] **T-008** **Limiar de ativação na tela de Ajustes** (14/10): campo "Sensibilidade da ativação pelo som" (`voz.limiar_ativacao`, de 0,15 a 0,95, vale ao reiniciar; o rótulo avisa que abaixo de 0,3 a TV pode acordar o assistente), com validação, testes e a demonstração da janela.
 - [x] **T-016** **Controle da TV Samsung (série J) pela rede** (05/10): teclas por PIN, volume e mudo pelo UPnP, YouTube pelo DIAL com OK no perfil, busca de vídeo, timer com ação, cartão em Conexões. PRs [#46](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/46) e [#47](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/47).

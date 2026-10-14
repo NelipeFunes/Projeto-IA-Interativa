@@ -11,6 +11,8 @@ import subprocess
 import sys
 from pathlib import Path
 
+from vision import empacotado
+
 NOME_ATALHO = "Vision.lnk"
 ICONE = Path(__file__).parent / "recursos" / "vision.ico"
 
@@ -34,6 +36,8 @@ def atalho() -> Path:
 
 def alvo() -> tuple[Path, str]:
     """O que o atalho executa: o visionw.exe do ambiente (sem console) ou, na falta, pythonw -m vision.nucleo."""
+    if empacotado.empacotado():  # o próprio Vision.exe, no modo núcleo (sem abrir a janela)
+        return Path(sys.executable), "--nucleo"
     scripts = Path(sys.executable).parent
     visionw = scripts / "visionw.exe"
     if visionw.exists():
@@ -75,11 +79,16 @@ def primeira_vez(marcador: Path, pasta_projeto: Path) -> bool:
     um atalho de versão anterior é refeito uma vez (pega o ícone novo)."""
     if marcador.exists():
         if f"versao={VERSAO_ATALHO}" not in marcador.read_text(encoding="utf-8"):
-            if ativo():
+            if ativo() and not empacotado.empacotado():  # o pacote não refaz um atalho que pode ser de outra instalação
                 ligar(pasta_projeto)
             marcador.write_text(_TEXTO_MARCADOR.format(VERSAO_ATALHO), encoding="utf-8")
         return False
-    ligar(pasta_projeto)
     marcador.parent.mkdir(parents=True, exist_ok=True)
+    if ativo():
+        # Outra instalação (a do projeto, o pacote de teste...) já cuida do início com o Windows: uma pasta de dados
+        # nova não toma o lugar do atalho dela (visto em 02/10 ao testar o pacote independente).
+        marcador.write_text(_TEXTO_MARCADOR.format(VERSAO_ATALHO), encoding="utf-8")
+        return False
+    ligar(pasta_projeto)  # se falhar, o marcador não é gravado e a próxima execução tenta de novo
     marcador.write_text(_TEXTO_MARCADOR.format(VERSAO_ATALHO), encoding="utf-8")
     return True
