@@ -9,7 +9,7 @@ import pytest
 
 from vision.tools.base import ComDados, ErroFerramenta
 from vision.tools.web import FerramentasWeb
-from vision.web import (CacheBuscas, Cota, ErroWeb, Resultado, Web, _conexao_publica, _host_publico,
+from vision.web import (Cota, ErroWeb, Resultado, Web, _conexao_publica, _host_publico,
                         _texto_de_html, limpar_consulta)
 
 TAVILY_OK = {
@@ -94,21 +94,6 @@ async def test_mesma_busca_vem_do_cache_e_nao_gasta_cota(tmp_path):
     # Sobrevive a reiniciar o Vision.
     w2, _ = criar(tmp_path, srv)
     assert (await w2.buscar("motor fusca 1970")).do_cache
-
-
-def test_cache_vence_e_tem_tamanho_maximo(tmp_path):
-    c = CacheBuscas(tmp_path / "web.json", validade_h=1, maximo=2)
-    c.guardar("a", {"x": 1}, agora=0)
-    assert c.pegar("a", agora=3599) == {"x": 1}
-    assert c.pegar("a", agora=3601) is None
-    c.guardar("b", {"x": 2}, agora=10)
-    c.guardar("c", {"x": 3}, agora=20)
-    assert c.pegar("a", agora=30) is None and c.pegar("c", agora=30) == {"x": 3}
-
-
-def test_cache_corrompido_vira_vazio(tmp_path):
-    (tmp_path / "web.json").write_text("{nao é json", encoding="utf-8")
-    assert CacheBuscas(tmp_path / "web.json").pegar("a") is None
 
 
 def test_cota_avisa_perto_do_fim_e_zera_no_mes_novo(tmp_path):

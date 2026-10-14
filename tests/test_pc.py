@@ -23,7 +23,7 @@ APPS = [{"nome": "Google Chrome", "id": "Chrome"}, {"nome": "Chrome Remote Deskt
 def pc(tmp_path):
     abertos, sites = [], []
     p = PC(tmp_path / "logs", abrir=abertos.append, navegador=sites.append)
-    p._apps, p._apps_em = APPS, float("inf")  # sem PowerShell nos testes
+    p._cache_apps.guardar("apps", APPS)  # sem PowerShell nos testes
     p.abertos, p.sites = abertos, sites
     return p
 

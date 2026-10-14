@@ -22,11 +22,18 @@ def ler_json(arquivo: Path) -> Any:
         return None
 
 
-def gravar_json(arquivo: Path, dados: Any) -> None:
+def gravar_json(arquivo: Path, dados: Any, *, duravel: bool = True) -> None:
+    """Grava por um arquivo temporário e troca (nunca fica pela metade). `duravel=False` (cache): compacto e sem
+    esperar o disco confirmar: arquivo ruim já vale cache vazio, e a escrita roda no laço de eventos."""
     arquivo.parent.mkdir(parents=True, exist_ok=True)
     tmp = arquivo.with_suffix(".tmp")
-    with tmp.open("w", encoding="utf-8") as f:
-        f.write(json.dumps(dados, ensure_ascii=False, indent=1))
-        f.flush()
-        os.fsync(f.fileno())
-    os.replace(tmp, arquivo)
+    try:
+        with tmp.open("w", encoding="utf-8", newline=None if duravel else "") as f:
+            f.write(json.dumps(dados, ensure_ascii=False, indent=1 if duravel else None))
+            if duravel:
+                f.flush()
+                os.fsync(f.fileno())
+        os.replace(tmp, arquivo)
+    except BaseException:
+        tmp.unlink(missing_ok=True)  # não deixa .tmp para trás
+        raise
