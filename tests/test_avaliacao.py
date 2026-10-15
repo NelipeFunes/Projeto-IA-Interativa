@@ -54,20 +54,24 @@ async def completo(cfg, memorias, tmp_path):
 # ---------------------------------------------------------------- isolamento
 
 async def test_ferramentas_de_acao_do_ambiente_nao_agem_no_pc_nem_na_internet(completo, monkeypatch):
-    from vision.tools import pc as modulo_pc
+    from vision.tools.pc import PC
 
     monkeypatch.setattr(ctypes, "windll", _Proibido(), raising=False)
     for onde, nome in [(subprocess, "Popen"), (subprocess, "run"), (subprocess, "call"), (asyncio, "create_subprocess_exec"),
                        (asyncio, "create_subprocess_shell"), (os, "startfile"), (os, "system"), (webbrowser, "open"),
                        (socket, "getaddrinfo"), (socket, "create_connection"), (socket.socket, "connect"),
-                       # o ddgs fala pelo `primp` (módulo compilado, fora do `socket`) e a leitura de volume/COM não passa
-                       # por nenhum dos de cima: trocados direto
-                       (modulo_pc, "_volume"), (modulo_pc, "_ler_volume")]:
+                       ]:
         monkeypatch.setattr(onde, nome, _Proibido(), raising=False)
     import ddgs
 
-    monkeypatch.setattr(ddgs, "DDGS", _Proibido())
+    monkeypatch.setattr(ddgs, "DDGS", _Proibido())  # fala pelo `primp` (módulo compilado, fora do `socket`)
     registro, tv = completo.registro, completo.tv
+    # Antes de chamar qualquer coisa: o PC do ambiente não ficou com os padrões da definição de `PC.__init__` (que são as
+    # funções de verdade e são capturados na definição: trocar `modulo_pc._volume` depois não os alcança).
+    pc = registro.ferramentas["programa_abrir"].executar.__self__
+    padroes, so_nome = PC.__init__.__defaults__, PC.__init__.__kwdefaults__
+    assert pc._abrir is not padroes[0] and pc._navegador is not padroes[1]
+    assert pc._volume is not so_nome["mudar_volume"] and pc._ler_volume is not so_nome["ler_volume"]
     pedidos = [
         ("programa_abrir", {"nome": "Bloco de Notas"}), ("programa_fechar", {"nome": "Chrome"}),
         ("site_abrir", {"endereco": "github.com"}), ("volume", {"acao": "definir", "nivel": 30}),
@@ -87,16 +91,12 @@ async def test_ferramentas_de_acao_do_ambiente_nao_agem_no_pc_nem_na_internet(co
         assert ok, f"{nome} falhou no ambiente falso: {saida}"
         saidas[nome] = saida
     # As respostas são as prontas do ambiente (um caminho real engolido por `except` não deixaria estes rastros):
-    assert "boxer" in saidas["web_buscar"] and "Banco Central" in saidas["web_noticias"]
+    assert "FUSCA-FALSO-1584" in saidas["web_buscar"] and "NOTICIA-FALSA-77" in saidas["web_noticias"]
     assert "Cidade Exemplo" in saidas["clima"] and "23%" in saidas["status_do_sistema"]
     assert ("youtube", "dQw4w9WgXcQ") in tv.feitas
     feito = {x[0] for x in completo.abertos}
     assert {"abrir", "fechar", "site", "midia", "travar", "energia", "cancelar_energia", "comando", "volume"} <= feito
     assert completo.alexa.feitas and completo.spotify.feitas and tv.feitas
-    # Por identidade: nada do PC ficou ligado à função de verdade (o padrão da definição do `PC` é capturado na criação)
-    pc = registro.ferramentas["programa_abrir"].executar.__self__
-    assert pc._abrir is not os.startfile and pc._navegador is not webbrowser.open
-    assert pc._volume is not modulo_pc._volume and pc._ler_volume is not modulo_pc._ler_volume
 
 
 async def test_volume_falso_guarda_o_nivel_e_o_mudo(completo):

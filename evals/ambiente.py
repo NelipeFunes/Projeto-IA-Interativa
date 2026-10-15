@@ -104,13 +104,13 @@ def _web_falsa() -> httpx.MockTransport:
 
 def _ddg(consulta: str, maximo: int) -> list[dict[str, str]]:
     return [{"title": "Motor do Fusca 1600: dados técnicos", "href": "https://www.exemplo.com.br/fusca",
-             "body": "O Fusca 1600 usa um motor boxer de 4 cilindros refrigerado a ar, 1.584 cm³ e 60 cv."},
+             "body": "O Fusca 1600 usa um motor boxer de 4 cilindros refrigerado a ar, 1.584 cm³ e 60 cv. [FUSCA-FALSO-1584]"},
             {"title": "Fusca (Wikipedia)", "href": "https://pt.exemplo.org/Fusca", "body": "Produzido de 1959 a 1996 no Brasil."}]
 
 
 def _noticias(tema: str, maximo: int) -> list[dict[str, str]]:
     return [{"title": "Banco Central mantém a Selic", "url": "https://noticias.exemplo.com/selic", "source": "Jornal X",
-             "date": "2026-10-14T09:00:00+00:00", "body": "O Copom decidiu manter a taxa."}]
+             "date": "2026-10-14T09:00:00+00:00", "body": "O Copom decidiu manter a taxa. [NOTICIA-FALSA-77]"}]
 
 
 def _videos(consulta: str, maximo: int = 10) -> list[dict[str, Any]]:
