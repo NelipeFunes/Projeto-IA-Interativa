@@ -33,5 +33,5 @@ def test_persona_jarvis_no_prompt():
 
     from vision import tempo
 
-    texto = prompt.montar("Felipe", "voz", datetime.now(tempo.FUSO), "", "")
+    texto = prompt.montar("Felipe", datetime.now(tempo.FUSO), "")
     assert "JARVIS" in texto and "próximo passo" in texto

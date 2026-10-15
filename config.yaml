@@ -19,7 +19,9 @@ modelo:
   # 02/10: só o prompt + os esquemas das ferramentas já dão ~4.800 tokens (5.500 com os PRs da noite), e o resto
   # (histórico, resultado de busca na web, resposta) não cabia folgado em 8.192. Na placa: 8k = 3,11 GB,
   # 12k = 3,25 GB, 16k = 3,38 GB (qwen3.5:4b, medido no Ollama).
-  contexto: 12288
+  # 15/10: 12.288 → 16.384. As 53 ferramentas (~6.200 tokens) + sistema (~1.300) + 8.000 caracteres de histórico + a busca e a leitura
+  # do próprio pedido somavam ~12.900 tokens no pior caso e estouravam o contexto (o Ollama então corta o COMEÇO do prompt).
+  contexto: 16384
   temperatura: 0.3
   # Quanto tempo o modelo fica na VRAM depois da última fala. 02/10: sempre ("-1m"): com o modelo no HD (D:), carregar
   # de novo levava de 4 a 29 s na 1ª pergunta. O modo jogo tira da placa quando o CS2 abre (3,2 GB de 8 GB fora dele).

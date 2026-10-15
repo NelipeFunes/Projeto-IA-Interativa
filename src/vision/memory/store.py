@@ -15,6 +15,7 @@ from __future__ import annotations
 import asyncio
 import re
 import sqlite3
+import unicodedata
 from collections import OrderedDict
 from dataclasses import dataclass
 from pathlib import Path
@@ -72,6 +73,21 @@ class Memoria:
     criado_em: str
     similaridade: float = 0.0
     vale_para: str = ""
+
+
+FATO_MAX, ASSUNTO_MAX = 300, 120  # o que de cada memória vai para o prompt (o resto continua no banco)
+_NEUTRO = str.maketrans({"<": "‹", ">": "›", "[": "(", "]": ")", "|": "/"})
+
+
+def limpar_fato(texto: str) -> str:
+    """Um fato de memória como DADO que vai para o prompt: uma linha só (sem "AGORA:" ou "- [9]" forjados no começo de
+    outra), sem caracteres invisíveis nem letras largas que viram `[` ou `<`, e sem os símbolos de que o template do modelo
+    e os rótulos do prompt são feitos (`<|im_start|>`, `<tool_call>`, `[...]`). Memória é fato em português."""
+    t = " ".join(unicodedata.normalize("NFKC", str(texto)).split())
+    # Fora todo caractere de controle/formato/não atribuído (categoria C*) e os seletores de variação (texto escondido em emoji).
+    t = "".join(c for c in t if unicodedata.category(c)[0] != "C" and not (0xFE00 <= ord(c) <= 0xFE0F
+                                                                          or 0xE0100 <= ord(c) <= 0xE01EF))
+    return t.translate(_NEUTRO)
 
 
 class Memorias:
@@ -218,8 +234,10 @@ class Memorias:
     # Usado pelo agente para montar o prompt e pelas ferramentas.
     @staticmethod
     def formatar(memorias: list[Memoria]) -> str:
-        """Com os assuntos à vista: só "tem um carro" no prompt, o 4B não pensava em pedir garagem (02/10)."""
-        return "\n".join(f"- [{m.id}] {m.texto}" + (f" (pesa em: {m.vale_para})" if m.vale_para else "")
+        """Com os assuntos à vista: só "tem um carro" no prompt, o 4B não pensava em pedir garagem (02/10).
+        Cada fato sai limpo (`limpar_fato`): uma memória que veio de um texto de fora não pode imitar o formato do prompt."""
+        return "\n".join(f"- [{m.id}] {limpar_fato(m.texto)[:FATO_MAX]}"
+                         + (f" (pesa em: {limpar_fato(m.vale_para)[:ASSUNTO_MAX]})" if m.vale_para else "")
                          for m in memorias)
 
     def exportar(self) -> list[dict[str, Any]]:
