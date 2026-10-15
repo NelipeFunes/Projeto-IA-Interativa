@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from vision.memory.store import Memorias
+from vision.memory.store import ASSUNTO_MAX, FATO_MAX, Memorias, limpar_fato
 from vision.tools.base import ComDados, ErroFerramenta, Ferramenta, esquema, texto
 
 CATEGORIAS = ["rotina", "preferencia", "pessoa", "meta", "saude", "estudo", "trabalho", "financas", "geral"]
@@ -45,8 +45,9 @@ class FerramentasMemoria:
         return ComDados(f"Memória apagada: {alvo.texto}", {"id": alvo.id})
 
     async def descrever_lembrar(self, args: dict[str, Any]) -> str:
-        vale = str(args.get("vale_para") or "").strip()[:120]  # o assunto também entra no prompt: o Felipe o ouve
-        return (f"Vou guardar na memória: \"{str(args.get('fato') or '').strip()[:300]}\""
+        # O mesmo texto que o prompt vai receber (`limpar_fato` e os tetos): o Felipe ouve o que o modelo vai ler.
+        vale = limpar_fato(str(args.get("vale_para") or ""))[:ASSUNTO_MAX]
+        return (f"Vou guardar na memória: \"{limpar_fato(str(args.get('fato') or ''))[:FATO_MAX]}\""
                 + (f" (vale para: {vale})" if vale else "") + ".")
 
     async def descrever_esquecer(self, args: dict[str, Any]) -> str:

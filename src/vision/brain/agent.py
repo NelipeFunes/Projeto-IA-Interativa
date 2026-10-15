@@ -42,9 +42,10 @@ CORTE_TOOL_NO_HISTORICO = 1000
 # caracteres e o corte em 1.000 tirava os links 2 a 5 já no pedido seguinte.
 LIMITE_NO_HISTORICO = {"web_buscar": 2500, "web_noticias": 2000, "web_ler": 2500, "reuniao_ler": 3000,
                        "reunioes_buscar": 2000, "notas_buscar": 2000, "agenda_listar": 2000, "agenda_buscar": 2000}
-# Teto do histórico inteiro (o contexto do modelo é de 12.288 tokens e só ~3.800 sobram depois das ferramentas e do sistema):
-# acima disso a janela anda mais um degrau, em vez de o Ollama cortar o começo do prompt (o sistema).
-HISTORICO_MAX_CARACTERES = 10_000
+# Teto do histórico inteiro (`modelo.contexto` é 16.384 tokens; ferramentas + sistema + contexto do pedido usam ~8.000 e o
+# próprio pedido ainda pode buscar e ler uma página): acima disso a janela anda mais um degrau, em vez de o Ollama cortar o
+# começo do prompt (o sistema). `tests/test_orcamento_prompt.py` faz a conta do pior caso.
+HISTORICO_MAX_CARACTERES = 8_000
 # A janela do histórico anda em degraus de PASSO_DA_JANELA turnos: entre um degrau e outro o começo do prompt não muda.
 PASSO_DA_JANELA = 3
 
@@ -508,9 +509,8 @@ class Agente:
                 usadas.append({"nome": c.nome, "args": c.args, "ok": ok, "resultado": resultado[:300]})
                 msg_tool = {"role": "tool", "content": resultado, "tool_name": c.nome}
                 mensagens.append(msg_tool)
-                limite_hist = LIMITE_NO_HISTORICO.get(c.nome, CORTE_TOOL_NO_HISTORICO)
-                turno.append(msg_tool if len(resultado) <= limite_hist
-                             else {**msg_tool, "content": resultado[:limite_hist] + " [...]"})
+                guardado = _para_historico(c.nome, resultado)
+                turno.append(msg_tool if guardado == resultado else {**msg_tool, "content": guardado})
 
             if nova_pendente is not None:
                 if rastro is not None:
@@ -636,6 +636,20 @@ class Agente:
         arquivo = self.pasta_conversas / f"{agora:%Y-%m-%d}.jsonl"
         with arquivo.open("a", encoding="utf-8") as f:
             f.write(json.dumps(linha, ensure_ascii=False, default=str) + "\n")
+
+
+def _para_historico(nome: str, resultado: str) -> str:
+    """O resultado de uma ferramenta como fica no histórico: inteiro se couber no limite dela; busca e notícias perdem primeiro
+    os trechos (as linhas indentadas) e ficam com título, site e link de TODOS os resultados ("detalhes do quinto"); o resto é
+    cortado no limite."""
+    limite = LIMITE_NO_HISTORICO.get(nome, CORTE_TOOL_NO_HISTORICO)
+    if len(resultado) <= limite:
+        return resultado
+    if nome in ("web_buscar", "web_noticias"):
+        resultado = "\n".join(linha for linha in resultado.split("\n") if not linha.startswith("   "))
+        if len(resultado) <= limite:
+            return resultado
+    return resultado[:limite] + " [...]"
 
 
 def _caracteres(turnos: list[list[dict[str, Any]]]) -> int:

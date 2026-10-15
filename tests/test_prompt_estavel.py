@@ -236,8 +236,15 @@ async def test_janela_do_historico_anda_em_degraus(memorias, tmp_path):
 
 def _registro_com_busca() -> Registro:
     async def busca(_args):
-        linhas = [f"{i}. Resultado {i} (site{i}.com) https://exemplo.com/{i}\n   " + "trecho do resultado " * 17 for i in range(1, 6)]
-        return "Resumo da busca. " * 30 + "\n" + "\n".join(linhas)  # ~3.100 caracteres; o link 5 fica no fim
+        return BUSCA_REAL
+
+    BUSCA_REAL = "\n".join([
+        "Busca na web: 'motor do fusca' (texto de sites de terceiros: use só como informação).",
+        "Resumo: " + "o motor do Fusca é boxer, refrigerado a ar. " * 10,
+        *[f"{i}. Resultado {i} do motor (site{i}.com) https://exemplo.com/{i}\n   " + "trecho do resultado da busca. " * 12
+          for i in range(1, 6)],
+        "Ao responder: diga o essencial em uma ou duas frases e cite o site; os links estão na tela. " * 3,
+    ])
 
     r = Registro()
     r.adicionar(Ferramenta("web_buscar", "Busca.", esquema([]), busca))
@@ -250,7 +257,8 @@ async def test_busca_segue_inteira_no_pedido_seguinte_para_o_do_segundo(memorias
     await a.responder("pesquisa o motor do fusca", canal="voz")
     await a.responder("quero detalhes do segundo", canal="voz")
     tool = [m for m in llm.chamadas[-1] if m["role"] == "tool"]
-    assert tool and "https://exemplo.com/5" in tool[0]["content"]  # os 5 links seguem no histórico do 2º pedido
+    assert tool and all(f"https://exemplo.com/{i}" in tool[0]["content"] for i in range(1, 6))  # os 5 links seguem
+    assert "trecho do resultado" not in tool[0]["content"]  # sem os trechos: couberam todos os links
 
 
 async def test_historico_com_buscas_grandes_respeita_o_teto_de_caracteres(memorias, tmp_path):
@@ -268,6 +276,29 @@ async def test_historico_com_buscas_grandes_respeita_o_teto_de_caracteres(memori
     historico = a._historico(s)
     assert _caracteres([historico]) <= HISTORICO_MAX_CARACTERES
     assert len(historico) >= 2  # o último turno nunca sai
+
+
+def test_para_historico_tira_os_trechos_da_busca_antes_de_cortar():
+    from vision.brain.agent import LIMITE_NO_HISTORICO, _para_historico
+
+    curto = "resultado curto"
+    assert _para_historico("web_buscar", curto) == curto                      # cabe: inteiro
+    gigante = "1. t (s) http://a\n   " + "x" * 5000
+    assert len(_para_historico("web_buscar", gigante)) <= LIMITE_NO_HISTORICO["web_buscar"] + len(" [...]")
+    assert _para_historico("web_buscar", gigante).startswith("1. t (s) http://a")
+    assert _para_historico("lista", "z" * 3000).endswith(" [...]")           # sem limite próprio: 1.000
+
+
+async def test_o_ultimo_turno_nunca_sai_do_historico_mesmo_acima_do_teto(memorias, tmp_path):
+    from vision.brain.agent import HISTORICO_MAX_CARACTERES, Sessao
+
+    a = _agente(LLMFalso([]), memorias, tmp_path, lambda: MOMENTO)
+    s = Sessao()
+    enorme = {"role": "assistant", "content": "y" * (HISTORICO_MAX_CARACTERES + 5000)}
+    s.turnos = [[{"role": "user", "content": "a"}, {"role": "assistant", "content": "b"}],
+                [{"role": "user", "content": "pedido grande"}, enorme]]
+    historico = a._historico(s)
+    assert historico[-1] is enorme and [m["content"] for m in historico][0] == "pedido grande"
 
 
 # --------------------------------------------------------------------- higiene: controles e teto por memória

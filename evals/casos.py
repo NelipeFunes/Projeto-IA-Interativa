@@ -122,20 +122,28 @@ def no_prompt(ctx: Contexto, trecho: str, fala: int = -1) -> list[str]:
     except IndexError:
         envio = None
     if envio is None:
-        return ["a avaliação não guardou as mensagens enviadas (só vale no ambiente de produção)"]
-    sistema = " ".join(str(m.get("content") or "") for m in envio if m.get("role") == "system")
+        return ["nenhuma chamada ao modelo nesta fala (atalho ou erro antes dela): não há prompt para conferir"]
+    # Só as mensagens de sistema coladas na fala (o contexto do pedido): um "AGORA:" no sistema fixo não conta.
+    ultima_fala = max((i for i, m in enumerate(envio) if m.get("role") == "user"), default=len(envio))
+    colado = []
+    for m in reversed(envio[:ultima_fala]):
+        if m.get("role") != "system":
+            break
+        colado.append(str(m.get("content") or ""))
+    sistema = " ".join(colado)
     return [] if trecho.lower() in sistema.lower() else [f"o prompt não trouxe {trecho!r} (contexto do pedido perdido)"]
 
 
 def hora_do_relogio(ctx: Contexto) -> list[str]:
-    """A resposta cita a hora do relógio sintético (10h07, 10:07 ou "dez e sete")."""
+    """A resposta cita a hora do relógio sintético em dígitos (10h07, 10:07; "17h" vale para minuto 0). Por extenso reprova:
+    o 4B responde com dígitos."""
     import re
 
     if ctx.agora is None:
         return ["sem relógio sintético"]
     t = ctx.ultima.texto.lower()
     numeros = {int(n) for n in re.findall(r"\d+", t)}
-    if ctx.agora.hour in numeros and ctx.agora.minute in numeros:
+    if ctx.agora.hour in numeros and (ctx.agora.minute in numeros or ctx.agora.minute == 0):
         return []
     return [f"a resposta não cita a hora {ctx.agora:%H:%M}: {ctx.ultima.texto[:90]!r}"]
 
