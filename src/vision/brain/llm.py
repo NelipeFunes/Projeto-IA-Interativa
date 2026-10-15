@@ -23,6 +23,12 @@ class RespostaLLM:
     chamadas: list[ChamadaFerramenta] = field(default_factory=list)
     tokens: int = 0
     segundos: float = 0.0
+    # O que o Ollama mediu do pedido (para achar onde o tempo vai): tokens do prompt (todos, os reaproveitados do
+    # cache também), quanto custou prepará-lo (um prompt estável custa ~0,3 s; um que muda por inteiro, ~1,8 s) e
+    # quanto levou para carregar o modelo.
+    prompt_tokens: int = 0
+    prompt_s: float = 0.0
+    carga_s: float = 0.0
 
 
 class LLM(Protocol):
@@ -75,8 +81,12 @@ class OllamaLLM:
                 chamadas=_chamadas(r.message.tool_calls),
                 tokens=r.eval_count or 0,
                 segundos=(r.total_duration or 0) / 1e9,
+                prompt_tokens=getattr(r, "prompt_eval_count", 0) or 0,
+                prompt_s=(getattr(r, "prompt_eval_duration", 0) or 0) / 1e9,
+                carga_s=(getattr(r, "load_duration", 0) or 0) / 1e9,
             )
         texto, chamadas, tokens, segundos = [], [], 0, 0.0
+        prompt_tokens, prompt_s, carga_s = 0, 0.0, 0.0
         fluxo = await self.cliente.chat(**comum, stream=True)
         try:
             async for parte in fluxo:
@@ -86,13 +96,16 @@ class OllamaLLM:
                 chamadas += _chamadas(parte.message.tool_calls)
                 if parte.done:
                     tokens, segundos = parte.eval_count or 0, (parte.total_duration or 0) / 1e9
+                    prompt_tokens = getattr(parte, "prompt_eval_count", 0) or 0
+                    prompt_s = (getattr(parte, "prompt_eval_duration", 0) or 0) / 1e9
+                    carga_s = (getattr(parte, "load_duration", 0) or 0) / 1e9
         finally:
             fechar = getattr(fluxo, "aclose", None)
             if fechar is not None:
                 await fechar()  # sem esperar o coletor de lixo: o Ollama para de gerar quando a conexão cai
             # Também quando a resposta é cortada (Interrompido) ou falha: o jogo pode ter aberto no meio (2ª revisão)
             await self._jogo_comecou_no_meio(comum["keep_alive"])
-        return RespostaLLM("".join(texto), chamadas, tokens, segundos)
+        return RespostaLLM("".join(texto), chamadas, tokens, segundos, prompt_tokens, prompt_s, carga_s)
 
     async def _jogo_comecou_no_meio(self, usado) -> None:
         """O jogo abriu enquanto esta resposta saía: ela terminou com o keep_alive de antes e desfez o descarregar."""

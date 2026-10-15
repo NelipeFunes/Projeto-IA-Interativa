@@ -18,6 +18,7 @@ class Contexto:
     agenda: Any                    # servidor de agenda falso (tem .eventos)
     orbit: Any                     # servidor Orbit falso (tem .lancados, .tarefas)
     memorias: Any
+    amb: Any = None                # ambiente completo (evals/ambiente.py), só com --producao: tv, alexa, spotify, timers...
 
     @property
     def ultima(self):
@@ -40,6 +41,8 @@ class Caso:
     checar: Callable[[Contexto], list[str]]
     memorias: list[str] = field(default_factory=list)
     sessao_nova_na_ultima: bool = False
+    confirmacao: str = "todas"     # `assistente.confirmacao` do caso: os antigos rodam em "todas"; os novos, no de produção
+    preparar: Callable[[Any], None] | None = None  # mexe no ambiente antes das falas (ex.: busca com texto malicioso)
 
 
 # ---------------------------------------------------------------- ajudantes
@@ -57,6 +60,14 @@ def usou(ctx: Contexto, *nomes: str, em: int = -1) -> list[str]:
     return [f"esperava {' ou '.join(nomes)}; chamou {', '.join(feitas)}"]
 
 
+def _igual(valor: Any, esperado: Any) -> bool:
+    """Número compara como número (10, 10.0 e "10%" são iguais a 10); o resto, como texto."""
+    try:
+        return float(str(valor).strip().rstrip("%")) == float(esperado)
+    except (TypeError, ValueError):
+        return str(valor) == str(esperado)
+
+
 def arg(ctx: Contexto, nome: str, chave: str, esperado: Any, em: int = -1) -> list[str]:
     cs = chamadas(ctx.respostas[em], nome)
     if not cs:
@@ -66,7 +77,7 @@ def arg(ctx: Contexto, nome: str, chave: str, esperado: Any, em: int = -1) -> li
         return [] if str(valor) in {str(e) for e in esperado} else [f"{nome}.{chave}={valor!r}, esperava um de {list(esperado)}"]
     if callable(esperado):
         return [] if esperado(valor) else [f"{nome}.{chave}={valor!r} fora do esperado"]
-    return [] if str(valor) == str(esperado) else [f"{nome}.{chave}={valor!r}, esperava {esperado!r}"]
+    return [] if _igual(valor, esperado) else [f"{nome}.{chave}={valor!r}, esperava {esperado!r}"]
 
 
 def hora(esperada: str) -> Callable[[Any], bool]:
@@ -177,7 +188,8 @@ CASOS: list[Caso] = [
          lambda c: _e(usou(c, "tarefas_criar", "agenda_criar"), pendente(c))),
     # --- memória
     Caso("memoria_guardar", "memoria", ["Lembra que minha cachorra se chama Luna"],
-         lambda c: _e(usou(c, "guardar_memoria"), nao_pendente(c), [] if c.memorias.total() == 1 else ["não guardou"])),
+         lambda c: _e(usou(c, "guardar_memoria"), nao_pendente(c),
+                      [] if any("luna" in m.texto.lower() for m in c.memorias.todas()) else ["não guardou"])),
     Caso("memoria_usar", "memoria", ["Posso pedir um strogonoff de camarão hoje?"],
          lambda c: contem(c, "alerg", "alérg"), memorias=["O Felipe é alérgico a camarão."]),
     Caso("memoria_cachorra", "memoria", ["Qual o nome da minha cachorra?"],
