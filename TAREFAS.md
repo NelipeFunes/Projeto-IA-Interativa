@@ -87,7 +87,7 @@ Próximo código livre: **T-032**
 
 - [ ] **T-021** 🔴 **Pipeline de voz: menos espera entre o fim da sua fala e a resposta** (análise de 15/10; **PR [#64](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/64) mesclado em 15/10 depois do teste de ouvido do Felipe**: bipe "entendi" sem esperar, `voz.silencio_fim_ms` 800 → 600 e 4 bugs. Falta o resto abaixo). O que o levantamento achou, em ordem de ganho:
   - ✅ (PR #64) o bipe "entendi" bloqueia ~450 ms antes de o modelo começar: tocar sem esperar (em paralelo à transcrição e ao modelo);
-  - ✅ (PR #64) `voz.silencio_fim_ms: 800` é quase um terço da espera: testar ~550 ms (risco: cortar pausas no meio da frase; validar de ouvido);
+  - ✅ (PR #64) `voz.silencio_fim_ms: 800` é quase um terço da espera: entrou 600 ms (na prática 640: o detector conta em passos de 80 ms); o Felipe validou de ouvido, e se cortar pausa no meio da frase é só voltar a 800;
   - abrir a saída de áudio antes (`latency="low"`, ~0,06 s) e dividir a primeira frase longa da resposta para começar a falar mais cedo;
   - "Hey Vision, pedido" na mesma frase transcreve duas vezes (uma para achar a ativação, outra para o pedido): reaproveitar a primeira;
   - ✅ (PR #64) **bugs achados no caminho:** `voice/loop.py` (~593-596) espera o `falador` dentro de um `finally`; `voice/falado.py` (~104) "1/2 litro" é lido como data; `voice/audio.py` descarta em silêncio quando a fila enche (`queue.Full`); o Piper (`Voz`) não tem trava para duas falas ao mesmo tempo.
