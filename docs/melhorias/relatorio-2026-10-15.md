@@ -27,7 +27,7 @@ Leitura de 3 minutos. Medições no `qwen3.5:4b` com as 53 ferramentas de produ�
 | [#64](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/64) | Voz: bipe "entendi" sem bloquear, silêncio de fim de fala 800 → 600 ms, 4 bugs do laço de voz | **ABERTO para você validar de ouvido**; Opus: aprovar com ressalvas (tratadas) |
 | resposta pronta | pular a 2ª chamada ao modelo quando a ferramenta já devolve a frase | **descartado por ora** (o Opus mandou refazer): T-022 |
 
-## Onde o tempo vai (mediana do tempo por categoria, 4B, fala já transcrita)
+## Onde o tempo vai (mediana do tempo por categoria, 4B, fala já transcrita; bateria "depois" do desenho final do prompt, valores da bateria de confirmação diferem ±0,1 s)
 
 | Categoria | Antes | Depois |
 |---|---|---|
