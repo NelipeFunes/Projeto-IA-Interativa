@@ -19,6 +19,8 @@ class Contexto:
     orbit: Any                     # servidor Orbit falso (tem .lancados, .tarefas)
     memorias: Any
     amb: Any = None                # ambiente completo (evals/ambiente.py), só com --producao: tv, alexa, spotify, timers...
+    agora: Any = None              # o relógio sintético depois da última fala (o "AGORA" que o prompt trouxe)
+    enviados: list = field(default_factory=list)   # por fala: as listas de mensagens enviadas ao modelo, uma por chamada
 
     @property
     def ultima(self):
@@ -110,6 +112,40 @@ def pendente(ctx: Contexto, em: int = -1) -> list[str]:
 
 def nao_pendente(ctx: Contexto) -> list[str]:
     return [] if not ctx.ultima.aguardando_confirmacao else ["pediu confirmação sem motivo"]
+
+
+def no_prompt(ctx: Contexto, trecho: str, fala: int = -1) -> list[str]:
+    """O trecho estava nas mensagens de SISTEMA da 1ª chamada da fala. Sem isso, um caso de memória ou de hora passa vazio
+    quando o contexto do pedido não chega ao modelo (memória fora do top 3, ou renderer que descarta a mensagem)."""
+    try:
+        envio = ctx.enviados[fala][0]
+    except IndexError:
+        envio = None
+    if envio is None:
+        return ["nenhuma chamada ao modelo nesta fala (atalho ou erro antes dela): não há prompt para conferir"]
+    # Só as mensagens de sistema coladas na fala (o contexto do pedido): um "AGORA:" no sistema fixo não conta.
+    ultima_fala = max((i for i, m in enumerate(envio) if m.get("role") == "user"), default=len(envio))
+    colado = []
+    for m in reversed(envio[:ultima_fala]):
+        if m.get("role") != "system":
+            break
+        colado.append(str(m.get("content") or ""))
+    sistema = " ".join(colado)
+    return [] if trecho.lower() in sistema.lower() else [f"o prompt não trouxe {trecho!r} (contexto do pedido perdido)"]
+
+
+def hora_do_relogio(ctx: Contexto) -> list[str]:
+    """A resposta cita a hora do relógio sintético em dígitos (10h07, 10:07; "17h" vale para minuto 0). Por extenso reprova:
+    o 4B responde com dígitos."""
+    import re
+
+    if ctx.agora is None:
+        return ["sem relógio sintético"]
+    t = ctx.ultima.texto.lower()
+    numeros = {int(n) for n in re.findall(r"\d+", t)}
+    if ctx.agora.hour in numeros and (ctx.agora.minute in numeros or ctx.agora.minute == 0):
+        return []
+    return [f"a resposta não cita a hora {ctx.agora:%H:%M}: {ctx.ultima.texto[:90]!r}"]
 
 
 def contem(ctx: Contexto, *trechos: str) -> list[str]:

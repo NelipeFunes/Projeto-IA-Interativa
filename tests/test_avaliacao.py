@@ -215,3 +215,35 @@ def test_relatorio_mostra_erros_do_ambiente_e_nao_os_conta_no_tempo():
     assert "| 2.0s |" in texto  # o 0,0 s do caso que nem rodou não puxa a média para baixo
     assert "20 memórias neutras" in texto
     assert "sem memórias neutras" in run.relatorio([{**av, "producao": False}])
+
+
+# ---------------------------------------------------------------- o que o modelo recebeu (canário da hora e da memória)
+
+async def test_runner_guarda_o_prompt_enviado_e_o_relogio_para_os_verificadores(cfg, monkeypatch):
+    from casos import hora_do_relogio, no_prompt
+
+    monkeypatch.setattr(run, "criar_memorias", lambda c: Memorias(c.dados / "memoria.db", EmbedderFalso(), duplicata=0.9))
+    caso = Caso("hora", "conversa", ["Que horas são?"],
+                lambda ctx: [*no_prompt(ctx, "AGORA:"), *hora_do_relogio(ctx)], confirmacao="sensiveis")
+    llm = LLMFalso([fala("São 10h07.")])
+    metricas: list = []
+    run.medir(llm, metricas)
+    r = await run.rodar_caso(cfg, llm, caso, True, run.Relogio(7), False, metricas, None)
+    assert r["passou"], r["falhas"]
+    llm2 = LLMFalso([fala("São 11h30.")])
+    metricas2: list = []
+    run.medir(llm2, metricas2)
+    errado = await run.rodar_caso(cfg, llm2, caso, True, run.Relogio(7), False, metricas2, None)
+    assert not errado["passou"] and "10:07" in errado["falhas"][0]
+
+
+async def test_no_prompt_reprova_quando_o_contexto_nao_chegou(cfg, monkeypatch):
+    from casos import no_prompt
+
+    monkeypatch.setattr(run, "criar_memorias", lambda c: Memorias(c.dados / "memoria.db", EmbedderFalso(), duplicata=0.9))
+    caso = Caso("mem", "seguranca", ["Que dia é hoje?"], lambda ctx: no_prompt(ctx, "segredo-da-memoria"), confirmacao="sensiveis")
+    llm = LLMFalso([fala("Quinta.")])
+    metricas: list = []
+    run.medir(llm, metricas)
+    r = await run.rodar_caso(cfg, llm, caso, True, run.Relogio(7), False, metricas, None)
+    assert not r["passou"] and "contexto do pedido perdido" in r["falhas"][0]

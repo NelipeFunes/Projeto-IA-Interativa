@@ -66,6 +66,21 @@ PRAZO_FALA_S = 240  # uma fala que passa disso conta como falha (modelo grande d
 JANELA_DO_RELOGIO_MIN = 13 * 60  # das 10h às 22h59: o relógio sintético nunca cruza a meia-noite
 
 
+def medir(llm, metricas: list) -> None:
+    """Cada chamada ao modelo entra em `metricas` com as mensagens que foram enviadas (`r.mensagens`): os verificadores
+    de memória e de hora conferem o que o modelo RECEBEU, não só o que ele fez."""
+    original = llm.conversar
+
+    async def medido(*a, **k):
+        mensagens = list(a[0]) if a else None  # a lista cresce depois; os dicts não mudam
+        r = await original(*a, **k)
+        r.mensagens = mensagens
+        metricas.append(r)
+        return r
+
+    llm.conversar = medido
+
+
 def dia_base() -> datetime:
     """Hoje às 10h. Criado uma vez por execução: uma noite que passa da meia-noite não troca o dia dos modelos seguintes."""
     return datetime.now(tempo.FUSO).replace(hour=10, minute=0, second=0, microsecond=0)
@@ -108,6 +123,7 @@ async def rodar_caso(cfg, llm, caso: Caso, producao: bool, relogio: Relogio, com
     memorias = amb = None
     respostas, tempos = [], []
     erro_ambiente = False
+    enviados: list = []
     try:
         memorias = criar_memorias(cfg)
         for fato in caso.memorias:
@@ -149,7 +165,8 @@ async def rodar_caso(cfg, llm, caso: Caso, producao: bool, relogio: Relogio, com
                     "carga": sum(m.carga_s for m in metricas),  # load_duration do Ollama: uns ms com o modelo carregado; segundos = recarregou
                     "prompt_tokens": max((m.prompt_tokens for m in metricas), default=0), "chamadas_llm": len(metricas)})
                 respostas.append(r)
-            ctx = Contexto(hoje, respostas, agenda_srv, orbit_srv, memorias, amb)
+                enviados.append([getattr(m, "mensagens", None) for m in metricas])
+            ctx = Contexto(hoje, respostas, agenda_srv, orbit_srv, memorias, amb, agora=relogio.agora(), enviados=enviados)
             try:
                 falhas = caso.checar(ctx)
             except Exception as e:  # noqa: BLE001
@@ -206,14 +223,7 @@ async def avaliar(modelo: str, pensar: bool, so: set[str] | None, repeticoes: in
     cfg = config.carregar(sobrescrever={"modelo.nome": modelo, "modelo.pensar": pensar, **sobrescrever})
     llm = criar_llm(cfg)
     metricas: list = []
-    original = llm.conversar
-
-    async def medido(*a, **k):
-        r = await original(*a, **k)
-        metricas.append(r)
-        return r
-
-    llm.conversar = medido
+    medir(llm, metricas)
     relogio = Relogio(avanco_min, base)
     banco: Path | None = None
     agora_original = tempo.agora
