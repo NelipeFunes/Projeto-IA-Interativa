@@ -103,7 +103,8 @@ async def test_memoria_entra_no_prompt(registro, memorias, tmp_path):
     llm = LLMFalso([fala("A Luna!")])
     await agente(llm, registro, memorias, tmp_path).responder("qual o nome da minha cachorra Luna?")
     sistema = llm.chamadas[0][0]["content"]
-    assert "cachorra chamada Luna" in sistema
+    pedido = llm.chamadas[0][-1]["content"]  # as memórias vão junto do pedido, não no sistema (prefixo estável)
+    assert "cachorra chamada Luna" in pedido and "cachorra chamada Luna" not in sistema
 
 
 async def test_log_de_conversa(registro, memorias, tmp_path):

@@ -23,6 +23,7 @@ import ambiente  # noqa: E402
 
 TETO_ESQUEMAS = 25_000  # caracteres do JSON das ferramentas (hoje ~21.700)
 TETO_SISTEMA = 6_000    # caracteres do prompt de sistema com todas as regras (hoje ~4.600)
+TETO_CONTEXTO = 900     # caracteres do bloco que vai junto de cada pedido, com uma memória (hoje ~500)
 FERRAMENTAS = 53        # o conjunto completo de produção: ferramenta nova => sobe aqui de propósito (e no teto, se preciso)
 
 
@@ -37,7 +38,9 @@ async def test_prompt_de_producao_cabe_no_orcamento(completo):
     registro = completo.registro
     assert len(registro.ferramentas) == FERRAMENTAS  # o ambiente de avaliação tem o conjunto completo
     esquemas = len(json.dumps(registro.para_ollama(), ensure_ascii=False))
-    sistema = len(prompt.montar("Felipe", "voz", datetime.now(tempo.FUSO), "", "", set(registro.ferramentas),
-                               confirmacao="sensiveis"))  # o modo de produção
+    agora = datetime.now(tempo.FUSO)
+    sistema = len(prompt.montar("Felipe", agora, "", set(registro.ferramentas), confirmacao="sensiveis"))  # modo de produção
+    contexto = len(prompt.contexto_do_pedido("voz", agora, "- [1] O Felipe tem uma cachorra chamada Luna."))
     assert esquemas <= TETO_ESQUEMAS, f"esquemas das ferramentas: {esquemas} caracteres (teto {TETO_ESQUEMAS})"
     assert sistema <= TETO_SISTEMA, f"prompt de sistema: {sistema} caracteres (teto {TETO_SISTEMA})"
+    assert contexto <= TETO_CONTEXTO, f"contexto do pedido: {contexto} caracteres (teto {TETO_CONTEXTO})"

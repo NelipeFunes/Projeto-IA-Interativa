@@ -76,6 +76,8 @@ class Resposta:
     segundos: float = 0.0
     insistiu: bool = False
     interrompido: bool = False  # o Felipe falou por cima e a geração parou no meio
+    prompt_s: float = 0.0       # quanto o modelo levou só para preparar o prompt (soma das voltas): ~0,3 s com o prefixo em cache
+    prompt_tokens: int = 0      # tokens do prompt da maior volta
 
 
 
@@ -298,7 +300,8 @@ class Agente:
 
     # ------------------------------------------------------------------ pensar
 
-    async def _contexto(self, texto: str, canal: str) -> str:
+    async def _contexto(self, texto: str, canal: str) -> tuple[str, str]:
+        """(prompt de sistema estável, contexto deste pedido: canal, hora e memórias). Ver o aviso no topo de prompt.py."""
         perfil = ""
         if self.perfil and self.perfil.exists():
             perfil = self.perfil.read_text(encoding="utf-8")
@@ -309,8 +312,10 @@ class Agente:
                 memorias = Memorias.formatar(achadas)
             except Exception as e:  # noqa: BLE001 - memória fora do ar não pode travar a conversa
                 log.warning("memória indisponível: %s", e)
-        return prompt.montar(self.nome, canal, self.relogio(), perfil, memorias, set(self.registro.ferramentas),
-                             self.nome_assistente, confirmacao=self.confirmacao)
+        agora = self.relogio()
+        sistema = prompt.montar(self.nome, agora, perfil, set(self.registro.ferramentas),
+                                self.nome_assistente, confirmacao=self.confirmacao)
+        return sistema, prompt.contexto_do_pedido(canal, agora, memorias)
 
     def _historico(self, s: Sessao) -> list[dict[str, Any]]:
         turnos = s.turnos[-self.turnos_historico :]
@@ -358,11 +363,13 @@ class Agente:
                 feito = await atalho(texto)
                 if feito is not None:
                     return self._registrar_atalho(s, texto, feito, ao_texto)
-        sistema = await self._contexto(texto, canal)
-        turno: list[dict[str, Any]] = [{"role": "user", "content": texto}]
+        sistema, contexto = await self._contexto(texto, canal)
+        turno: list[dict[str, Any]] = [{"role": "user", "content": texto}]  # o que fica no histórico: só a fala
         nota = [{"role": "system", "content": s.nota}] if s.nota else []
         s.nota = None
-        mensagens = [{"role": "system", "content": sistema}, *self._historico(s), *nota, *turno]
+        # O modelo vê a fala precedida da hora e das memórias; o histórico guarda só a fala (prefixo estável).
+        mensagens = [{"role": "system", "content": sistema}, *self._historico(s), *nota,
+                     {"role": "user", "content": contexto + texto}]
         ferramentas = self.registro.para_ollama()
         usadas: list[dict[str, Any]] = []
         parcial: list[str] = []
@@ -393,12 +400,14 @@ class Agente:
         forcar = [g for g in grupos if g not in intencao.SEM_INSISTIR or not texto.strip().endswith("?")]
         insistiu = False
         final = ""
+        prompt_s, prompt_tokens = 0.0, 0
 
         for volta in range(MAX_VOLTAS):
             if parar is not None and parar():
                 raise Interrompido  # cortado entre uma volta e outra: as ferramentas pedidas depois nem rodam
             transmitir = cortavel if volta > 0 and (ao_texto or parar) else None  # a 1ª volta decide ferramentas
             r: RespostaLLM = await self.llm.conversar(mensagens, ferramentas, transmitir)
+            prompt_s, prompt_tokens = prompt_s + r.prompt_s, max(prompt_tokens, r.prompt_tokens)
             if parar is not None and parar():
                 raise Interrompido  # ele falou enquanto o modelo decidia: o que foi pedido agora não roda
             transmitido = transmitir is not None
@@ -422,6 +431,7 @@ class Agente:
                     puxao = (f"ATENÇÃO: para responder isso você PRECISA chamar uma ferramenta ({nomes}). "
                              "Chame a ferramenta agora. Não responda de cabeça.")
                 r = await self.llm.conversar([*mensagens, *extra, {"role": "system", "content": puxao}], ferramentas, None)
+                prompt_s, prompt_tokens = prompt_s + r.prompt_s, max(prompt_tokens, r.prompt_tokens)
                 transmitido = False
 
             escreveu = any(self._mudou_algo(u) for u in usadas)
@@ -507,7 +517,8 @@ class Agente:
         if any((f := self.registro.get(u["nome"])) is not None and f.conteudo_externo for u in usadas):
             # O resultado fica no histórico por `turnos_historico` turnos: a trava vale esse tempo todo.
             s.externo_ate_turno = len(s.turnos) - 1 + self.turnos_historico
-        return Resposta(final, usadas, s.pendente is not None, insistiu=insistiu)
+        return Resposta(final, usadas, s.pendente is not None, insistiu=insistiu, prompt_s=prompt_s,
+                        prompt_tokens=prompt_tokens)
 
     def _mudou_algo(self, usada: dict[str, Any]) -> bool:
         """Chamada que deu certo e mudou algo: escrita, ou guardar memória (que não é escrita, mas grava)."""
@@ -600,6 +611,8 @@ class Agente:
             "ferramentas": r.ferramentas,
             "insistiu": r.insistiu,
             "segundos": round(r.segundos, 2),
+            "prompt_s": round(r.prompt_s, 2),
+            "prompt_tokens": r.prompt_tokens,
             "modelo": getattr(self.llm, "modelo", "?"),
         }
         arquivo = self.pasta_conversas / f"{agora:%Y-%m-%d}.jsonl"
