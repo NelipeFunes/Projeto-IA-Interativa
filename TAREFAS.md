@@ -8,7 +8,7 @@ Como usar:
 - Concluída leva a data e o PR (quando houver). Mudança neste arquivo também passa por branch e PR.
 - Este repositório é **público**: só tarefas técnicas aqui. Nada de dado pessoal, rotina ou credencial.
 
-Próximo código livre: **T-031**
+Próximo código livre: **T-032**
 
 ---
 
@@ -85,12 +85,12 @@ Próximo código livre: **T-031**
     - **Repositório público:** não versionar login, e-mail da conta, IP, ID de dispositivo, nome que identifique a casa, token nem captura de tráfego. Capturas ficam no scratchpad ou em `data/`, e relatório de captura é mascarado antes de ir ao PR.
   - **Passos de agora, do Felipe:** (1) dizer quando iniciar a etapa 1 (ele digita o login no Vision); (2) opcional, em paralelo: testar a skill da Alexa no app e pedir a API ao suporte da Tholz (contato no site da empresa).
 
-- [ ] **T-021** 🔴 **Pipeline de voz: menos espera entre o fim da sua fala e a resposta** (análise de 15/10; **PR [#64](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/64) aberto de propósito: o Felipe valida de ouvido** o bipe "entendi" sem esperar e o `silencio_fim_ms` 600 e, se gostar, mescla; os 4 bugs listados abaixo já estão nele, menos o último item desta tarefa). O que o levantamento achou, em ordem de ganho:
-  - o bipe "entendi" bloqueia ~450 ms antes de o modelo começar: tocar sem esperar (em paralelo à transcrição e ao modelo);
-  - `voz.silencio_fim_ms: 800` é quase um terço da espera: testar ~550 ms (risco: cortar pausas no meio da frase; validar de ouvido);
+- [ ] **T-021** 🔴 **Pipeline de voz: menos espera entre o fim da sua fala e a resposta** (análise de 15/10; **PR [#64](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/64) mesclado em 15/10 depois do teste de ouvido do Felipe**: bipe "entendi" sem esperar, `voz.silencio_fim_ms` 800 → 600 e 4 bugs. Falta o resto abaixo). O que o levantamento achou, em ordem de ganho:
+  - ✅ (PR #64) o bipe "entendi" bloqueia ~450 ms antes de o modelo começar: tocar sem esperar (em paralelo à transcrição e ao modelo);
+  - ✅ (PR #64) `voz.silencio_fim_ms: 800` é quase um terço da espera: testar ~550 ms (risco: cortar pausas no meio da frase; validar de ouvido);
   - abrir a saída de áudio antes (`latency="low"`, ~0,06 s) e dividir a primeira frase longa da resposta para começar a falar mais cedo;
   - "Hey Vision, pedido" na mesma frase transcreve duas vezes (uma para achar a ativação, outra para o pedido): reaproveitar a primeira;
-  - **bugs achados no caminho:** `voice/loop.py` (~593-596) espera o `falador` dentro de um `finally`; `voice/falado.py` (~104) "1/2 litro" é lido como data; `voice/audio.py` descarta em silêncio quando a fila enche (`queue.Full`); o Piper (`Voz`) não tem trava para duas falas ao mesmo tempo.
+  - ✅ (PR #64) **bugs achados no caminho:** `voice/loop.py` (~593-596) espera o `falador` dentro de um `finally`; `voice/falado.py` (~104) "1/2 litro" é lido como data; `voice/audio.py` descarta em silêncio quando a fila enche (`queue.Full`); o Piper (`Voz`) não tem trava para duas falas ao mesmo tempo.
   - **Falta (achado do Opus no PR #64):** se o fone não abrir, o "Confirma?" não é falado e um "sim" em até 30 s ainda confirma a ação: nesse caso `cancelar_pendente("voz", "voz")` e avisar na tela (hoje só vai para o log).
   - **Meta do Felipe:** atalhos sem modelo < 0,5 s; pedido simples pelo modelo ~1 s; complexo até ~2,5 s; para ações que mudam algo, começar a falar em gerúndio ("estou apagando…") enquanto a ação roda, nunca dizendo que deu certo antes da confirmação.
 - [ ] **T-022** 🟡 **Resposta pronta: pular a 2ª chamada ao modelo quando o resultado da ferramenta já é a frase** (análise de 15/10; **branch descartada antes de virar PR**, o Opus mandou refazer). Ganho estimado (não há arquivo bruto): ~0,3 a 0,7 s em ação direta (luz, volume, timer, programa). A ideia vale, mas a 1ª versão (`RESPOSTA_PRONTA` + `_basta_o_resultado`) tinha furos que ficam como requisitos:
@@ -111,6 +111,11 @@ Próximo código livre: **T-031**
 - [ ] **T-027** 🟢 **Refatorações que sobraram da análise de 15/10** (cada uma com PR): `Atalho` como NamedTuple; gravação atômica de JSON repetida (`web.Cota`, spotify, wispr, timers, clima, conexoes, config, comandos) → `arquivos.gravar_json`; quebrar `montagem.montar` (~160 linhas, `AsyncExitStack`); `cli.main` com `set_defaults`; quebrar `Agente._pensar`; política de confirmação num lugar só (flags `escrita`, `confirmar`, `sempre_confirmar`, `sensivel`…); `HostMCP.chamar_json`; analisadores de data duplicados; dependências usadas e não declaradas no `pyproject` (aiohttp, yarl, scipy, comtypes, botocore); bug de `agenda._data` com "dd/mm" em dezembro; código morto.
 - [ ] **T-028** 🟢 **Separar serviços em outros servidores / nuvem**: estudo feito (hipotético) em `docs/melhorias/servicos-em-outros-servidores.md`; nada a implementar até existir o PC dedicado (liga com a T-012).
 - [ ] **T-029** 🟡 **Tirar os segredos do `os.environ`** (achado do Opus no PR 62): hoje a senha e o token do Orbit e a chave da Tavily ficam no ambiente do núcleo (`load_dotenv`) e qualquer filho que não passe por `vision/envs.py` os herda (`abrir_programa` via `os.startfile`). Ler o `.env` com `dotenv_values` num dicionário privado (lido por `web.py`, `conexoes.py` e pela resolução de `$NOME`) e nunca pôr no `os.environ`.
+
+- [ ] **T-031** 🔴 **Transcrição errando em fala curta** (relato de 15/10; **só mapeada, nada alterado**). **Evidência:** no teste do PR #64, 2 de 5 falas saíram erradas ("Chiara são." e "No." no lugar de "Não"), com o headset em uso (a webcam só valeu nos primeiros minutos). O log só guarda o que chegou ao agente e não há áudio guardado em lugar nenhum, então a causa não está provada.
+  - **Suspeitos, do mais provável ao menos:** (1) a ativação é só pela transcrição, porque falta o `hey_vision.onnx` (T-006): "Hey Vision" depende de o Parakeet escrever algo parecido com "vision"; (2) `parakeet-base-int8` (multilíngue, int8) em fala curta: a comparação de 30/09 com o `parakeet-ptbr` usou poucas frases; (3) nenhum áudio para comparar; (4) `voz.silencio_fim_ms: 600` (voltar a 800 se piorar).
+  - **Plano:** opção `voz.guardar_audio` (grava cada fala em `data/`, fora do git, com retenção curta) → conjunto de ~40 falas suas (headset e webcam) → medir a taxa de erro do `parakeet-base-int8` e do `parakeet-ptbr` → decidir (trocar o modelo, vocabulário para "Vision" e os comandos, ou normalizar o nível do áudio).
+  - **Achados do mesmo teste, fora da transcrição:** "pode desligar" virou `pc_energia` (devia ser standby; só o "Confirma?" evitou o desligamento); "Tem compromisso hoje às 16h?" foi inventado com a agenda sem login (a regra "ofereça o próximo passo" faz o 4B chutar); respondeu "Bom dia" às 15h49; a 1ª resposta levou ~8 s por carga do modelo e o Felipe falou por cima.
 
 ## Em andamento
 
