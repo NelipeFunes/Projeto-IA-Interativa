@@ -54,33 +54,74 @@ async def completo(cfg, memorias, tmp_path):
 # ---------------------------------------------------------------- isolamento
 
 async def test_ferramentas_de_acao_do_ambiente_nao_agem_no_pc_nem_na_internet(completo, monkeypatch):
+    from vision.tools import pc as modulo_pc
+
     monkeypatch.setattr(ctypes, "windll", _Proibido(), raising=False)
     for onde, nome in [(subprocess, "Popen"), (subprocess, "run"), (subprocess, "call"), (asyncio, "create_subprocess_exec"),
                        (asyncio, "create_subprocess_shell"), (os, "startfile"), (os, "system"), (webbrowser, "open"),
-                       (socket, "getaddrinfo"), (socket, "create_connection"), (socket.socket, "connect")]:
+                       (socket, "getaddrinfo"), (socket, "create_connection"), (socket.socket, "connect"),
+                       # o ddgs fala pelo `primp` (módulo compilado, fora do `socket`) e a leitura de volume/COM não passa
+                       # por nenhum dos de cima: trocados direto
+                       (modulo_pc, "_volume"), (modulo_pc, "_ler_volume")]:
         monkeypatch.setattr(onde, nome, _Proibido(), raising=False)
-    registro = completo.registro
+    import ddgs
+
+    monkeypatch.setattr(ddgs, "DDGS", _Proibido())
+    registro, tv = completo.registro, completo.tv
     pedidos = [
         ("programa_abrir", {"nome": "Bloco de Notas"}), ("programa_fechar", {"nome": "Chrome"}),
         ("site_abrir", {"endereco": "github.com"}), ("volume", {"acao": "definir", "nivel": 30}),
-        ("midia", {"acao": "tocar_pausar"}), ("pc_travar", {}), ("tv_youtube", {"busca": "Blank Space"}),
-        ("tv_volume", {"nivel": 10}), ("tv_abrir_app", {"app": "Netflix"}), ("luz_apagar", {"luz": "quarto"}),
-        ("musica_tocar", {"busca": "Queen"}), ("timer_criar", {"minutos": 5}), ("web_buscar", {"consulta": "motor do fusca"}),
-        ("web_ler", {"url": "https://www.exemplo.com.br/fusca"}), ("web_noticias", {"tema": "economia"}),
-        ("clima", {}),
+        ("midia", {"acao": "tocar_pausar"}), ("pc_travar", {}), ("pc_energia", {"acao": "desligar"}),
+        ("pc_cancelar_desligamento", {}), ("comando_rodar", {"comando": "Get-Date", "motivo": "teste"}),
+        ("tv_youtube", {"busca": "Blank Space"}), ("tv_volume", {"nivel": 10}), ("tv_abrir_app", {"app": "Netflix"}),
+        ("tv_controle", {"acao": "desligar"}), ("tv_tocar_midia", {"url": "https://exemplo.com/video.mp4"}),
+        ("luz_apagar", {"luz": "quarto"}), ("luz_acender", {"luz": "sala"}), ("musica_tocar", {"busca": "Queen"}),
+        ("musica_controlar", {"acao": "pausar"}), ("timer_criar", {"minutos": 5}),
+        ("web_buscar", {"consulta": "motor do fusca"}), ("web_ler", {"url": "https://www.exemplo.com.br/fusca"}),
+        ("web_noticias", {"tema": "economia"}), ("clima", {}), ("status_do_sistema", {}),
     ]
+    saidas = {}
     for nome, args in pedidos:
         ok, saida = await registro.rodar(nome, args)
         assert "ação real" not in saida, f"{nome} tentou agir de verdade: {saida}"
         assert ok, f"{nome} falhou no ambiente falso: {saida}"
+        saidas[nome] = saida
+    # As respostas são as prontas do ambiente (um caminho real engolido por `except` não deixaria estes rastros):
+    assert "boxer" in saidas["web_buscar"] and "Banco Central" in saidas["web_noticias"]
+    assert "Cidade Exemplo" in saidas["clima"] and "23%" in saidas["status_do_sistema"]
+    assert ("youtube", "dQw4w9WgXcQ") in tv.feitas
     feito = {x[0] for x in completo.abertos}
-    assert {"abrir", "fechar", "site", "midia", "travar"} <= feito  # as ações do PC ficaram só registradas
-    assert completo.alexa.feitas and completo.spotify.feitas and completo.tv.feitas
+    assert {"abrir", "fechar", "site", "midia", "travar", "energia", "cancelar_energia", "comando", "volume"} <= feito
+    assert completo.alexa.feitas and completo.spotify.feitas and tv.feitas
+    # Por identidade: nada do PC ficou ligado à função de verdade (o padrão da definição do `PC` é capturado na criação)
+    pc = registro.ferramentas["programa_abrir"].executar.__self__
+    assert pc._abrir is not os.startfile and pc._navegador is not webbrowser.open
+    assert pc._volume is not modulo_pc._volume and pc._ler_volume is not modulo_pc._ler_volume
 
 
-async def test_volume_falso_devolve_o_nivel_pedido(completo):
-    ok, saida = await completo.registro.rodar("volume", {"acao": "definir", "nivel": 30})
-    assert ok and "None" not in saida and "30" in saida
+async def test_volume_falso_guarda_o_nivel_e_o_mudo(completo):
+    r = completo.registro
+    assert (await r.rodar("volume", {"acao": "definir", "nivel": 30})) == (True, "Volume em 30%.")
+    assert "0%" in (await r.rodar("volume", {"acao": "definir", "nivel": 0}))[1]  # 0 é 0, não o padrão
+    ok, saida = await r.rodar("volume", {"acao": "aumentar"})
+    assert ok and "10" in saida  # sobe 10 a partir do nível guardado
+    assert (await r.rodar("volume", {"acao": "mudo"}))[0]
+
+
+async def test_status_do_pc_e_fixo(completo):
+    ok, saida = await completo.registro.rodar("status_do_sistema", {})
+    assert ok and "23%" in saida and "32 GB" in saida
+
+
+async def test_timer_do_ambiente_usa_o_relogio_da_avaliacao(completo, monkeypatch):
+    import time
+
+    sintetico = tempo.agora().replace(hour=10, minute=0, second=0, microsecond=0)
+    monkeypatch.setattr(tempo, "agora", lambda: sintetico)  # o que `run.avaliar` faz
+    ok, saida = await completo.registro.rodar("timer_criar", {"hora": "15:00"})
+    assert ok, saida
+    (t,) = completo.timers.listar()
+    assert 4.9 * 3600 < t.fim - time.time() < 5.1 * 3600  # 15h menos as 10h do relógio sintético
 
 
 # ---------------------------------------------------------------- fidelidade à montagem
@@ -100,16 +141,28 @@ async def test_ambiente_tem_todas_as_ferramentas_da_montagem(cfg, memorias, tmp_
 
 # ---------------------------------------------------------------- relógio sintético
 
-def test_relogio_avanca_a_cada_fala_e_nunca_cruza_a_meia_noite():
-    r = run.Relogio(7)
+@pytest.mark.parametrize("avanco", [0, 7, 14, 15, 20, 59.5, 120])
+def test_relogio_avanca_a_cada_fala_e_nunca_cruza_a_meia_noite(avanco):
+    r = run.Relogio(avanco)
     horas = []
-    for _ in range(130):
+    for _ in range(400):
         r.avancar()
         horas.append(r.agora())
-    assert horas[0] - r.base == timedelta(minutes=7) and horas[1] != horas[0]
-    assert all(h.date() == r.base.date() for h in horas)  # 60 passos de 7 min cabem no dia
-    assert horas[59] - r.base == timedelta(minutes=0)  # volta às 10h depois de 60 falas
+    assert all(h.date() == r.base.date() for h in horas)  # qualquer avanço fica no mesmo dia (de 10h às 22h59)
     assert r.base.hour == 10 and r.base.minute == 0
+    if avanco:
+        assert horas[0] - r.base == timedelta(minutes=avanco) and horas[1] != horas[0]
+
+
+def test_relogio_recusa_avanco_fora_da_faixa():
+    for ruim in (-1, 121):
+        with pytest.raises(ValueError):
+            run.Relogio(ruim)
+
+
+def test_relogio_de_varios_modelos_divide_o_mesmo_dia():
+    base = run.dia_base()
+    assert run.Relogio(7, base).base == run.Relogio(7, base).base == base
 
 
 async def test_casos_seguidos_nao_caem_no_mesmo_minuto(cfg, tmp_path, monkeypatch):
@@ -135,14 +188,30 @@ async def test_falha_de_preparacao_vira_falha_do_caso_e_nao_do_modelo(cfg, monke
     caso = Caso("x", "conversa", ["oi"], lambda ctx: [])
     r = await run.rodar_caso(cfg, LLMFalso([]), caso, True, run.Relogio(7), False, [], None)
     assert not r["passou"] and "embedder fora do ar" in r["falhas"][0]
+    assert r["erro_ambiente"]  # marcado: fica fora das médias de tempo e aparece à parte no relatório
 
 
 def test_sobrescrever_aceita_valores_comuns_do_config():
-    import json
+    lido = run.ler_sobrescrever(["modelo.contexto=8192", "modelo.manter_carregado=-1m", "x=5m", "a=todas", "b=true", "c="])
+    assert lido == {"modelo.contexto": 8192, "modelo.manter_carregado": "-1m", "x": "5m", "a": "todas", "b": True, "c": ""}
 
-    for valor, esperado in [("8192", 8192), ("-1m", "-1m"), ("5m", "5m"), ("todas", "todas"), ("true", True), ("", "")]:
-        try:
-            lido = json.loads(valor)
-        except ValueError:
-            lido = valor
-        assert lido == esperado
+
+@pytest.mark.parametrize("ruim", ["sem_igual", "=valor", "  =valor"])
+def test_sobrescrever_recusa_item_sem_chave_ou_sem_igual(ruim):
+    with pytest.raises(ValueError):
+        run.ler_sobrescrever([ruim])
+
+
+def test_relatorio_mostra_erros_do_ambiente_e_nao_os_conta_no_tempo():
+    ok = {"id": "a", "categoria": "x", "passou": True, "falhas": [], "falas": ["oi"], "respostas": ["oi"], "ferramentas": [[]],
+          "insistiu": False, "rep": 0,
+          "tempos": [{"total": 2.0, "primeira": 1.0, "prefill": 0.5, "chamadas_llm": 1}]}
+    erro = {**ok, "id": "b", "passou": False, "falhas": ["erro preparando o caso: x"], "erro_ambiente": True,
+            "tempos": [{"total": 0.0, "primeira": None, "prefill": 0.0, "chamadas_llm": 0}]}
+    av = {"modelo": "m", "pensar": False, "vram": "?", "resultados": [ok, erro], "producao": True, "suite": "todas",
+          "avanco_min": 7}
+    texto = run.relatorio([av])
+    assert "**1/2**" in texto and "Erros do ambiente" in texto
+    assert "| 2.0s |" in texto  # o 0,0 s do caso que nem rodou não puxa a média para baixo
+    assert "20 memórias neutras" in texto
+    assert "sem memórias neutras" in run.relatorio([{**av, "producao": False}])

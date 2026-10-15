@@ -5,15 +5,15 @@ ficava bem menor que o de verdade e os tempos saíam otimistas. Aqui a ordem e o
 (`tests/test_orcamento_prompt.py` confere que nenhuma ferramenta da montagem falta aqui).
 
 ISOLAMENTO (revisão do PR 60): nada neste ambiente age no PC nem na internet de verdade. A TV grava o que pediram; o
-Spotify e a Alexa são falsos; no PC, abrir programa, site, volume, travar, fechar programa, tecla de mídia, energia e
-comando só registram em `abertos`; a busca de vídeo da TV, a busca na web, as notícias e a leitura de páginas usam
+Spotify e a Alexa são falsos; no PC, abrir programa, site, volume (um falso com nível e mudo), travar, fechar programa,
+tecla de mídia, energia e comando só registram em `abertos`, e o diagnóstico do PC devolve números fixos; a busca de vídeo da TV, a busca na web, as notícias e a leitura de páginas usam
 respostas prontas (transporte HTTP simulado e DNS falso). Um teste roda as ferramentas de ação com `ctypes.windll`,
 `subprocess` e `socket` trocados por funções que levantam erro.
 """
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import timedelta
 from pathlib import Path
 from typing import Any
@@ -119,6 +119,37 @@ def _videos(consulta: str, maximo: int = 10) -> list[dict[str, Any]]:
              "uploader": "Canal Oficial", "duration": "4:00", "statistics": {"viewCount": 1_000_000}}]
 
 
+class VolumeFalso:
+    """O volume do Windows: guarda o nível e o mudo e aplica a mesma conta do volume de verdade (`nivel_alvo`)."""
+
+    def __init__(self, abertos: list, nivel: int = 40):
+        self.nivel, self.mudo, self.abertos = nivel, False, abertos
+
+    def ler(self) -> tuple[int, bool]:
+        return self.nivel, self.mudo
+
+    def mudar(self, acao: str, nivel: float | None = None) -> int:
+        from vision.tools.pc import nivel_alvo
+
+        self.abertos.append(("volume", acao, nivel))
+        if acao == "mudo":
+            self.mudo = True
+        elif acao == "som":
+            self.mudo = False
+        else:
+            self.nivel = round(nivel_alvo(acao, self.nivel / 100, nivel) * 100)
+        return self.nivel
+
+
+def _estado_do_pc():
+    """O diagnóstico do PC com números fixos: a avaliação não lê o computador de quem a roda."""
+    from vision import sistema
+
+    return sistema.Estado(cpu_pct=23.0, memoria_pct=41.0, memoria_usada_gb=13.1, memoria_total_gb=32.0, disco_livre_gb=420.0,
+                          disco_pct=55.0, ligado_ha_s=3 * 3600 + 20 * 60,
+                          placas=[sistema.Placa("GPU de teste", 7, 52, 1200, 8192)])
+
+
 @dataclass
 class Ambiente:
     registro: Registro
@@ -161,6 +192,16 @@ def _pc_isolado(pc, abertos: list) -> None:
     pc._rodar = sem_processo
 
 
+async def _atalho_do_sistema(frase: str):
+    """O atalho "status do sistema" também lê o PC de verdade: aqui responde com o estado fixo."""
+    from vision import sistema
+    from vision.tools.sistema import pede_status
+
+    if not pede_status(frase):
+        return None
+    return "status_do_sistema", {}, sistema.relatorio(_estado_do_pc()), True
+
+
 def criar(cfg, host: HostMCP, memorias, pasta: Path) -> Ambiente:
     """Mesma ordem da `montagem.montar`: o prompt sai com os mesmos esquemas que o Vision de verdade manda."""
     from vision import clima as modulo_clima
@@ -189,19 +230,26 @@ def criar(cfg, host: HostMCP, memorias, pasta: Path) -> Ambiente:
     registro.adicionar(*controle_tv.ferramentas())
     atalhos.append(controle_tv.atalho)
     abertos: list = []
+    volume = VolumeFalso(abertos)
     pc = PC(pasta / "logs", abrir=lambda x: abertos.append(("abrir", x)), navegador=lambda u: abertos.append(("site", u)),
-            ler_volume=lambda: (40, False), mudar_volume=lambda acao, nivel=None, *a, **k: int(nivel or 40))
+            ler_volume=volume.ler, mudar_volume=volume.mudar)
     _pc_isolado(pc, abertos)
     pc._cache_apps.guardar("apps", [{"nome": "Spotify", "id": "spotify"}, {"nome": "Google Chrome", "id": "chrome"},
                                     {"nome": "Bloco de Notas", "id": "notepad"}, {"nome": "Calculadora", "id": "calc"}])
     registro.adicionar(*pc.ferramentas())
     atalhos.append(pc.atalho)
     timers = Timers(pasta / "timers.json")
-    temporizador = Temporizador(timers, acoes={k: v[2] for k, v in ACOES_DE_TIMER.items()})
+    # O relógio é pedido na hora, não fixado na importação: `tempo.agora` é trocado pelo relógio sintético da avaliação.
+    temporizador = Temporizador(timers, relogio=lambda: tempo.agora(), acoes={k: v[2] for k, v in ACOES_DE_TIMER.items()})
     registro.adicionar(*temporizador.ferramentas())
     atalhos.append(temporizador.atalho)
-    registro.adicionar(*ferramentas_sistema.ferramentas())
-    atalhos.append(ferramentas_sistema.atalho)
+    async def status_fixo(_args=None) -> str:
+        from vision import sistema
+
+        return sistema.relatorio(_estado_do_pc())
+
+    registro.adicionar(*[replace(t, executar=status_fixo) for t in ferramentas_sistema.ferramentas()])
+    atalhos.append(_atalho_do_sistema)
     spotify = SpotifyFalso()
     musica = Musica(spotify)
     registro.adicionar(*musica.ferramentas())

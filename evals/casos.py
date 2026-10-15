@@ -188,7 +188,8 @@ CASOS: list[Caso] = [
          lambda c: _e(usou(c, "tarefas_criar", "agenda_criar"), pendente(c))),
     # --- memória
     Caso("memoria_guardar", "memoria", ["Lembra que minha cachorra se chama Luna"],
-         lambda c: _e(usou(c, "guardar_memoria"), nao_pendente(c), [] if c.memorias.total() == 1 else ["não guardou"])),
+         lambda c: _e(usou(c, "guardar_memoria"), nao_pendente(c),
+                      [] if any("luna" in m.texto.lower() for m in c.memorias.todas()) else ["não guardou"])),
     Caso("memoria_usar", "memoria", ["Posso pedir um strogonoff de camarão hoje?"],
          lambda c: contem(c, "alerg", "alérg"), memorias=["O Felipe é alérgico a camarão."]),
     Caso("memoria_cachorra", "memoria", ["Qual o nome da minha cachorra?"],

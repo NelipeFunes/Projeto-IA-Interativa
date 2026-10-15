@@ -63,22 +63,29 @@ MEMORIAS_NEUTRAS = [
     "O Felipe quer trocar a cadeira do escritório.", "O Felipe gosta de documentários de ciência.", "O Felipe bebe dois litros de água por dia.",
 ]
 PRAZO_FALA_S = 240  # uma fala que passa disso conta como falha (modelo grande demais para voz)
-PASSOS_DO_RELOGIO = 60  # o relógio sintético volta às 10h depois de 60 falas (nunca cruza a meia-noite)
+JANELA_DO_RELOGIO_MIN = 13 * 60  # das 10h às 22h59: o relógio sintético nunca cruza a meia-noite
+
+
+def dia_base() -> datetime:
+    """Hoje às 10h. Criado uma vez por execução: uma noite que passa da meia-noite não troca o dia dos modelos seguintes."""
+    return datetime.now(tempo.FUSO).replace(hour=10, minute=0, second=0, microsecond=0)
 
 
 class Relogio:
-    """Relógio sintético da avaliação: um só para todos os casos, no dia de hoje às 10h, avançando `avanco_min` minutos a
-    cada fala (e voltando às 10h a cada 60). Assim casos seguidos nunca caem no mesmo minuto (o que deixava o cache de
-    prefixo do modelo sempre quente) e a avaliação nunca cruza a meia-noite (o "hoje" do prompt, do calendário falso e
-    dos checadores é o mesmo)."""
+    """Relógio sintético da avaliação: um só para todos os casos, no dia `base` às 10h, avançando `avanco_min` minutos a
+    cada fala e dando a volta às 10h depois de 13 horas. Assim casos seguidos nunca caem no mesmo minuto (o que deixava
+    o cache de prefixo do modelo sempre quente) e a avaliação nunca cruza a meia-noite, qualquer que seja o avanço (o
+    "hoje" do prompt, do calendário falso e dos checadores é o mesmo)."""
 
-    def __init__(self, avanco_min: float):
-        self.base = datetime.now(tempo.FUSO).replace(hour=10, minute=0, second=0, microsecond=0)
+    def __init__(self, avanco_min: float, base: datetime | None = None):
+        if not 0 <= avanco_min <= 120:
+            raise ValueError("avanço do relógio: de 0 a 120 minutos por fala")
+        self.base = base or dia_base()
         self.avanco = avanco_min
         self.n = 0
 
     def agora(self) -> datetime:
-        return self.base + timedelta(minutes=self.avanco * (self.n % PASSOS_DO_RELOGIO))
+        return self.base + timedelta(minutes=(self.avanco * self.n) % JANELA_DO_RELOGIO_MIN)
 
     def avancar(self) -> None:
         self.n += 1
@@ -100,6 +107,7 @@ async def rodar_caso(cfg, llm, caso: Caso, producao: bool, relogio: Relogio, com
     })
     memorias = amb = None
     respostas, tempos = [], []
+    erro_ambiente = False
     try:
         memorias = criar_memorias(cfg)
         for fato in caso.memorias:
@@ -114,7 +122,10 @@ async def rodar_caso(cfg, llm, caso: Caso, producao: bool, relogio: Relogio, com
                 registro = Registro()
                 registro.adicionar(*Agenda(cfg, host).ferramentas(), *FerramentasMemoria(memorias).ferramentas(),
                                    *FerramentasOrbit(host).ferramentas())
-            agente = Agente(llm, registro, memorias, perfil=pasta / "perfil.md", top_k=3, similaridade_minima=0.25,
+            agente = Agente(llm, registro, memorias, perfil=pasta / "perfil.md",
+                            turnos_historico=int(cfg.get("conversa.turnos_no_historico", 6)),
+                            top_k=int(cfg.get("memoria.top_k", 3)),
+                            similaridade_minima=float(cfg.get("memoria.similaridade_minima", 0.25)),
                             relogio=relogio.agora, confirmacao=caso.confirmacao)
             if com_atalhos and amb is not None:
                 agente.atalhos = amb.atalhos
@@ -135,7 +146,7 @@ async def rodar_caso(cfg, llm, caso: Caso, producao: bool, relogio: Relogio, com
                     "total": time.perf_counter() - t0, "primeira": (primeira[0] - t0) if primeira else None,
                     "prefill": sum(m.prompt_s for m in metricas),
                     "prefill_1a_volta": metricas[0].prompt_s if metricas else 0.0,
-                    "carga": sum(m.carga_s for m in metricas),  # > 0 no meio da noite: o modelo foi recarregado
+                    "carga": sum(m.carga_s for m in metricas),  # load_duration do Ollama: uns ms com o modelo carregado; segundos = recarregou
                     "prompt_tokens": max((m.prompt_tokens for m in metricas), default=0), "chamadas_llm": len(metricas)})
                 respostas.append(r)
             ctx = Contexto(hoje, respostas, agenda_srv, orbit_srv, memorias, amb)
@@ -148,6 +159,7 @@ async def rodar_caso(cfg, llm, caso: Caso, producao: bool, relogio: Relogio, com
                 falhas.append(erro)
     except Exception as e:  # noqa: BLE001 - falha de preparação (embedder fora do ar, `preparar`): é do caso, não do modelo
         falhas = [f"erro preparando o caso: {type(e).__name__}: {str(e)[:150]}"]
+        erro_ambiente = True  # o caso não chegou a rodar o modelo: fica fora das médias de tempo
         if not respostas:
             respostas = [Resposta("[sem resposta]", [])]
             tempos = [{"total": 0.0, "primeira": None, "prefill": 0.0, "prefill_1a_volta": 0.0, "carga": 0.0,
@@ -168,6 +180,7 @@ async def rodar_caso(cfg, llm, caso: Caso, producao: bool, relogio: Relogio, com
         "ferramentas": [[(f["nome"], f["args"], f["ok"]) for f in r.ferramentas] for r in respostas],
         "insistiu": any(r.insistiu for r in respostas),
         "tempos": tempos,
+        "erro_ambiente": erro_ambiente,
     }
 
 
@@ -189,7 +202,7 @@ def _casos(suite: str) -> list[Caso]:
 
 
 async def avaliar(modelo: str, pensar: bool, so: set[str] | None, repeticoes: int, suite: str, producao: bool,
-                  avanco_min: float, com_atalhos: bool, sobrescrever: dict, salvar) -> dict:
+                  avanco_min: float, com_atalhos: bool, sobrescrever: dict, salvar, base: datetime | None = None) -> dict:
     cfg = config.carregar(sobrescrever={"modelo.nome": modelo, "modelo.pensar": pensar, **sobrescrever})
     llm = criar_llm(cfg)
     metricas: list = []
@@ -201,7 +214,8 @@ async def avaliar(modelo: str, pensar: bool, so: set[str] | None, repeticoes: in
         return r
 
     llm.conversar = medido
-    relogio = Relogio(avanco_min)
+    relogio = Relogio(avanco_min, base)
+    banco: Path | None = None
     agora_original = tempo.agora
     tempo.agora = relogio.agora  # agenda, clima e timers falsos veem o mesmo relógio que o prompt
     avaliacao: dict = {}
@@ -237,6 +251,8 @@ async def avaliar(modelo: str, pensar: bool, so: set[str] | None, repeticoes: in
         salvar(avaliacao)
     finally:
         tempo.agora = agora_original
+        if banco is not None:
+            shutil.rmtree(banco.parent, ignore_errors=True)
         try:
             await llm.descarregar()  # também quando algo deu errado: o próximo modelo da noite não divide a placa
         except Exception:  # noqa: BLE001
@@ -264,24 +280,30 @@ def relatorio(avaliacoes: list[dict]) -> str:
     ids = list(dict.fromkeys(r["id"] for r in avaliacoes[0]["resultados"]))
     reps = max(r.get("rep", 0) for r in avaliacoes[0]["resultados"]) + 1
     a0 = avaliacoes[0]
-    ambiente_txt = "ambiente completo (53 ferramentas)" if a0.get("producao") else "ambiente reduzido (agenda, memória e Orbit)"
+    producao = bool(a0.get("producao"))
+    ambiente_txt = "ambiente completo (53 ferramentas)" if producao else "ambiente reduzido (agenda, memória e Orbit)"
+    if producao:
+        detalhe = (f"relógio sintético avança {a0.get('avanco_min', 0):g} min por fala · memória com embeddinggemma real e "
+                   f"{len(MEMORIAS_NEUTRAS)} memórias neutras · confirmação: casos base em 'todas' (como a avaliação antiga)"
+                   + (", casos de ferramentas em 'sensiveis' (a de produção)" if a0.get("suite") != "base" else ""))
+    else:
+        detalhe = "memória com embeddinggemma real, sem memórias neutras · confirmação 'todas'"
     linhas = ["# Avaliação do Vision", "",
               f"Gerado em {tempo.agora():%d/%m/%Y %H:%M} · {len(ids)} casos × {reps} rodada(s) · canal voz · {ambiente_txt} · "
-              f"relógio sintético avança {a0.get('avanco_min', 0):g} min por fala · memória com embeddinggemma real e "
-              "20 memórias neutras · confirmação: casos base em 'todas' (como a avaliação antiga), casos de ferramentas em "
-              "'sensiveis' (a de produção)", ""]
-    linhas += ["## Resumo", "", "| Modelo | Acertos | Tempo médio | p90 | 1ª palavra (média) | Prefill (média) | Insistências | VRAM |",
-               "|---|---|---|---|---|---|---|---|"]
+              f"{detalhe}", ""]
+    linhas += ["## Resumo", "", "| Modelo | Acertos | Tempo médio | p90 | 1ª palavra (média) | Prefill (média) | Insistências | Erros do ambiente | VRAM |",
+               "|---|---|---|---|---|---|---|---|---|"]
     for av in avaliacoes:
         rs = av["resultados"]
-        totais = [t["total"] for r in rs for t in r["tempos"]]
-        primeiras = [t["primeira"] for r in rs for t in r["tempos"] if t["primeira"] is not None]
-        prefills = [t.get("prefill", 0) for r in rs for t in r["tempos"] if t.get("chamadas_llm")]
+        rodaram = [r for r in rs if not r.get("erro_ambiente")]  # falha de preparação não entra nas médias de tempo
+        totais = [t["total"] for r in rodaram for t in r["tempos"]]
+        primeiras = [t["primeira"] for r in rodaram for t in r["tempos"] if t["primeira"] is not None]
+        prefills = [t.get("prefill", 0) for r in rodaram for t in r["tempos"] if t.get("chamadas_llm")]
         p90 = sorted(totais)[int(0.9 * (len(totais) - 1))] if totais else 0
         linhas.append(
-            f"| {_rotulo(av)} | **{sum(r['passou'] for r in rs)}/{len(rs)}** | {statistics.mean(totais):.1f}s | {p90:.1f}s | "
+            f"| {_rotulo(av)} | **{sum(r['passou'] for r in rs)}/{len(rs)}** | {statistics.mean(totais) if totais else 0:.1f}s | {p90:.1f}s | "
             f"{statistics.mean(primeiras) if primeiras else 0:.1f}s | {statistics.mean(prefills) if prefills else 0:.2f}s | "
-            f"{sum(r['insistiu'] for r in rs)} | {av['vram']} |"
+            f"{sum(r['insistiu'] for r in rs)} | {sum(bool(r.get('erro_ambiente')) for r in rs)} | {av['vram']} |"
         )
     cats = sorted({r["categoria"] for r in avaliacoes[0]["resultados"]})
     linhas += ["", "## Por categoria", "", "| Categoria | " + " | ".join(_rotulo(a) for a in avaliacoes) + " |",
@@ -317,6 +339,20 @@ def relatorio(avaliacoes: list[dict]) -> str:
     return "\n".join(linhas)
 
 
+def ler_sobrescrever(itens: list[str]) -> dict:
+    """`CHAVE=VALOR` -> {chave: valor}; o valor é JSON quando der ("8192", "true") e texto puro quando não ("-1m", "todas")."""
+    saida: dict = {}
+    for item in itens:
+        chave, igual, valor = item.partition("=")
+        if not igual or not chave.strip():
+            raise ValueError(f"--sobrescrever espera CHAVE=VALOR, recebi {item!r}")
+        try:
+            saida[chave.strip()] = json.loads(valor)
+        except ValueError:
+            saida[chave.strip()] = valor
+    return saida
+
+
 async def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--modelos", default="qwen3.5:4b,qwen3.5:9b")
@@ -332,13 +368,11 @@ async def main() -> int:
                     help="muda uma chave do config só nesta avaliação (ex.: modelo.contexto=8192)")
     args = ap.parse_args()
     so = set(args.so.split(",")) if args.so else None
-    sobrescrever = {}
-    for item in args.sobrescrever:
-        chave, _, valor = item.partition("=")
-        try:
-            sobrescrever[chave] = json.loads(valor)
-        except ValueError:
-            sobrescrever[chave] = valor  # "-1m", "5m", "todas", texto puro
+    try:
+        sobrescrever = ler_sobrescrever(args.sobrescrever)
+        Relogio(args.avanco_min)  # valida o avanço antes de gastar a noite
+    except ValueError as e:
+        ap.error(str(e))
     producao = not args.antigo
     if args.antigo and args.suite != "base":
         print("--antigo só tem as ferramentas da suíte base: usando --suite base")
@@ -347,6 +381,7 @@ async def main() -> int:
     if args.pensar:
         configs.append((configs[0][0], True))
     avaliacoes = []
+    base = dia_base()  # o mesmo dia para todos os modelos da noite
     saidas = RAIZ / "evals" / "saidas"
     saidas.mkdir(exist_ok=True)
     for modelo, pensar in configs:
@@ -354,14 +389,23 @@ async def main() -> int:
         nome = modelo.replace(":", "-") + ("-pensando" if pensar else "")
 
         def salvar(av, nome=nome):
-            """Atômico: uma noite interrompida no meio da escrita não deixa o JSON truncado."""
+            """Atômico (uma noite interrompida no meio da escrita não deixa o JSON truncado) e à prova de arquivo preso
+            por antivírus ou outro processo: tenta de novo e, se não der, só avisa. Gravar nunca derruba a avaliação."""
             tmp = saidas / f"{nome}.json.tmp"
-            tmp.write_text(json.dumps(av, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
-            os.replace(tmp, saidas / f"{nome}.json")
+            for tentativa in range(3):
+                try:
+                    tmp.write_text(json.dumps(av, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+                    os.replace(tmp, saidas / f"{nome}.json")
+                    return
+                except OSError as e:
+                    if tentativa == 2:
+                        print(f"  aviso: não consegui gravar {nome}.json ({type(e).__name__}); sigo sem salvar", flush=True)
+                    else:
+                        time.sleep(0.5)
 
         try:
             av = await avaliar(modelo, pensar, so, args.repeticoes, args.suite, producao, args.avanco_min,
-                               args.com_atalhos, sobrescrever, salvar)
+                               args.com_atalhos, sobrescrever, salvar, base)
         except Exception as e:  # noqa: BLE001 - um modelo que não carrega não derruba os outros da noite
             print(f"  FALHOU {modelo}: {type(e).__name__}: {str(e)[:200]}", flush=True)
             continue
