@@ -6,7 +6,7 @@ Só estudo. Nada aqui foi implementado nem deve ser sem decisão do dono. Contex
 
 | Peça | Onde roda | Recurso | Já fala por rede? | Acoplamento que prende ao PC |
 |---|---|---|---|---|
-| Modelo de linguagem (Qwen3.5 via Ollama) | processo do Ollama | VRAM (3,2 GB o 4B) | **Sim**: `modelo.host` | nenhum; `127.0.0.1` só é o padrão |
+| Modelo de linguagem (Qwen3.5 via Ollama) | processo do Ollama | VRAM (3,4 GB o 4B, com `modelo.contexto` 16.384) | **Sim**: `modelo.host` | nenhum; `127.0.0.1` só é o padrão |
 | Embeddings da memória (embeddinggemma) | o mesmo Ollama | CPU | **Sim**: usa `modelo.host` | nenhum |
 | Transcrição (Parakeet, ONNX) | processo do Vision | CPU, 6 threads | Só como *servidor* Wyoming (`vision wyoming`) | `voice/stt.py` carrega o modelo dentro do processo; não há cliente remoto |
 | Voz (Piper na CPU, XTTS na GPU) | processo do Vision | CPU ou ~2 GB de VRAM | Só como servidor Wyoming | `voice/tts.py` idem |
@@ -19,11 +19,11 @@ Só estudo. Nada aqui foi implementado nem deve ser sem decisão do dono. Contex
 
 ## 2. Fronteiras naturais (onde cortar custa pouco)
 
-1. **LLM e embeddings → outro PC (custo: uma linha de config).** `modelo.host` já aponta para qualquer Ollama. É o corte mais barato e o que mais ganha: a placa maior fica no servidor de IA e o PC de uso diário não precisa de VRAM. Cuidados:
+1. **LLM e embeddings → outro PC (custo: uma linha de config).** `modelo.host` já aponta para qualquer Ollama. É o corte mais barato e o que mais ganha: a placa do servidor de IA (T-012) carrega o modelo e o PC de uso diário não precisa de VRAM para ele. Cuidados:
    - o Ollama **não tem senha**: expor só na rede interna ou por túnel (WireGuard/Tailscale), com firewall liberando só o PC do Vision;
    - a latência da rede entra em toda chamada (ordem de grandeza: cabo ~1 ms; Wi-Fi alguns ms a dezenas, com variação; não medido aqui). O prompt de ~8.000 tokens fica no servidor (o cache de prefixo vale lá), então só o texto viaja;
    - o *pré-aquecimento* e o `keep_alive` passam a ser decisão do servidor, não mais do modo jogo.
-2. **STT e TTS → servidor Wyoming (custo: um cliente novo, pequeno).** O `vision wyoming` já serve transcrição e voz para o Home Assistant. Falta o caminho inverso: `Transcritor` e `Voz` são interfaces estreitas (`transcrever(audio)->texto`, `falar(texto)->áudio`), então um `TranscritorWyoming` e uma `VozWyoming` entram no mesmo lugar de `carregar_transcritor`/`carregar_voz`. Cuidados:
+2. **STT e TTS → servidor Wyoming (custo: um cliente novo, pequeno).** O `vision wyoming` já serve transcrição e voz para o Home Assistant. Falta o caminho inverso: `Transcritor` e `Voz` são interfaces estreitas (`transcrever(audio)->texto`, `sintetizar(texto)->áudio`), então um `TranscritorWyoming` e uma `VozWyoming` entram no mesmo lugar de `carregar_transcritor`/`carregar_voz`. Cuidados:
    - o Wyoming **não tem senha nem criptografia** (a própria documentação do módulo diz isso): só em rede de confiança ou dentro de túnel;
    - voz em streaming dividida em frases (o `falado.py` já faz) esconde parte da latência de rede; o tempo da transcrição remota não foi medido (medir antes de decidir);
    - o Piper ao lado do XTTS na mesma máquina mantém o fallback.

@@ -9,12 +9,13 @@ Cada item tem o que aconteceu, o que custou e a regra que sobrou. Atualize quand
    (53 ferramentas) e a avaliação via ~2.500; o relógio parado deixava o cache do modelo sempre quente. Resultado:
    "1,0 s por resposta" no relatório, 2,2 a 3,6 s no uso real.
    *Regra:* a avaliação usa o conjunto completo de ferramentas e um relógio que avança entre as falas (`evals/ambiente.py`,
-   `--avanco-min`). Quem muda o prompt roda `sequencia`-style (12 pedidos, 7 min de intervalo) antes e depois.
+   `--avanco-min`). Quem muda o prompt roda `evals/run.py --suite todas` (e, na T-026, a conversa de 12 pedidos com 7 min de intervalo) antes e depois.
 2. **Nada que varie por pedido (hora com minutos, memórias, estilo do canal) no prompt de sistema.** O Ollama reaproveita
-   o início do prompt entre pedidos; num modelo híbrido (Qwen3.5) o reaproveitamento só recomeça de um ponto de controle
-   perto do fim do prompt anterior (~1.000 tokens antes dele). Mudança nos últimos ~1.000 tokens custa ~0,3 s; antes
-   disso, ~1,8 s (reprocessa tudo). A hora com minutos no meio do sistema fazia isso em TODO pedido.
-   *Regra:* o que varia vai na mensagem do usuário (`prompt.contexto_do_pedido`); `tests/test_prompt_estavel.py` segura.
+   o início do prompt entre pedidos. *Medido:* mudar só o fim do prompt custa ~0,3 s de preparo; mudar o meio (a hora com
+   minutos, no sistema) custa ~1,8 s, em TODO pedido. *Hipótese (não verificada no Ollama):* num modelo híbrido como o
+   Qwen3.5 o reaproveitamento só recomeça de um ponto de controle ~1.000 tokens antes do fim do prompt anterior.
+   *Regra:* o que varia vai numa mensagem de sistema curta logo antes da fala (`prompt.contexto_do_pedido`), nunca no
+   sistema fixo; `tests/test_prompt_estavel.py` segura.
 3. **O tamanho do prompt tem teto.** Cada ferramenta nova engorda todo pedido (3,6 mil tokens/s de preparo: 1.000 tokens
    = 0,28 s no pedido frio). `tests/test_orcamento_prompt.py` falha quando os esquemas passam de 25 mil caracteres ou o
    sistema de 6 mil, e exige a contagem exata de ferramentas. Para subir o teto, suba de propósito, no mesmo PR.
@@ -65,8 +66,10 @@ Cada item tem o que aconteceu, o que custou e a regra que sobrou. Atualize quand
 ## Medir os dois eixos (e o que a medição só de tempo esconde)
 
 19. **Tempo sem acerto engana.** Mover a hora, as memórias e o estilo do canal para dentro da mensagem do usuário cortou o
-    preparo do prompt (2,0 s para 0,56 s) e derrubou os acertos do 4B de 93% para 37% na suíte de produção: ele passou a
-    responder "a TV está ligada" e "seus timers são..." sem chamar a ferramenta. A conversa de 12 pedidos que provava o ganho
+    preparo do prompt (2,0 s para 0,56 s) e derrubou os acertos do 4B de 93% para 81% na suíte de produção (151 → 131 de
+    162; o "puxão" da rede de segurança insistiu 34 vezes e escondeu outras falhas) e para 37% (20 de 54) nos 18 casos que mais
+    caíram (bateria avulsa, arquivo não guardado): ele passou a responder "a TV está ligada" e "seus timers são..." sem
+    chamar a ferramenta. A conversa de 12 pedidos que provava o ganho
     de tempo não via isso. *Regra:* mudança de prompt só entra com tempo **e** acerto medidos na suíte completa de
     produção (`evals/run.py --suite todas`, 2 repetições ou mais), antes e depois.
 20. **Texto que não é fala do usuário não vai na mensagem do usuário, e meta-texto comprido atrapalha modelo pequeno.** O que
