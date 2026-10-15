@@ -8,6 +8,7 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from typing import Any
 
+from vision.arquivos import podar_datados
 from vision.brain.agent import Agente
 from vision.brain.llm import LLM, OllamaLLM
 from vision.config import Config, manter_carregado
@@ -213,6 +214,7 @@ async def montar(
         confirmacao=_modo_confirmacao(cfg),
     )
     agente.atalhos = atalhos
+    podar_datados(cfg.dados / "conversas", int(cfg.get("conversa.guardar_dias", 90)))  # o que ele falou não fica para sempre
     async with host:
         try:
             yield Vision(cfg, agente, registro, host, memorias, timers, agenda)

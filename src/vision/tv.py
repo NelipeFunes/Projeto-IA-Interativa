@@ -76,14 +76,17 @@ def arquivo_sessao(cfg: Config) -> Path:
     return pasta(cfg) / "sessao.json"
 
 
+REDES_LOCAIS = tuple(ipaddress.ip_network(r) for r in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16"))
+
+
 def ip_valido(valor: Any) -> str | None:
     """O IP, se for um IPv4 da rede local (192.168.x, 10.x, 172.16–31.x). Qualquer outra coisa: None."""
     try:
         ip = ipaddress.ip_address(str(valor).strip())
     except ValueError:
         return None
-    if ip.version != 4 or not ip.is_private or ip.is_loopback or ip.is_link_local or ip.is_multicast \
-            or ip.is_unspecified:
+    # Lista explícita: `is_private` também aceita 255.255.255.255, 240.x, 198.18.x e 192.0.2.x (visto em 15/10).
+    if ip.version != 4 or not any(ip in rede for rede in REDES_LOCAIS):
         return None
     return str(ip)
 

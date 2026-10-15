@@ -36,6 +36,7 @@ memoria:
   similaridade_duplicata: 0.90  # "cachorra Luna" x "cadela Luna" = 0,98; fatos diferentes ≈ 0,60
 
 conversa:
+  guardar_dias: 90          # o histórico de conversas em data/conversas/ (o que você falou) some depois disso; 0 = nunca
   turnos_no_historico: 6
   sessao_expira_min: 10
 
@@ -66,6 +67,11 @@ mcp:
     ativo: true             # 02/10: de volta no Render. Login pela tela (Ajustes → Conexões → Orbit).
     comando: ".venv\\Scripts\\python.exe"
     args: ["mcp_servers/orbit/server.py"]
+    env:                    # só o Orbit recebe as credenciais dele ($NOME = a variável NOME do Vision, vinda do .env)
+      ORBIT_EMAIL: $ORBIT_EMAIL
+      ORBIT_PASSWORD: $ORBIT_PASSWORD
+      ORBIT_TOKEN: $ORBIT_TOKEN
+      ORBIT_URL: $ORBIT_URL
     timeout_s: 100          # o Render leva ~1 min para acordar
   wispr:
     ativo: true             # reuniões, transcrições e notas do Wispr Flow (só leitura). Login: vision wispr-login

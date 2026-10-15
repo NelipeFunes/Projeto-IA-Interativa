@@ -303,7 +303,13 @@ def _comando(msg: Any, controle: Controle, tarefas: set[asyncio.Task]) -> None:
             tarefa = asyncio.create_task(controle.aceitar_apelidos(lista))  # só valem as sugeridas (no núcleo)
     if tarefa is not None:
         tarefas.add(tarefa)
-        tarefa.add_done_callback(tarefas.discard)
+
+        def acabou(t: asyncio.Task) -> None:
+            tarefas.discard(t)
+            if not t.cancelled() and (erro := t.exception()) is not None:
+                log.error("comando da tela falhou: %r", erro)  # antes a exceção sumia (ninguém lia a tarefa)
+
+        tarefa.add_done_callback(acabou)
 
 
 def _servico_valido(servico: Any) -> bool:

@@ -9,13 +9,14 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 from mcp import Client, StdioServerParameters, stdio_client
 
+from vision import envs
+from vision.arquivos import limitar_log
 from vision.config import Config
 
 log = logging.getLogger(__name__)
@@ -64,7 +65,9 @@ class ConexaoMCP:
         try:
             if isinstance(alvo, StdioServerParameters) and self.pasta_logs is not None:
                 self.pasta_logs.mkdir(parents=True, exist_ok=True)
-                errlog = open(self.pasta_logs / f"mcp-{self.nome}.log", "a", encoding="utf-8")  # noqa: SIM115
+                arquivo_log = self.pasta_logs / f"mcp-{self.nome}.log"
+                limitar_log(arquivo_log)
+                errlog = open(arquivo_log, "a", encoding="utf-8")  # noqa: SIM115
                 alvo = stdio_client(alvo, errlog=errlog)
             elif isinstance(alvo, Remoto):
                 alvo = alvo.criar()
@@ -131,10 +134,9 @@ class HostMCP:
                 if wispr.tem_login(cfg):  # sem login, nem tenta: `vision wispr-login` primeiro
                     conexoes[nome] = ConexaoMCP(nome, wispr.transporte(cfg), float(s.get("timeout_s", 30)))
                 continue
-            env = dict(os.environ)
-            for k, v in (s.get("env") or {}).items():
-                v = str(v)
-                env[k] = str(cfg.caminho(v)) if v.startswith("data/") else v
+            declarado = {k: (str(cfg.caminho(str(v))) if str(v).startswith("data/") else v)
+                         for k, v in (s.get("env") or {}).items()}
+            env = envs.para_servidor_mcp(declarado)  # só o básico + o `env:` deste servidor (nada de senha dos outros)
             params = StdioServerParameters(
                 command=str(cfg.caminho(s["comando"])),
                 args=[str(cfg.caminho(a)) if "/" in a and not a.startswith("-") else a for a in s.get("args", [])],
