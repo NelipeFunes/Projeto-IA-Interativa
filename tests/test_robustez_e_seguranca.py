@@ -4,6 +4,7 @@ retenção de conversas e cache de página."""
 from __future__ import annotations
 
 import asyncio
+import contextlib
 import logging
 import os
 from datetime import date, timedelta
@@ -43,6 +44,18 @@ def test_referencia_com_cifrao_copia_a_variavel_do_vision_e_ignora_a_que_nao_exi
     assert env["LITERAL"] == "texto com $ no meio"
 
 
+@pytest.mark.parametrize("nome", ["OPENAI_KEY", "GH_PAT", "GITHUB_PAT", "DATABASE_URL", "AWS_ACCESS_KEY_ID", "MYSQL_PWD",
+                                  "NPM_CONFIG__AUTH", "SESSION_COOKIE", "SLACK_WEBHOOK_URL", "ORBIT_PASS"])
+def test_filtro_de_segredos_pega_os_nomes_comuns_alem_de_senha_e_token(nome):
+    assert envs.sem_segredos({"PATH": "p", nome: "x"}) == {"PATH": "p"}
+
+
+def test_filtro_de_segredos_nao_come_variavel_comum():
+    comuns = {"PATH": "p", "TEMP": "t", "JAVA_HOME": "j", "EDITOR": "vim", "USERPROFILE": "u", "PYTHONPATH": "x",
+              "KEYBOARD_LAYOUT": "br", "PATHEXT": ".EXE"}
+    assert envs.sem_segredos(comuns) == comuns
+
+
 def test_comando_do_pc_perde_o_que_parece_segredo_e_mantem_o_resto():
     env = envs.sem_segredos({"PATH": "p", "JAVA_HOME": "j", "EDITOR": "vim", **SEGREDOS})
     assert env == {"PATH": "p", "JAVA_HOME": "j", "EDITOR": "vim", "ORBIT_EMAIL": SEGREDOS["ORBIT_EMAIL"]}  # e-mail não é segredo
@@ -79,6 +92,31 @@ async def test_pc_roda_comando_sem_herdar_segredos(monkeypatch, tmp_path):
     monkeypatch.setattr(asyncio, "create_subprocess_exec", falso)
     await PC(tmp_path)._rodar("powershell.exe", "-Command", "echo oi")
     assert "ORBIT_PASSWORD" not in visto["env"] and "TAVILY_API_KEY" not in visto["env"] and "PATH" in visto["env"]
+
+
+def test_login_do_google_nao_herda_as_senhas_do_vision(cfg, monkeypatch):
+    from vision import google_login
+
+    for k, v in SEGREDOS.items():
+        monkeypatch.setenv(k, v)
+    credenciais = google_login.arquivo_credenciais(cfg)
+    credenciais.parent.mkdir(parents=True, exist_ok=True)
+    credenciais.write_text("{}", encoding="utf-8")
+    visto = {}
+
+    class Processo:
+        def poll(self):
+            return 0
+
+    def falso(comando, **kw):
+        visto.update(kw)
+        return Processo()
+
+    monkeypatch.setattr(google_login.subprocess, "Popen", falso)
+    assert google_login.fazer_login(cfg, avisar=lambda _t: None) == 0
+    env = visto["env"]
+    assert not (set(SEGREDOS) & {k.upper() for k in env})
+    assert env["GOOGLE_OAUTH_CREDENTIALS"] == str(credenciais) and "PATH" in {k.upper() for k in env}
 
 
 # ------------------------------------------------------------------ só a rede local
@@ -174,13 +212,17 @@ async def test_painel_atualiza_a_agenda_uma_vez_por_volta(monkeypatch):
 
     n._atualizar_agenda = atualizar
     n.painel = painel
-    n.barramento = SimpleNamespace(assinantes=[object()], publicar=lambda p: None)
+    fotos = []
+    n.barramento = SimpleNamespace(assinantes=[object()], publicar=lambda p: fotos.append(p))
     monkeypatch.setattr(nucleo, "ATUALIZAR_PAINEL_S", 0.01)
     t = asyncio.create_task(n._atualizar_painel())
-    await asyncio.sleep(0.055)
+    while len(fotos) < 4:  # sem janela de tempo apertada: espera quatro voltas, não importa quanto demorem
+        await asyncio.sleep(0.005)
     t.cancel()
-    esperado = len(chamadas)
-    assert 3 <= esperado <= 7  # uma por volta de ~10 ms (antes eram duas seguidas: o dobro)
+    with contextlib.suppress(asyncio.CancelledError):
+        await t
+    # Uma atualização da agenda por foto publicada (antes eram duas por volta); a volta cortada pode ter só a 1ª.
+    assert len(fotos) <= len(chamadas) <= len(fotos) + 1
 
 
 # ------------------------------------------------------------------ logs e retenção
@@ -211,6 +253,19 @@ def test_poda_de_arquivos_datados(tmp_path):
     assert sorted(p.name for p in tmp_path.iterdir()) == sorted(
         [f"{hoje - timedelta(days=d)}.jsonl" for d in (0, 30, 89, 90)] + ["notas.txt"])
     assert podar_datados(tmp_path, 0, hoje) == 0 and podar_datados(tmp_path / "nada", 90, hoje) == 0  # 0 = não apaga
+
+
+@pytest.mark.parametrize("nome", ["2020-01-01 - backup importante.zip", "20200101.jsonl", "2020-W01-1.jsonl",
+                                  "2020W011xx.txt", "2020-01-01", "2020-01-01.jsonl.bak", "x2020-01-01.jsonl"])
+def test_poda_so_apaga_nome_no_padrao_de_data(tmp_path, nome):
+    (tmp_path / nome).write_text("x", encoding="utf-8")
+    assert podar_datados(tmp_path, 90, date(2026, 10, 15)) == 0 and (tmp_path / nome).exists()
+
+
+def test_poda_apaga_extensoes_de_dado_do_vision(tmp_path):
+    for nome in ("2020-01-01.jsonl", "2020-01-02.json", "2020-01-03.log"):
+        (tmp_path / nome).write_text("x", encoding="utf-8")
+    assert podar_datados(tmp_path, 90, date(2026, 10, 15)) == 3
 
 
 async def test_montagem_poda_as_conversas_antigas(cfg, host, memorias):

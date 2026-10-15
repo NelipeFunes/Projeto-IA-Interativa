@@ -604,7 +604,7 @@ class Nucleo:
         def acabou(t: asyncio.Task) -> None:
             self._avulsas.discard(t)
             if not t.cancelled() and (erro := t.exception()) is not None:
-                log.error("tarefa em segundo plano falhou: %r", erro)
+                log.error("tarefa em segundo plano falhou: %r", erro, exc_info=erro)
 
         tarefa.add_done_callback(acabou)
 

@@ -26,7 +26,9 @@ BASICAS = frozenset({
     "HTTP_PROXY", "HTTPS_PROXY", "NO_PROXY", "SSL_CERT_FILE", "SSL_CERT_DIR", "REQUESTS_CA_BUNDLE", "NODE_EXTRA_CA_CERTS",
 })
 _REFERENCIA = re.compile(r"^\$([A-Za-z_][A-Za-z0-9_]*)$")
-_PARECE_SEGREDO = re.compile(r"(PASSWORD|PASSWD|SENHA|TOKEN|SECRET|API_?KEY|CREDENTIAL|PRIVATE_?KEY)", re.IGNORECASE)
+_PARECE_SEGREDO = re.compile(
+    r"(PASSWORD|PASSWD|PWD|SENHA|TOKEN|SECRET|API_?KEY|CREDENTIAL|PRIVATE_?KEY|AUTH|COOKIE|WEBHOOK|DATABASE_URL|"
+    r"_KEY(_ID)?$|^KEY$|_PAT$|^PAT$|_PASS$)", re.IGNORECASE)
 
 
 def para_servidor_mcp(declarado: Mapping[str, object] | None, ambiente: Mapping[str, str] | None = None) -> dict[str, str]:
@@ -43,6 +45,14 @@ def para_servidor_mcp(declarado: Mapping[str, object] | None, ambiente: Mapping[
             continue
         env[chave] = valor
     return env
+
+
+def ambiente_do_servidor(cfg, servidor: Mapping[str, object]) -> dict[str, str]:
+    """O ambiente de um servidor MCP a partir do bloco dele no config (`mcp.<nome>`): `data/...` vira o caminho. Usado pelo
+    servidor E pelo login do Google (o mesmo Node, o mesmo ambiente: o login não herda as senhas do Vision)."""
+    declarado = {k: (str(cfg.caminho(str(v))) if str(v).startswith("data/") else v)
+                 for k, v in (servidor.get("env") or {}).items()}
+    return para_servidor_mcp(declarado)
 
 
 def sem_segredos(ambiente: Mapping[str, str] | None = None) -> dict[str, str]:

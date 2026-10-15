@@ -307,7 +307,7 @@ def _comando(msg: Any, controle: Controle, tarefas: set[asyncio.Task]) -> None:
         def acabou(t: asyncio.Task) -> None:
             tarefas.discard(t)
             if not t.cancelled() and (erro := t.exception()) is not None:
-                log.error("comando da tela falhou: %r", erro)  # antes a exceção sumia (ninguém lia a tarefa)
+                log.error("comando da tela falhou: %r", erro, exc_info=erro)  # antes a exceção sumia (ninguém lia a tarefa)
 
         tarefa.add_done_callback(acabou)
 

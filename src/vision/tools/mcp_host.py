@@ -134,9 +134,7 @@ class HostMCP:
                 if wispr.tem_login(cfg):  # sem login, nem tenta: `vision wispr-login` primeiro
                     conexoes[nome] = ConexaoMCP(nome, wispr.transporte(cfg), float(s.get("timeout_s", 30)))
                 continue
-            declarado = {k: (str(cfg.caminho(str(v))) if str(v).startswith("data/") else v)
-                         for k, v in (s.get("env") or {}).items()}
-            env = envs.para_servidor_mcp(declarado)  # só o básico + o `env:` deste servidor (nada de senha dos outros)
+            env = envs.ambiente_do_servidor(cfg, s)  # só o básico + o `env:` deste servidor (nada de senha dos outros)
             params = StdioServerParameters(
                 command=str(cfg.caminho(s["comando"])),
                 args=[str(cfg.caminho(a)) if "/" in a and not a.startswith("-") else a for a in s.get("args", [])],
