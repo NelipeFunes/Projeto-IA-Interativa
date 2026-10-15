@@ -28,7 +28,7 @@ from typing import Any
 import yaml
 
 from vision.tools.base import ErroFerramenta, Ferramenta, Registro, esquema, texto
-from vision.frases import normalizar
+from vision.frases import frase_limpa
 
 log = logging.getLogger(__name__)
 
@@ -58,7 +58,7 @@ foco:
 
 def limpar(frase: str) -> str:
     """"Vision, boa noite!" → "boa noite": sem acento, pontuação nem o nome do assistente nas pontas."""
-    t = re.sub(r"\s+", " ", re.sub(r"[.,!?;:]", " ", normalizar(frase))).strip()
+    t = frase_limpa(frase)  # `normalizar` já troca ; e : por espaço: igual ao que havia aqui
     t = re.sub(r"^(?:(?:vision|visao|hey|ei|ok)\s+)+", "", t)
     return re.sub(r"(?:\s+(?:vision|visao|por favor|pf))+$", "", t)
 

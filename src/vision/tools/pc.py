@@ -25,7 +25,7 @@ from typing import Any
 from urllib.parse import quote_plus, urlparse
 
 from vision.cache import Cache
-from vision.frases import frase_limpa, normalizar  # noqa: F401 (normalizar: quem ainda importa daqui)
+from vision.frases import frase_limpa, normalizar
 from vision.tools.base import PRAZO_PC_S, ErroFerramenta, Ferramenta, esquema, numero, texto
 
 log = logging.getLogger(__name__)

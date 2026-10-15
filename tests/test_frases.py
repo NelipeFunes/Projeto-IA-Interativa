@@ -25,9 +25,16 @@ def test_normalizar(entrada, esperado):
     ("Volume 30!", "volume 30"),
     ("Desliga a TV, por favor.", "desliga a tv por favor"),
     ("  tudo   junto?? ", "tudo junto"),
+    ("volume +10", "volume +10"),             # o + e o - ficam (volume +10, canal -1)
+    ("versão 3.5", "versao 3 5"),              # o ponto vira espaço, até no meio de um número
+    ("boa noite; vision: ok", "boa noite vision ok"),
 ])
 def test_frase_limpa(entrada, esperado):
     assert frase_limpa(entrada) == esperado
+
+
+def test_entrada_que_nao_e_texto_passa_por_str():
+    assert normalizar(None) == "none" and normalizar(30) == "30"
 
 
 def test_pc_ainda_exporta_normalizar_para_quem_importava_de_la():
