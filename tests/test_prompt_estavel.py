@@ -230,3 +230,61 @@ async def test_janela_do_historico_anda_em_degraus(memorias, tmp_path):
     assert min(tamanhos[6:]) >= a.turnos_historico - 2 and max(tamanhos) <= a.turnos_historico  # 4 a 6 depois
     primeiros = [a._historico(Sessao(turnos=s.turnos[:k]))[0]["content"] for k in range(7, 16)]
     assert len(set(primeiros)) <= 4  # a 1ª mensagem muda só nos degraus (antes: a cada pedido, 9 valores)
+
+
+# --------------------------------------------------------------------- continuação depois de uma busca (achado do Opus)
+
+def _registro_com_busca() -> Registro:
+    async def busca(_args):
+        linhas = [f"{i}. Resultado {i} (site{i}.com) https://exemplo.com/{i}\n   " + "trecho do resultado " * 17 for i in range(1, 6)]
+        return "Resumo da busca. " * 30 + "\n" + "\n".join(linhas)  # ~3.100 caracteres; o link 5 fica no fim
+
+    r = Registro()
+    r.adicionar(Ferramenta("web_buscar", "Busca.", esquema([]), busca))
+    return r
+
+
+async def test_busca_segue_inteira_no_pedido_seguinte_para_o_do_segundo(memorias, tmp_path):
+    llm = LLMFalso([chama("web_buscar"), fala("Achei 5. Quer detalhes de algum?"), fala("Do segundo: ...")])
+    a = _agente(llm, memorias, tmp_path, lambda: MOMENTO, registro=_registro_com_busca())
+    await a.responder("pesquisa o motor do fusca", canal="voz")
+    await a.responder("quero detalhes do segundo", canal="voz")
+    tool = [m for m in llm.chamadas[-1] if m["role"] == "tool"]
+    assert tool and "https://exemplo.com/5" in tool[0]["content"]  # os 5 links seguem no histórico do 2º pedido
+
+
+async def test_historico_com_buscas_grandes_respeita_o_teto_de_caracteres(memorias, tmp_path):
+    from vision.brain.agent import HISTORICO_MAX_CARACTERES, _caracteres
+
+    pedidos = 9
+    roteiro = []
+    for _ in range(pedidos):
+        roteiro += [chama("web_buscar"), fala("Achei.")]
+    llm = LLMFalso(roteiro)
+    a = _agente(llm, memorias, tmp_path, lambda: MOMENTO, registro=_registro_com_busca())
+    for i in range(pedidos):
+        await a.responder(f"pesquisa o assunto {i}", canal="voz")
+    s = next(iter(a.sessoes.values()))
+    historico = a._historico(s)
+    assert _caracteres([historico]) <= HISTORICO_MAX_CARACTERES
+    assert len(historico) >= 2  # o último turno nunca sai
+
+
+# --------------------------------------------------------------------- higiene: controles e teto por memória
+
+def test_fato_sem_caracteres_de_controle_nem_seletores_de_variacao():
+    limpo = limpar_fato("gosta de café\x00\x1b\x7f\u009b e chá\ufe0f\U000e0100 sim")
+    assert limpo == "gosta de café e chá sim"
+
+
+def test_formatar_corta_fato_e_assunto_gigantes_mas_so_no_prompt():
+    from vision.memory.store import ASSUNTO_MAX, FATO_MAX
+
+    texto = Memorias.formatar([Memoria(1, "a" * 900, "geral", "x", vale_para="b" * 400)])
+    assert texto == f"- [1] {'a' * FATO_MAX} (pesa em: {'b' * ASSUNTO_MAX})"
+
+
+async def test_confirmacao_de_guardar_memoria_mostra_o_assunto(memorias):
+    ferramenta = {f.nome: f for f in FerramentasMemoria(memorias).ferramentas()}["guardar_memoria"]
+    frase = await ferramenta.descrever({"fato": "O Felipe gosta de café.", "vale_para": "o que pedir na cafeteria"})
+    assert "gosta de café" in frase and "vale para: o que pedir na cafeteria" in frase

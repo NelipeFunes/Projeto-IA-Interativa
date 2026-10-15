@@ -38,6 +38,13 @@ MODOS_CONFIRMACAO = ("todas", "sensiveis", "nenhuma")
 # Resultado de ferramenta no histórico: cortado ao gravar o turno, não depois (cortar quando o turno "envelhece" mudava o meio
 # do prompt a cada pedido e o Ollama reprocessava tudo). Dentro do pedido que o gerou, o modelo vê o resultado inteiro.
 CORTE_TOOL_NO_HISTORICO = 1000
+# Quem precisa de mais para a continuação ("quero detalhes do segundo", "e o preço?"): a busca traz 5 links em ~3.100
+# caracteres e o corte em 1.000 tirava os links 2 a 5 já no pedido seguinte.
+LIMITE_NO_HISTORICO = {"web_buscar": 2500, "web_noticias": 2000, "web_ler": 2500, "reuniao_ler": 3000,
+                       "reunioes_buscar": 2000, "notas_buscar": 2000, "agenda_listar": 2000, "agenda_buscar": 2000}
+# Teto do histórico inteiro (o contexto do modelo é de 12.288 tokens e só ~3.800 sobram depois das ferramentas e do sistema):
+# acima disso a janela anda mais um degrau, em vez de o Ollama cortar o começo do prompt (o sistema).
+HISTORICO_MAX_CARACTERES = 10_000
 # A janela do histórico anda em degraus de PASSO_DA_JANELA turnos: entre um degrau e outro o começo do prompt não muda.
 PASSO_DA_JANELA = 3
 
@@ -327,6 +334,8 @@ class Agente:
         total, maximo = len(s.turnos), self.turnos_historico
         passo = max(1, min(PASSO_DA_JANELA, maximo))
         inicio = 0 if total <= maximo else -(-(total - maximo) // passo) * passo
+        while inicio < total - 1 and _caracteres(s.turnos[inicio:]) > HISTORICO_MAX_CARACTERES:
+            inicio = min(total - 1, inicio + passo)
         return [m for turno in s.turnos[inicio:] for m in turno]
 
     def _fechar_interrompido(self, s: Sessao, texto: str, rastro: dict[str, Any]) -> Resposta:
@@ -499,8 +508,9 @@ class Agente:
                 usadas.append({"nome": c.nome, "args": c.args, "ok": ok, "resultado": resultado[:300]})
                 msg_tool = {"role": "tool", "content": resultado, "tool_name": c.nome}
                 mensagens.append(msg_tool)
-                turno.append(msg_tool if len(resultado) <= CORTE_TOOL_NO_HISTORICO
-                             else {**msg_tool, "content": resultado[:CORTE_TOOL_NO_HISTORICO] + " [...]"})
+                limite_hist = LIMITE_NO_HISTORICO.get(c.nome, CORTE_TOOL_NO_HISTORICO)
+                turno.append(msg_tool if len(resultado) <= limite_hist
+                             else {**msg_tool, "content": resultado[:limite_hist] + " [...]"})
 
             if nova_pendente is not None:
                 if rastro is not None:
@@ -626,6 +636,10 @@ class Agente:
         arquivo = self.pasta_conversas / f"{agora:%Y-%m-%d}.jsonl"
         with arquivo.open("a", encoding="utf-8") as f:
             f.write(json.dumps(linha, ensure_ascii=False, default=str) + "\n")
+
+
+def _caracteres(turnos: list[list[dict[str, Any]]]) -> int:
+    return sum(len(str(m.get("content") or "")) for turno in turnos for m in turno)
 
 
 def _no_passado(descricao: str) -> str:

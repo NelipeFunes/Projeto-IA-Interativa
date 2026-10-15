@@ -45,7 +45,9 @@ class FerramentasMemoria:
         return ComDados(f"Memória apagada: {alvo.texto}", {"id": alvo.id})
 
     async def descrever_lembrar(self, args: dict[str, Any]) -> str:
-        return f"Vou guardar na memória: \"{str(args.get('fato') or '').strip()[:200]}\"."
+        vale = str(args.get("vale_para") or "").strip()[:120]  # o assunto também entra no prompt: o Felipe o ouve
+        return (f"Vou guardar na memória: \"{str(args.get('fato') or '').strip()[:300]}\""
+                + (f" (vale para: {vale})" if vale else "") + ".")
 
     async def descrever_esquecer(self, args: dict[str, Any]) -> str:
         alvo = await self._alvo(args)

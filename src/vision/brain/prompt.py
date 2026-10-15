@@ -10,8 +10,14 @@ ferramentas → sistema → histórico → pedido (renderer qwen3.5 do Ollama); 
 O QUE MUDA POR PEDIDO vai fora do sistema, numa mensagem de SISTEMA logo antes da fala (`contexto_do_pedido`: a hora e as
 memórias). Medido também: colocar esse texto DENTRO da mensagem do usuário, com cabeçalho explicando o bloco, derrubava os
 acertos do 4B de 93% para 37% (ele respondia "a TV está ligada" sem chamar `tv_status`), e o estilo do canal na mensagem do
-usuário piorava ainda mais; por isso o estilo fica no sistema, como ÚLTIMO bloco (só ele muda quando troca o canal: custo
-de um preparo parcial, raro), e o contexto do pedido é curto e vai como sistema.
+usuário piorava ainda mais; por isso o estilo fica no sistema, como ÚLTIMO bloco (só ele muda quando troca o canal) e o
+contexto do pedido é curto e vai como sistema.
+SEGUNDA PREMISSA: o renderer do Ollama para o Qwen3.5 aceita uma mensagem de sistema no meio da conversa (o `nota` e o
+puxão do agente já dependiam disso). O template oficial do modelo (llama.cpp com --jinja, vLLM, LM Studio) levanta "System
+message must be at the beginning": trocar de backend exige mover o contexto do pedido. O caso `hora_do_relogio` da avaliação é
+o canário: se o renderer descartar a mensagem, a hora some e o caso reprova.
+CANAL: trocar de canal é trocar de sessão e muda o fim do sistema (o estilo); tudo depois dele, o histórico, é reprocessado.
+O custo disso NÃO foi medido (a comparação só roda o canal de voz): ver T-026.
 Não ponha nada que varie por pedido em `montar`: tem teste.
 """
 

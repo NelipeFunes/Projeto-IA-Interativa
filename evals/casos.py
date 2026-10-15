@@ -19,6 +19,8 @@ class Contexto:
     orbit: Any                     # servidor Orbit falso (tem .lancados, .tarefas)
     memorias: Any
     amb: Any = None                # ambiente completo (evals/ambiente.py), só com --producao: tv, alexa, spotify, timers...
+    agora: Any = None              # o relógio sintético depois da última fala (o "AGORA" que o prompt trouxe)
+    enviados: list = field(default_factory=list)   # por fala: as listas de mensagens enviadas ao modelo, uma por chamada
 
     @property
     def ultima(self):
@@ -110,6 +112,32 @@ def pendente(ctx: Contexto, em: int = -1) -> list[str]:
 
 def nao_pendente(ctx: Contexto) -> list[str]:
     return [] if not ctx.ultima.aguardando_confirmacao else ["pediu confirmação sem motivo"]
+
+
+def no_prompt(ctx: Contexto, trecho: str, fala: int = -1) -> list[str]:
+    """O trecho estava nas mensagens de SISTEMA da 1ª chamada da fala. Sem isso, um caso de memória ou de hora passa vazio
+    quando o contexto do pedido não chega ao modelo (memória fora do top 3, ou renderer que descarta a mensagem)."""
+    try:
+        envio = ctx.enviados[fala][0]
+    except IndexError:
+        envio = None
+    if envio is None:
+        return ["a avaliação não guardou as mensagens enviadas (só vale no ambiente de produção)"]
+    sistema = " ".join(str(m.get("content") or "") for m in envio if m.get("role") == "system")
+    return [] if trecho.lower() in sistema.lower() else [f"o prompt não trouxe {trecho!r} (contexto do pedido perdido)"]
+
+
+def hora_do_relogio(ctx: Contexto) -> list[str]:
+    """A resposta cita a hora do relógio sintético (10h07, 10:07 ou "dez e sete")."""
+    import re
+
+    if ctx.agora is None:
+        return ["sem relógio sintético"]
+    t = ctx.ultima.texto.lower()
+    numeros = {int(n) for n in re.findall(r"\d+", t)}
+    if ctx.agora.hour in numeros and ctx.agora.minute in numeros:
+        return []
+    return [f"a resposta não cita a hora {ctx.agora:%H:%M}: {ctx.ultima.texto[:90]!r}"]
 
 
 def contem(ctx: Contexto, *trechos: str) -> list[str]:
