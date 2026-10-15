@@ -34,6 +34,7 @@ from pathlib import Path
 from typing import Any
 
 from vision import ajustes, config, conexoes, empacotado, inicializacao
+from vision.arquivos import limitar_log
 from vision.eventos import Barramento
 from vision.voice.loop import FALA_DE_ERRO
 
@@ -160,10 +161,22 @@ class Janela:
         self.fila: queue.Queue[tuple[subprocess.Popen, str]] = queue.Queue(maxsize=100)
         threading.Thread(target=self._escritor, name="janela-stdin", daemon=True).start()
 
+    def _subir(self) -> bool:
+        """`_iniciar` sem derrubar o supervisor: o .exe sumiu, o antivírus barrou ou faltou permissão. A queda conta
+        no limite de 5 em 1 minuto (ver `supervisionar`) e vai para o log."""
+        try:
+            self._iniciar()
+            return True
+        except Exception:  # noqa: BLE001
+            log.exception("não consegui abrir a janela")
+            return False
+
     def _iniciar(self) -> None:
         env = {**os.environ, "VISION_URL": self.url, "VISION_TOKEN": self.token,
                "VISION_MOSTRAR": "1" if self.mostrar_ao_subir else "0"}
-        saida = (self.cfg.dados / "logs" / "janela.log").open("a", encoding="utf-8")
+        arquivo_log = self.cfg.dados / "logs" / "janela.log"
+        limitar_log(arquivo_log)
+        saida = arquivo_log.open("a", encoding="utf-8")
         try:
             self.proc = subprocess.Popen(
                 empacotado.comando_do_vision("interface", "--nucleo"),
@@ -184,7 +197,7 @@ class Janela:
             if comando == "mostrar" and not self.encerrando:
                 self.desistiu = False
                 self.mostrar_ao_subir = True
-                self._iniciar()
+                self._subir()
             return
         assert self.proc is not None
         try:
@@ -203,7 +216,7 @@ class Janela:
                 log.warning("janela não recebeu '%s'", comando)
 
     async def supervisionar(self) -> None:
-        self._iniciar()
+        self._subir()
         while not self.encerrando:
             await asyncio.sleep(2)
             if self.encerrando or self.desistiu or self.viva():
@@ -215,7 +228,7 @@ class Janela:
                 log.error("a janela caiu 5 vezes em 1 minuto; veja data/logs/janela.log")
                 continue
             log.warning("a janela fechou sozinha (código %s); subindo de novo", self.proc.returncode if self.proc else "?")
-            self._iniciar()
+            self._subir()
 
     def encerrar(self) -> None:
         self.encerrando = True
@@ -253,6 +266,7 @@ class Nucleo:
         # andamento (um por serviço) e a última frase de cada um para a tela.
         self.conexoes_inicio = conexoes.assinatura(cfg)
         self.logins: dict[str, tuple[asyncio.Task, threading.Event]] = {}
+        self._avulsas: set[asyncio.Task] = set()  # tarefas soltas: o loop só guarda referência fraca
         self.andamento: dict[str, dict[str, Any]] = {}
         self._sugestoes: list[str] = []  # grafias do nome que a última calibração sugeriu (a tela aceita ou não)
         # Desconectados nesta sessão: a Alexa e o Wispr do núcleo ainda têm a sessão na memória e a regravariam
@@ -408,7 +422,7 @@ class Nucleo:
             if servico in self.logins:
                 frases.append(texto)
                 self._andamento(servico, texto, rodando=True)
-                asyncio.ensure_future(self.ler_conexoes())
+                self._agendar(self.ler_conexoes())
 
         def avisar(texto: str) -> None:
             try:
@@ -582,17 +596,27 @@ class Nucleo:
         elif tipo == "aviso" and ev.get("texto") and self.bandeja is not None:
             self.bandeja.avisar(ev["texto"])
 
+    def _agendar(self, corrotina) -> None:
+        """Tarefa solta que o coletor de lixo não leva no meio e cuja falha vai para o log (antes sumia)."""
+        tarefa = asyncio.ensure_future(corrotina)
+        self._avulsas.add(tarefa)
+
+        def acabou(t: asyncio.Task) -> None:
+            self._avulsas.discard(t)
+            if not t.cancelled() and (erro := t.exception()) is not None:
+                log.error("tarefa em segundo plano falhou: %r", erro, exc_info=erro)
+
+        tarefa.add_done_callback(acabou)
+
     async def _atualizar_painel(self) -> None:
         while True:
-            await self._atualizar_agenda()
+            await self._atualizar_agenda()  # uma consulta por volta (eram duas seguidas no Google a cada 5 min)
+            if self.barramento.assinantes:
+                try:
+                    self.barramento.publicar(await self.painel())
+                except Exception:  # noqa: BLE001 - uma foto que falha não pode parar as próximas
+                    log.exception("não consegui atualizar o painel")
             await asyncio.sleep(ATUALIZAR_PAINEL_S)
-            await self._atualizar_agenda()
-            if not self.barramento.assinantes:
-                continue
-            try:
-                self.barramento.publicar(await self.painel())
-            except Exception:  # noqa: BLE001 - uma foto que falha não pode parar as próximas
-                log.exception("não consegui atualizar o painel")
 
     async def _vigiar_sistema(self) -> None:
         """Como o JARVIS avisando da armadura: placa de vídeo quente, memória ou disco no fim viram aviso."""

@@ -35,6 +35,7 @@ TAVILY = "https://api.tavily.com"
 COTA_ESTOURADA = {429, 432, 433}
 MAX_PAGINA = 1_500_000  # bytes baixados de uma página no máximo (o texto útil cabe com folga)
 MAX_HTML = 400_000  # caracteres de HTML analisados
+MAX_PAGINA_EM_CACHE = 20_000  # caracteres de texto de página guardados em data/cache/web.json
 LINKS_LEMBRADOS = 300
 # O que nunca sai do PC dentro de uma consulta: e-mail, telefone, CPF (a regra do prompt é a 1ª barreira).
 # Telefone e CPF só com a pontuação de sempre: "2005 2010 2015" ou um código de 11 dígitos passam intactos.
@@ -328,8 +329,8 @@ class Web:
                 log.warning("extract da Tavily falhou (%s); baixando a página", e)
         if not texto_:
             texto_ = await self._baixar(url)
-        if texto_:
-            self.cache.guardar(chave, {"texto": texto_})
+        if texto_:  # o modelo só vê o começo da página (tools/web.py::PAGINA): guardar 400 mil caracteres não serve a ninguém
+            self.cache.guardar(chave, {"texto": texto_[:MAX_PAGINA_EM_CACHE]})
         return texto_
 
     async def _extrair_tavily(self, url: str) -> str:

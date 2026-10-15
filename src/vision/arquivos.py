@@ -5,6 +5,8 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
+from datetime import date, timedelta
 from pathlib import Path
 from typing import Any
 
@@ -37,3 +39,41 @@ def gravar_json(arquivo: Path, dados: Any, *, duravel: bool = True) -> None:
     except BaseException:
         tmp.unlink(missing_ok=True)  # não deixa .tmp para trás
         raise
+
+
+def limitar_log(arquivo: Path, maximo_bytes: int = 1_000_000, copias: int = 1) -> None:
+    """Antes de abrir um log para escrever: se já passou de `maximo_bytes`, vira `.1` (e o `.1` vira `.2`, até
+    `copias`). Só o `nucleo.log` rodava; `janela.log` e `mcp-*.log` cresciam para sempre. Gira ao ABRIR o arquivo: um log
+    aberto por semanas (a janela, o Node) passa do limite até o próximo reinício."""
+    try:
+        if not arquivo.exists() or arquivo.stat().st_size <= maximo_bytes:
+            return
+        for i in range(copias, 0, -1):
+            velho = arquivo.with_name(f"{arquivo.name}.{i}")
+            origem = arquivo if i == 1 else arquivo.with_name(f"{arquivo.name}.{i - 1}")
+            if origem.exists():
+                os.replace(origem, velho)
+    except OSError as e:
+        log.warning("não deu para girar o log %s: %s", arquivo.name, e)
+
+
+_DATADO = re.compile(r"^(\d{4}-\d{2}-\d{2})\.[A-Za-z0-9]{1,6}$")
+
+
+def podar_datados(pasta: Path, dias: int, hoje: date | None = None) -> int:
+    """Apaga os arquivos `AAAA-MM-DD.ext` de `pasta` com mais de `dias` dias (conversas, medições). 0 dias = não apaga.
+    Só o nome nesse padrão: `20200101.jsonl`, `2020-W01-1.jsonl` ou `2020-01-01 backup.zip` ficam (o `fromisoformat` aceita
+    mais formas do que parece)."""
+    if dias <= 0 or not pasta.is_dir():
+        return 0
+    corte = (hoje or date.today()) - timedelta(days=dias)
+    apagados = 0
+    for arquivo in pasta.iterdir():
+        try:
+            achou = _DATADO.match(arquivo.name)
+            if achou and arquivo.is_file() and date.fromisoformat(achou.group(1)) < corte:
+                arquivo.unlink()
+                apagados += 1
+        except (ValueError, OSError):
+            continue
+    return apagados

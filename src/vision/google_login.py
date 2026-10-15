@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 import threading
 import time
@@ -10,7 +9,7 @@ from collections.abc import Callable
 from datetime import datetime
 from pathlib import Path
 
-from vision import tempo
+from vision import envs, tempo
 from vision.config import Config
 
 ARQUIVO_DATA = "google-login.txt"
@@ -38,7 +37,7 @@ def fazer_login(cfg: Config, avisar: Callable[[str], None] = print, *, sem_conso
         avisar(f"Falta o arquivo de credenciais: {credenciais}")
         avisar("Siga docs/guia-google-cloud.md (passos 1 a 6) e salve o JSON com esse nome.")
         return 1
-    env = dict(os.environ, GOOGLE_OAUTH_CREDENTIALS=str(credenciais))
+    env = {**envs.ambiente_do_servidor(cfg, s), "GOOGLE_OAUTH_CREDENTIALS": str(credenciais)}  # sem as senhas do Vision
     comando = [str(cfg.caminho(s["comando"])), *[str(cfg.caminho(a)) for a in s.get("args", [])], "auth"]
     avisar("Abrindo o navegador para o login do Google... (aceite as permissões da agenda)")
     extra: dict = {}

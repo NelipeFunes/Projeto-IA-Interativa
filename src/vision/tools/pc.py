@@ -25,6 +25,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus, urlparse
 
+from vision import envs
 from vision.cache import Cache
 from vision.tools.base import PRAZO_PC_S, ErroFerramenta, Ferramenta, esquema, numero, texto
 
@@ -172,7 +173,8 @@ class PC:
 
     async def _rodar(self, *cmd: str, prazo: float = 20) -> tuple[int, str]:
         proc = await asyncio.create_subprocess_exec(
-            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, creationflags=SEM_JANELA)
+            *cmd, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, creationflags=SEM_JANELA,
+            env=envs.sem_segredos())  # o comando não herda a senha do Orbit nem a chave da Tavily
         try:
             saida, _ = await asyncio.wait_for(proc.communicate(), prazo)
         except TimeoutError:
