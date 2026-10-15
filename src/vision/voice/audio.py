@@ -172,7 +172,9 @@ class SaidaArquivo:
         return True
 
     def tocar_sem_esperar(self, audio: np.ndarray, taxa: int) -> None:
-        self.trechos.append(audio)
+        from vision.voice.stt import reamostrar
+
+        self.trechos.append(reamostrar(audio, taxa, self.taxa))
 
     def abrir(self, _taxa: int) -> SaidaArquivo:
         """O mesmo papel do `FluxoSaida`: cada pedaço escrito vira um trecho."""
@@ -299,7 +301,9 @@ class Microfone:
         agora = self._relogio()
         if agora - self._avisou_perda_em >= 10:
             self._avisou_perda_em = agora
-            log.warning("microfone: a fila de áudio encheu; %d bloco(s) descartado(s) até agora", self.blocos_perdidos)
+            # Esperado quando ninguém lê o microfone (ele pensando ou falando por mais de 16 s, ou `interromper_por_voz:
+            # false`): INFO. Se aparecer com tudo parado, o laço de voz travou.
+            log.info("microfone: a fila de áudio encheu; %d bloco(s) descartado(s) até agora", self.blocos_perdidos)
 
     def __enter__(self) -> Microfone:
         self._stream = self._criar(self.dispositivo)

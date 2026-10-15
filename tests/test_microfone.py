@@ -267,7 +267,7 @@ def test_bloco_perdido_conta_e_avisa_no_maximo_a_cada_10_s(caplog):
     agora = [100.0]
     m._relogio = lambda: agora[0]
     m.blocos_perdidos, m._avisou_perda_em = 0, -1e9
-    with caplog.at_level(logging.WARNING, logger="vision.voice.audio"):
+    with caplog.at_level(logging.INFO, logger="vision.voice.audio"):
         m._perdeu_bloco()
         m._perdeu_bloco()          # 2º no mesmo instante: conta, não repete o aviso
         agora[0] += 11

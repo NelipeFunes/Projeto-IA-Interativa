@@ -35,15 +35,17 @@ def hora_falada(h: int, mi: int) -> str:
 
 
 # "1/2 litro", "3/4 de xícara", "1/2 hora": fração de quantidade, não data. Com "dia" na frente (ou ano) é sempre data.
-_QUANTIDADE = re.compile(r"\s*(?:de\s+)?(?:litros?|l\b|quilos?|kg\b|gramas?|g\b|ml\b|xícaras?|copos?|colheres?|metade|"
-                         r"horas?|minutos?|porç|fatias?|pedaços?|unidades?|%|por cento)", re.IGNORECASE)
+_QUANTIDADE = re.compile(r"[ \t]*(?:de[ \t]+)?(?:(?:litros?|l|quilos?|kg|gramas?|g|ml|x[ií]caras?|copos?|colheres?|metade|"
+                         r"horas?|minutos?|porç(?:ão|ões)|fatias?|pedaços?|unidades?|dúzias?|do total)\b|%)")
+_DIA_DA_SEMANA_ANTES = re.compile(r"(?:segunda|terça|quarta|quinta|sexta|sábado|domingo)(?:-feira)?,[ \t]*$", re.IGNORECASE)
 
 
 def _data(m: re.Match[str]) -> str:
     dia, mes = int(m.group(1)), int(m.group(2))
     if not 1 <= mes <= 12:
         return m.group(0)
-    explicita = m.group(0).lower().startswith("dia") or m.group(0).count("/") == 2
+    explicita = (m.group(0).lower().startswith("dia") or m.group(0).count("/") == 2
+                 or _DIA_DA_SEMANA_ANTES.search(m.string, 0, m.start()) is not None)
     if not explicita and _QUANTIDADE.match(m.string, m.end()):
         return m.group(0)
     return f"dia {dia} de {MESES[mes - 1]}"

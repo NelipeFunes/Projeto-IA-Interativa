@@ -137,6 +137,7 @@ class LoopVoz:
         self.flag_dormindo = flag_dormindo
         self.escrever = escrever
         self.bipes = bipes
+        self._bipe_em_curso: asyncio.Future | None = None
         self.jogando = False
         self.acionar = asyncio.Event()
         self._carregando: asyncio.Future | None = None
@@ -600,6 +601,9 @@ class LoopVoz:
             resultado = (await asyncio.gather(falador, return_exceptions=True))[0]
             if isinstance(resultado, Exception):
                 log.error("o falador falhou", exc_info=resultado)
+            if self._bipe_em_curso is not None:  # o bipe de "entendi" (thread) já saiu: não sobra tarefa solta
+                await asyncio.gather(self._bipe_em_curso, return_exceptions=True)
+                self._bipe_em_curso = None
         await self._depois_de_interrompido()
         if r is None:
             self.historico.append({"felipe": texto, "vision": FALA_DE_ERRO, "erro": True})
@@ -721,6 +725,7 @@ class LoopVoz:
                     if not interrompido and foi_cortado():
                         await cortar()
 
+        escrita: asyncio.Future | None = None  # a escrita em andamento (numa thread): nunca fechar o fone por cima dela
         try:
             while (pronta := await proxima()) is not None:
                 if isinstance(pronta, Exception):
@@ -743,7 +748,8 @@ class LoopVoz:
                     vigia = asyncio.create_task(self._vigiar_interrupcao())
                 ondas = asyncio.create_task(self._emitir_voz(envelope(audio, taxa))) if self.ao_evento else None
                 try:
-                    if not await asyncio.to_thread(fluxo.escrever, audio, taxa):
+                    escrita = asyncio.ensure_future(asyncio.to_thread(fluxo.escrever, audio, taxa))
+                    if not await asyncio.shield(escrita):  # cancelado aqui, a thread segue e o `finally` abaixo a espera
                         await cortar()
                         if vigia is not None and self.interrompido_por is None:  # atalho: o vigia para aqui
                             vigia.cancel()
@@ -752,6 +758,12 @@ class LoopVoz:
                         ondas.cancel()
                         self._emitir({"tipo": "nivel", "fonte": "voz", "valor": 0.0})
         finally:
+            if escrita is not None and not escrita.done():
+                # Cancelado no meio de um pedaço: pede para a escrita sair (próxima fatia de 50 ms) e espera, para o
+                # `stop`/`close` do PortAudio não rodarem junto com o `write` de outra thread.
+                self.saida.interromper.set()
+                interrompido = True
+                await asyncio.wait({escrita}, timeout=1.0)
             parar.set()
             sintetizador.cancel()
             await asyncio.gather(sintetizador, return_exceptions=True)
@@ -883,13 +895,18 @@ class LoopVoz:
             await asyncio.to_thread(self.saida.tocar, bipe(subindo), 22050)
 
     def _bipe_sem_esperar(self, subindo: bool) -> None:
-        """O bipe não pode derrubar nem atrasar o pedido: falhou, só vira aviso no log."""
+        """O bipe não pode derrubar nem atrasar o pedido: toca numa thread (abrir o fone leva ~0,2 s e, com o driver
+        travado, congelaria o laço de eventos de todo o núcleo); falhou, só vira aviso no log."""
         if not self.bipes:
             return
-        try:
-            self.saida.tocar_sem_esperar(bipe(subindo), 22050)
-        except Exception:  # noqa: BLE001
-            log.warning("não consegui tocar o bipe de entendido", exc_info=True)
+
+        def tocar() -> None:
+            try:
+                self.saida.tocar_sem_esperar(bipe(subindo), 22050)
+            except Exception:  # noqa: BLE001
+                log.warning("não consegui tocar o bipe de entendido", exc_info=True)
+
+        self._bipe_em_curso = asyncio.get_running_loop().run_in_executor(None, tocar)
 
     # ------------------------------------------------------------------ modo jogo
 

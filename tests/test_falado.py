@@ -59,6 +59,12 @@ def test_frases():
     ("A prova é dia 1/2.", "A prova é dia 1 de fevereiro."),            # com "dia" na frente é data
     ("Reunião 5/10 às 14h.", "Reunião dia 5 de outubro às 14 horas."),
     ("Nasceu em 1/2/2001.", "Nasceu em dia 1 de fevereiro."),            # com ano é data
+    ("Consulta 20/10 Unidade Centro.", "Consulta dia 20 de outubro Unidade Centro."),   # "Unidade" com maiúscula é nome
+    ("Sáb 15/11 Gramado.", "Sáb dia 15 de novembro Gramado."),                          # "Gramado" não é "gramas"
+    ("sex 16/10 Horas extras", "sexta, dia 16 de outubro Horas extras"),                # dia da semana na frente: data
+    ("1/2 dúzia de ovos", "1/2 dúzia de ovos"),
+    ("1/3 do total", "1/3 do total"),
+    ("1/2 xicara de açúcar", "1/2 xicara de açúcar"),
 ])
 def test_fracao_de_quantidade_nao_vira_data(entrada, saida):
     assert para_fala(entrada) == saida
