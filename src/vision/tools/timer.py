@@ -9,7 +9,7 @@ from typing import Any
 from vision import tempo
 from vision.timers import Timer, Timers, descrever_duracao, para_dados
 from vision.tools.base import PRAZO_PC_S, ComDados, ErroFerramenta, Ferramenta, Registro, esquema, numero, texto
-from vision.tools.pc import normalizar
+from vision.frases import frase_limpa, normalizar
 
 MAXIMO_S = 24 * 3600
 
@@ -184,7 +184,7 @@ _CANCELAR = re.compile(_INICIO + r"(?:cancela|cancelar|desliga|desligar|para|par
 
 
 def comando_de_timer(frase: str) -> tuple[str, dict[str, Any]] | None:
-    t = re.sub(r"\s+", " ", re.sub(r"[.,!?]", " ", normalizar(frase))).strip()
+    t = frase_limpa(frase)
     if not t or "nao" in t.split():
         return None
     if _CANCELAR.match(t):

@@ -8,7 +8,7 @@ from typing import Any
 
 from vision import sistema
 from vision.tools.base import Ferramenta, esquema
-from vision.tools.pc import normalizar
+from vision.frases import frase_limpa
 
 _PEDIDO = re.compile(
     r"^(?:(?:vision|visao|hey|ei|ok)\s+)*(?:me (?:da|de) (?:um|o) )?(?:status|diagnostico|relatorio)"
@@ -18,7 +18,7 @@ _PEDIDO = re.compile(
 
 
 def pede_status(frase: str) -> bool:
-    t = re.sub(r"\s+", " ", re.sub(r"[.,!?]", " ", normalizar(frase))).strip()
+    t = frase_limpa(frase)
     return bool(_PEDIDO.match(t))
 
 

@@ -28,7 +28,7 @@ from typing import Any
 import yaml
 
 from vision.tools.base import ErroFerramenta, Ferramenta, Registro, esquema, texto
-from vision.tools.pc import normalizar
+from vision.frases import normalizar
 
 log = logging.getLogger(__name__)
 

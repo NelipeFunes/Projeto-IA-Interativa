@@ -19,13 +19,13 @@ import os
 import re
 import subprocess
 import time
-import unicodedata
 import webbrowser
 from pathlib import Path
 from typing import Any
 from urllib.parse import quote_plus, urlparse
 
 from vision.cache import Cache
+from vision.frases import frase_limpa, normalizar  # noqa: F401 (normalizar: quem ainda importa daqui)
 from vision.tools.base import PRAZO_PC_S, ErroFerramenta, Ferramenta, esquema, numero, texto
 
 log = logging.getLogger(__name__)
@@ -67,11 +67,6 @@ def _descrever(modelo: str, campo: str | None = None):
     return descrever
 TECLAS = {"tocar_pausar": 0xB3, "proxima": 0xB0, "anterior": 0xB1, "parar": 0xB2, "mudo": 0xAD,
           "volume_mais": 0xAF, "volume_menos": 0xAE}
-
-
-def normalizar(t: str) -> str:
-    t = "".join(c for c in unicodedata.normalize("NFD", str(t).lower()) if unicodedata.category(c) != "Mn")
-    return re.sub(r"\s+", " ", re.sub(r"[^\w\s.+-]", " ", t)).strip()
 
 
 _PASTA_USUARIO = re.compile(r"(?i)\b([a-z]):[\\/]+users[\\/]+([^\\/\s'\"]+)")
@@ -510,8 +505,7 @@ _ONDE_VOLUME = {"spotify": "spotify", "musica": "auto", "pc": "pc", "computador"
 
 def comando_de_pc(texto: str) -> tuple[str, dict[str, Any]] | None:
     """"pausa a música" → ("midia", {"acao": "tocar_pausar"}); "volume 30" → ("volume", ...). None = não é."""
-    t = normalizar(str(texto).replace("%", " por cento "))
-    t = re.sub(r"\s+", " ", re.sub(r"[.,!?]", " ", t)).strip()
+    t = frase_limpa(str(texto).replace("%", " por cento "))
     if not t or "nao" in t.split():
         return None
     for padrao, acao in _MIDIA:
