@@ -8,7 +8,7 @@ from typing import Any
 
 from vision.spotify import ErroSpotify, SemLogin, Spotify
 from vision.tools.base import PRAZO_PC_S, ErroFerramenta, Ferramenta, esquema, texto
-from vision.tools.pc import normalizar
+from vision.frases import frase_limpa, normalizar
 
 TIPOS = ["musica", "artista", "album", "playlist"]
 ACOES = ["pausar", "continuar", "proxima", "anterior"]
@@ -111,13 +111,13 @@ _O_QUE_TOCA = re.compile(_INICIO + r"(?:que|qual|qual e a|qual que e a|que que e
 
 
 def pergunta_o_que_toca(frase: str) -> bool:
-    t = re.sub(r"\s+", " ", re.sub(r"[.,!?]", " ", normalizar(frase))).strip()
+    t = frase_limpa(frase)
     return bool(_O_QUE_TOCA.match(t))
 
 
 def comando_de_musica(frase: str) -> dict[str, Any] | None:
     """"toca a playlist Foco no Spotify" → {"busca": "foco", "tipo": "playlist"}. None se não for claro."""
-    t = re.sub(r"\s+", " ", re.sub(r"[.,!?]", " ", normalizar(frase))).strip()
+    t = frase_limpa(frase)
     if not t or _NAO_E_PEDIDO & set(t.split()):
         return None
     m = _TOCAR.match(t) or _COLOCAR.match(t)

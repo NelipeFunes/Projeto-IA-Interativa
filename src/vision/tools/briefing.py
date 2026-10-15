@@ -13,7 +13,7 @@ from vision import tempo
 from vision.clima import Clima, ErroClima, descrever_agora, descrever_dia
 from vision.timers import Timers, descrever_duracao
 from vision.tools.base import ErroFerramenta, Ferramenta, esquema, texto
-from vision.tools.pc import normalizar
+from vision.frases import frase_limpa, normalizar
 
 log = logging.getLogger(__name__)
 
@@ -158,5 +158,5 @@ _RESUMO = re.compile(
 
 
 def pede_resumo(frase: str) -> bool:
-    t = re.sub(r"\s+", " ", re.sub(r"[.,!?]", " ", normalizar(frase))).strip()
+    t = frase_limpa(frase)
     return bool(_RESUMO.match(t))

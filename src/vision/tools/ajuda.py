@@ -7,7 +7,7 @@ import re
 from typing import Any
 
 from vision.tools.base import Ferramenta, Registro, esquema
-from vision.tools.pc import normalizar
+from vision.frases import frase_limpa
 
 # Grupo de ferramentas → como dizer isso em voz alta. Grupo sem entrada aqui não aparece.
 GRUPOS = [
@@ -56,5 +56,5 @@ _AJUDA = re.compile(
 
 
 def pede_ajuda(frase: str) -> bool:
-    t = re.sub(r"\s+", " ", re.sub(r"[.,!?]", " ", normalizar(frase))).strip()
+    t = frase_limpa(frase)
     return bool(_AJUDA.match(t))

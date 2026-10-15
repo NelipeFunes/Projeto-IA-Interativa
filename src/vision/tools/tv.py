@@ -14,7 +14,7 @@ from typing import Any
 from urllib.parse import parse_qs, urlparse
 
 from vision.tools.base import PRAZO_PC_S, ErroFerramenta, Ferramenta, esquema, numero, texto
-from vision.tools.pc import normalizar
+from vision.frases import frase_limpa, normalizar
 from vision.tv import VIDEO_ID, SemPareamento, TVInacessivel
 
 # Ação → tecla do controle (protocolo criptografado). Volume e mudo vão pelo UPnP (valor exato).
@@ -431,7 +431,7 @@ _YOUTUBE = re.compile(_INICIO + r"(?:toca|tocar|toque|coloca|colocar|poe|bota|ab
 def comando_de_tv(frase: str) -> tuple[str, dict[str, Any]] | None:
     """"desliga a TV", "aumenta o volume da TV em 3", "volume da TV no 10", "toca X no youtube da TV".
     Com prazo ("em 30 minutos") ou "não", fica com o modelo (timer, dúvida)."""
-    t = re.sub(r"\s+", " ", re.sub(r"[.,!?]", " ", normalizar(frase))).strip()
+    t = frase_limpa(frase)
     palavras = set(t.split())
     if not t or "nao" in palavras or palavras & {"minuto", "minutos", "hora", "horas", "segundo", "segundos"}:
         return None
