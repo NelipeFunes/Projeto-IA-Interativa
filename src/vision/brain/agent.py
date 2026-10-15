@@ -35,7 +35,11 @@ GRUPOS_IRMAOS = {"musica": {"pc"}, "pc": {"musica"}}
 MAX_DIRETAS = 8  # escritas sem confirmação num mesmo pedido
 MAX_PALAVRAS_DESPEDIDA_TEXTO = 6  # "pode ficar em standby, Vision" sim; um pedido junto com o standby, não
 MODOS_CONFIRMACAO = ("todas", "sensiveis", "nenhuma")
-CORTE_TOOL_ANTIGO = 600
+# Resultado de ferramenta no histórico: cortado ao gravar o turno, não depois (cortar quando o turno "envelhece" mudava o meio
+# do prompt a cada pedido e o Ollama reprocessava tudo). Dentro do pedido que o gerou, o modelo vê o resultado inteiro.
+CORTE_TOOL_NO_HISTORICO = 1000
+# A janela do histórico anda em degraus de PASSO_DA_JANELA turnos: entre um degrau e outro o começo do prompt não muda.
+PASSO_DA_JANELA = 3
 
 PASSADO = {
     "Vou criar": "Criei",
@@ -301,7 +305,7 @@ class Agente:
     # ------------------------------------------------------------------ pensar
 
     async def _contexto(self, texto: str, canal: str) -> tuple[str, str]:
-        """(prompt de sistema estável, contexto deste pedido: canal, hora e memórias). Ver o aviso no topo de prompt.py."""
+        """(prompt de sistema estável, contexto deste pedido: hora e memórias). Ver o aviso no topo de prompt.py."""
         perfil = ""
         if self.perfil and self.perfil.exists():
             perfil = self.perfil.read_text(encoding="utf-8")
@@ -314,19 +318,16 @@ class Agente:
                 log.warning("memória indisponível: %s", e)
         agora = self.relogio()
         sistema = prompt.montar(self.nome, agora, perfil, set(self.registro.ferramentas),
-                                self.nome_assistente, confirmacao=self.confirmacao)
-        return sistema, prompt.contexto_do_pedido(canal, agora, memorias)
+                                self.nome_assistente, confirmacao=self.confirmacao, canal=canal)
+        return sistema, prompt.contexto_do_pedido(agora, memorias)
 
     def _historico(self, s: Sessao) -> list[dict[str, Any]]:
-        turnos = s.turnos[-self.turnos_historico :]
-        msgs: list[dict[str, Any]] = []
-        for i, turno in enumerate(turnos):
-            antigo = i < len(turnos) - 1
-            for m in turno:
-                if antigo and m.get("role") == "tool" and len(m.get("content", "")) > CORTE_TOOL_ANTIGO:
-                    m = {**m, "content": m["content"][:CORTE_TOOL_ANTIGO] + " [...]"}
-                msgs.append(m)
-        return msgs
+        """Os últimos turnos, entre `turnos_historico - PASSO + 1` e `turnos_historico`: a janela só avança de PASSO em
+        PASSO turnos. Deslizar de um em um mudaria a 1ª mensagem do histórico a cada pedido (cache de prefixo perdido)."""
+        total, maximo = len(s.turnos), self.turnos_historico
+        passo = max(1, min(PASSO_DA_JANELA, maximo))
+        inicio = 0 if total <= maximo else -(-(total - maximo) // passo) * passo
+        return [m for turno in s.turnos[inicio:] for m in turno]
 
     def _fechar_interrompido(self, s: Sessao, texto: str, rastro: dict[str, Any]) -> Resposta:
         """O turno cortado entra no histórico como foi: as ferramentas que já rodaram (o modelo não repete nem
@@ -341,7 +342,8 @@ class Agente:
         s.turnos.append(turno)
         if any((f := self.registro.get(u["nome"])) is not None and f.conteudo_externo for u in usadas):
             s.externo_ate_turno = len(s.turnos) - 1 + self.turnos_historico
-        return Resposta(dito, usadas, s.pendente is not None, interrompido=True)
+        return Resposta(dito, usadas, s.pendente is not None, interrompido=True,
+                        prompt_s=rastro.get("prompt_s", 0.0), prompt_tokens=rastro.get("prompt_tokens", 0))
 
     async def _pensar(self, s: Sessao, texto: str, canal: str, ao_texto: Callable[[str], None] | None,
                       parar: Callable[[], bool] | None = None, rastro: dict[str, Any] | None = None) -> Resposta:
@@ -367,9 +369,10 @@ class Agente:
         turno: list[dict[str, Any]] = [{"role": "user", "content": texto}]  # o que fica no histórico: só a fala
         nota = [{"role": "system", "content": s.nota}] if s.nota else []
         s.nota = None
-        # O modelo vê a fala precedida da hora e das memórias; o histórico guarda só a fala (prefixo estável).
+        # A hora e as memórias vão numa mensagem de sistema logo antes da fala; o histórico guarda só a fala, então o
+        # começo do prompt (sistema + histórico) é igual de um pedido para o outro.
         mensagens = [{"role": "system", "content": sistema}, *self._historico(s), *nota,
-                     {"role": "user", "content": contexto + texto}]
+                     {"role": "system", "content": contexto}, {"role": "user", "content": texto}]
         ferramentas = self.registro.para_ollama()
         usadas: list[dict[str, Any]] = []
         parcial: list[str] = []
@@ -408,6 +411,8 @@ class Agente:
             transmitir = cortavel if volta > 0 and (ao_texto or parar) else None  # a 1ª volta decide ferramentas
             r: RespostaLLM = await self.llm.conversar(mensagens, ferramentas, transmitir)
             prompt_s, prompt_tokens = prompt_s + r.prompt_s, max(prompt_tokens, r.prompt_tokens)
+            if rastro is not None:  # um turno cortado pela voz também chamou o modelo: não grava 0
+                rastro.update(prompt_s=prompt_s, prompt_tokens=prompt_tokens)
             if parar is not None and parar():
                 raise Interrompido  # ele falou enquanto o modelo decidia: o que foi pedido agora não roda
             transmitido = transmitir is not None
@@ -432,6 +437,8 @@ class Agente:
                              "Chame a ferramenta agora. Não responda de cabeça.")
                 r = await self.llm.conversar([*mensagens, *extra, {"role": "system", "content": puxao}], ferramentas, None)
                 prompt_s, prompt_tokens = prompt_s + r.prompt_s, max(prompt_tokens, r.prompt_tokens)
+                if rastro is not None:
+                    rastro.update(prompt_s=prompt_s, prompt_tokens=prompt_tokens)
                 transmitido = False
 
             escreveu = any(self._mudou_algo(u) for u in usadas)
@@ -492,7 +499,8 @@ class Agente:
                 usadas.append({"nome": c.nome, "args": c.args, "ok": ok, "resultado": resultado[:300]})
                 msg_tool = {"role": "tool", "content": resultado, "tool_name": c.nome}
                 mensagens.append(msg_tool)
-                turno.append(msg_tool)
+                turno.append(msg_tool if len(resultado) <= CORTE_TOOL_NO_HISTORICO
+                             else {**msg_tool, "content": resultado[:CORTE_TOOL_NO_HISTORICO] + " [...]"})
 
             if nova_pendente is not None:
                 if rastro is not None:
@@ -611,8 +619,8 @@ class Agente:
             "ferramentas": r.ferramentas,
             "insistiu": r.insistiu,
             "segundos": round(r.segundos, 2),
-            "prompt_s": round(r.prompt_s, 2),
-            "prompt_tokens": r.prompt_tokens,
+            "prompt_s": round(r.prompt_s, 2) if r.prompt_tokens else None,  # None: o modelo nem foi chamado
+            "prompt_tokens": r.prompt_tokens or None,
             "modelo": getattr(self.llm, "modelo", "?"),
         }
         arquivo = self.pasta_conversas / f"{agora:%Y-%m-%d}.jsonl"
