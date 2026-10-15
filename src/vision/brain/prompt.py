@@ -9,8 +9,8 @@ controle perto do fim do prompt anterior (~1.000 tokens antes dele). Premissa do
 ferramentas → sistema → histórico → pedido (renderer qwen3.5 do Ollama); um template com outra ordem muda a conta.
 O QUE MUDA POR PEDIDO vai fora do sistema, numa mensagem de SISTEMA logo antes da fala (`contexto_do_pedido`: a hora e as
 memórias). Medido também: colocar esse texto DENTRO da mensagem do usuário, com cabeçalho explicando o bloco, derrubava os
-acertos do 4B de 93% para 37% (ele respondia "a TV está ligada" sem chamar `tv_status`), e o estilo do canal na mensagem do
-usuário piorava ainda mais; por isso o estilo fica no sistema, como ÚLTIMO bloco (só ele muda quando troca o canal) e o
+acertos do 4B de 93% para 81% na suíte inteira (151 → 131 de 162) e para 37% nos 18 casos que mais caíram (ele respondia "a TV
+está ligada" sem chamar `tv_status`), e o estilo do canal na mensagem do usuário piorava ainda mais; por isso o estilo fica no sistema, como ÚLTIMO bloco (só ele muda quando troca o canal) e o
 contexto do pedido é curto e vai como sistema.
 SEGUNDA PREMISSA: o renderer do Ollama para o Qwen3.5 aceita uma mensagem de sistema no meio da conversa (o `nota` e o
 puxão do agente já dependiam disso). O template oficial do modelo (llama.cpp com --jinja, vLLM, LM Studio) levanta "System
