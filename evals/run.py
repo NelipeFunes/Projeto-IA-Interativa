@@ -20,11 +20,13 @@ from __future__ import annotations
 import argparse
 import asyncio
 import json
+import os
+import shutil
 import statistics
 import sys
 import tempfile
 import time
-from datetime import timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
 
 RAIZ = Path(__file__).resolve().parents[1]
@@ -45,72 +47,117 @@ from vision.tools.mcp_host import ConexaoMCP, HostMCP  # noqa: E402
 from vision.tools.memoria import FerramentasMemoria  # noqa: E402
 from vision.tools.orbit import FerramentasOrbit  # noqa: E402
 
-PERFIL = "O Felipe estuda Engenharia, gosta de café e de música. Prefere respostas curtas."
+PERFIL = ("O Felipe estuda Engenharia, trabalha com programação e gosta de café, de música e de corrida. Prefere "
+          "respostas curtas e diretas. Costuma acordar cedo, treina de manhã e estuda à noite. Tem um cachorro e mora "
+          "numa cidade pequena. Não gosta de ser interrompido quando está estudando.")
+# Memórias neutras para o assistente ter o que buscar a cada pedido, como no uso de verdade (onde a seção de memórias
+# muda quase toda vez). Nenhuma fala disso nos casos: quem testa memória usa as do próprio caso.
+MEMORIAS_NEUTRAS = [
+    "O Felipe prefere café sem açúcar.", "O Felipe corre às terças e quintas de manhã.", "O Felipe tem um cachorro pequeno.",
+    "O Felipe prefere reuniões curtas e no começo do dia.", "O Felipe estuda Cálculo às quartas à noite.",
+    "O Felipe não come carne vermelha às segundas.", "O Felipe gosta de rock clássico.", "O Felipe usa fone de ouvido no trabalho.",
+    "O Felipe quer viajar para a praia no fim do ano.", "O Felipe está aprendendo violão.", "O Felipe prefere luz quente à noite.",
+    "O Felipe lê um capítulo antes de dormir.", "O Felipe faz backup do computador aos domingos.",
+    "O Felipe gosta de pizza de calabresa.", "O Felipe prefere comprar em lojas com entrega rápida.",
+    "O Felipe tem consulta no dentista duas vezes por ano.", "O Felipe usa o notebook no sofá aos sábados.",
+    "O Felipe quer trocar a cadeira do escritório.", "O Felipe gosta de documentários de ciência.", "O Felipe bebe dois litros de água por dia.",
+]
 PRAZO_FALA_S = 240  # uma fala que passa disso conta como falha (modelo grande demais para voz)
+PASSOS_DO_RELOGIO = 60  # o relógio sintético volta às 10h depois de 60 falas (nunca cruza a meia-noite)
 
 
-async def rodar_caso(cfg, llm, caso: Caso, producao: bool, avanco_min: float, com_atalhos: bool, metricas: list) -> dict:
-    hoje = tempo.agora().date()
+class Relogio:
+    """Relógio sintético da avaliação: um só para todos os casos, no dia de hoje às 10h, avançando `avanco_min` minutos a
+    cada fala (e voltando às 10h a cada 60). Assim casos seguidos nunca caem no mesmo minuto (o que deixava o cache de
+    prefixo do modelo sempre quente) e a avaliação nunca cruza a meia-noite (o "hoje" do prompt, do calendário falso e
+    dos checadores é o mesmo)."""
+
+    def __init__(self, avanco_min: float):
+        self.base = datetime.now(tempo.FUSO).replace(hour=10, minute=0, second=0, microsecond=0)
+        self.avanco = avanco_min
+        self.n = 0
+
+    def agora(self) -> datetime:
+        return self.base + timedelta(minutes=self.avanco * (self.n % PASSOS_DO_RELOGIO))
+
+    def avancar(self) -> None:
+        self.n += 1
+
+
+async def rodar_caso(cfg, llm, caso: Caso, producao: bool, relogio: Relogio, com_atalhos: bool, metricas: list,
+                     banco_semeado: Path | None) -> dict:
+    hoje = relogio.agora().date()
     agenda_srv = calendario_falso.criar_servidor(hoje)
     orbit_srv = orbit_falso.criar_servidor()
     pasta = Path(tempfile.mkdtemp(prefix="vision-eval-"))
     cfg.dados = pasta
     (pasta / "perfil.md").write_text(PERFIL, encoding="utf-8")
+    if banco_semeado is not None:
+        shutil.copy(banco_semeado, pasta / "memoria.db")
     host = ambiente.host_completo(agenda_srv, orbit_srv) if producao else HostMCP({
         "google-calendar": ConexaoMCP("google-calendar", agenda_srv, 20),
         "orbit": ConexaoMCP("orbit", orbit_srv, 20),
     })
-    memorias = criar_memorias(cfg)
-    for fato in caso.memorias:
-        await memorias.lembrar(fato)
+    memorias = amb = None
     respostas, tempos = [], []
-    amb = None
-    async with host:
-        if producao:
-            amb = ambiente.criar(cfg, host, memorias, pasta)
-            registro = amb.registro
-            if caso.preparar:
-                caso.preparar(amb)
-        else:
-            registro = Registro()
-            registro.adicionar(*Agenda(cfg, host).ferramentas(), *FerramentasMemoria(memorias).ferramentas(),
-                               *FerramentasOrbit(host).ferramentas())
-        base, passo = tempo.agora(), [0]
-
-        def relogio():
-            return base + timedelta(minutes=avanco_min * passo[0])
-
-        agente = Agente(llm, registro, memorias, perfil=pasta / "perfil.md", top_k=3, similaridade_minima=0.25,
-                        relogio=relogio, confirmacao=caso.confirmacao)
-        if com_atalhos and amb is not None:
-            agente.atalhos = amb.atalhos
-        for i, fala in enumerate(caso.falas):
-            passo[0] += 1
-            sessao = "eval2" if caso.sessao_nova_na_ultima and i == len(caso.falas) - 1 else "eval"
-            primeira: list[float] = []
-            metricas.clear()
-            t0 = time.perf_counter()
+    try:
+        memorias = criar_memorias(cfg)
+        for fato in caso.memorias:
+            await memorias.lembrar(fato)
+        async with host:
+            if producao:
+                amb = ambiente.criar(cfg, host, memorias, pasta)
+                registro = amb.registro
+                if caso.preparar:
+                    caso.preparar(amb)
+            else:
+                registro = Registro()
+                registro.adicionar(*Agenda(cfg, host).ferramentas(), *FerramentasMemoria(memorias).ferramentas(),
+                                   *FerramentasOrbit(host).ferramentas())
+            agente = Agente(llm, registro, memorias, perfil=pasta / "perfil.md", top_k=3, similaridade_minima=0.25,
+                            relogio=relogio.agora, confirmacao=caso.confirmacao)
+            if com_atalhos and amb is not None:
+                agente.atalhos = amb.atalhos
+            for i, fala in enumerate(caso.falas):
+                relogio.avancar()
+                sessao = "eval2" if caso.sessao_nova_na_ultima and i == len(caso.falas) - 1 else "eval"
+                primeira: list[float] = []
+                metricas.clear()
+                t0 = time.perf_counter()
+                try:
+                    r = await asyncio.wait_for(
+                        agente.responder(fala, canal="voz", sessao=sessao,
+                                         ao_texto=lambda _t: primeira.append(time.perf_counter()) if not primeira else None),
+                        PRAZO_FALA_S)
+                except Exception as e:  # noqa: BLE001 - uma fala que quebra não derruba a noite
+                    r = Resposta(f"[erro: {type(e).__name__}: {str(e)[:120]}]", [])
+                tempos.append({
+                    "total": time.perf_counter() - t0, "primeira": (primeira[0] - t0) if primeira else None,
+                    "prefill": sum(m.prompt_s for m in metricas),
+                    "prefill_1a_volta": metricas[0].prompt_s if metricas else 0.0,
+                    "carga": sum(m.carga_s for m in metricas),  # > 0 no meio da noite: o modelo foi recarregado
+                    "prompt_tokens": max((m.prompt_tokens for m in metricas), default=0), "chamadas_llm": len(metricas)})
+                respostas.append(r)
+            ctx = Contexto(hoje, respostas, agenda_srv, orbit_srv, memorias, amb)
             try:
-                r = await asyncio.wait_for(
-                    agente.responder(fala, canal="voz", sessao=sessao,
-                                     ao_texto=lambda _t: primeira.append(time.perf_counter()) if not primeira else None),
-                    PRAZO_FALA_S)
-            except Exception as e:  # noqa: BLE001 - uma fala que quebra não derruba a noite
-                r = Resposta(f"[erro: {type(e).__name__}: {str(e)[:120]}]", [])
-            tempos.append({
-                "total": time.perf_counter() - t0, "primeira": (primeira[0] - t0) if primeira else None,
-                "prefill": sum(m.prompt_s for m in metricas),
-                "prompt_tokens": max((m.prompt_tokens for m in metricas), default=0), "chamadas_llm": len(metricas)})
-            respostas.append(r)
-        ctx = Contexto(hoje, respostas, agenda_srv, orbit_srv, memorias, amb)
-        try:
-            falhas = caso.checar(ctx)
-        except Exception as e:  # noqa: BLE001
-            falhas = [f"erro no checador: {type(e).__name__}: {e}"]
-        erro = next((r.texto for r in respostas if r.texto.startswith("[erro:")), None)
-        if erro:
-            falhas.append(erro)
-    memorias.fechar()
+                falhas = caso.checar(ctx)
+            except Exception as e:  # noqa: BLE001
+                falhas = [f"erro no checador: {type(e).__name__}: {e}"]
+            erro = next((r.texto for r in respostas if r.texto.startswith("[erro:")), None)
+            if erro:
+                falhas.append(erro)
+    except Exception as e:  # noqa: BLE001 - falha de preparação (embedder fora do ar, `preparar`): é do caso, não do modelo
+        falhas = [f"erro preparando o caso: {type(e).__name__}: {str(e)[:150]}"]
+        if not respostas:
+            respostas = [Resposta("[sem resposta]", [])]
+            tempos = [{"total": 0.0, "primeira": None, "prefill": 0.0, "prefill_1a_volta": 0.0, "carga": 0.0,
+                       "prompt_tokens": 0, "chamadas_llm": 0}]
+    finally:
+        if amb is not None:
+            amb.fechar()  # os timers criados no caso viram tarefas asyncio: não deixa acumular a noite toda
+        if memorias is not None:
+            memorias.fechar()
+        shutil.rmtree(pasta, ignore_errors=True)
     return {
         "id": caso.id,
         "categoria": caso.categoria,
@@ -122,6 +169,19 @@ async def rodar_caso(cfg, llm, caso: Caso, producao: bool, avanco_min: float, co
         "insistiu": any(r.insistiu for r in respostas),
         "tempos": tempos,
     }
+
+
+async def _semear_memorias(cfg) -> Path:
+    """Cria uma vez só o banco de memórias neutras (cada caso recebe uma cópia: 20 embeddings por caso custariam horas)."""
+    pasta = Path(tempfile.mkdtemp(prefix="vision-eval-memorias-"))
+    cfg.dados = pasta
+    memorias = criar_memorias(cfg)
+    try:
+        for fato in MEMORIAS_NEUTRAS:
+            await memorias.lembrar(fato)
+    finally:
+        memorias.fechar()
+    return pasta / "memoria.db"
 
 
 def _casos(suite: str) -> list[Caso]:
@@ -141,34 +201,46 @@ async def avaliar(modelo: str, pensar: bool, so: set[str] | None, repeticoes: in
         return r
 
     llm.conversar = medido
-    t = time.perf_counter()
+    relogio = Relogio(avanco_min)
+    agora_original = tempo.agora
+    tempo.agora = relogio.agora  # agenda, clima e timers falsos veem o mesmo relógio que o prompt
+    avaliacao: dict = {}
     try:
-        await llm.carregar()
-        await llm.conversar([{"role": "user", "content": "oi"}], None)  # aquece
-    except Exception as e:  # noqa: BLE001
-        if "think" in str(e).lower():  # modelo sem "thinking": não aceita o parâmetro
-            llm.pensar = None
-            await llm.conversar([{"role": "user", "content": "oi"}], None)
-        else:
-            raise
-    carga = time.perf_counter() - t
-    resultados = []
-    avaliacao = {"modelo": modelo, "pensar": pensar, "carga_s": carga, "vram": "?", "resultados": resultados,
-                 "suite": suite, "producao": producao, "avanco_min": avanco_min}
-    for rep in range(repeticoes):
-        for caso in _casos(suite):
-            if so and caso.id not in so:
-                continue
-            r = await rodar_caso(cfg, llm, caso, producao, avanco_min, com_atalhos, metricas)
-            r["rep"] = rep
-            marca = "ok " if r["passou"] else "ERR"
-            print(f"  {marca} [{rep + 1}] {caso.id:28} {r['tempos'][-1]['total']:5.1f}s  {'; '.join(r['falhas'])[:100]}",
-                  flush=True)
-            resultados.append(r)
-            salvar(avaliacao)
-    avaliacao["vram"] = await _vram()
-    salvar(avaliacao)
-    await llm.descarregar()
+        t = time.perf_counter()
+        try:
+            await llm.carregar()
+            await llm.conversar([{"role": "user", "content": "oi"}], None)  # aquece
+        except Exception as e:  # noqa: BLE001
+            if "think" in str(e).lower():  # modelo sem "thinking": não aceita o parâmetro
+                llm.pensar = None
+                await llm.conversar([{"role": "user", "content": "oi"}], None)
+            else:
+                raise
+        carga = time.perf_counter() - t
+        banco = await _semear_memorias(cfg) if producao else None
+        resultados = []
+        avaliacao.update({"modelo": modelo, "pensar": pensar, "pensar_efetivo": llm.pensar, "carga_s": carga,
+                          "vram": "?", "resultados": resultados, "suite": suite, "producao": producao,
+                          "avanco_min": avanco_min})
+        for rep in range(repeticoes):
+            for caso in _casos(suite):
+                if so and caso.id not in so:
+                    continue
+                r = await rodar_caso(cfg, llm, caso, producao, relogio, com_atalhos, metricas, banco)
+                r["rep"] = rep
+                marca = "ok " if r["passou"] else "ERR"
+                print(f"  {marca} [{rep + 1}] {caso.id:28} {r['tempos'][-1]['total']:5.1f}s  "
+                      f"{'; '.join(r['falhas'])[:100]}", flush=True)
+                resultados.append(r)
+                salvar(avaliacao)
+        avaliacao["vram"] = await _vram()
+        salvar(avaliacao)
+    finally:
+        tempo.agora = agora_original
+        try:
+            await llm.descarregar()  # também quando algo deu errado: o próximo modelo da noite não divide a placa
+        except Exception:  # noqa: BLE001
+            pass
     return avaliacao
 
 
@@ -183,6 +255,8 @@ async def _vram() -> str:
 
 
 def _rotulo(av: dict) -> str:
+    if av["pensar"] and av.get("pensar_efetivo") is None:
+        return av["modelo"] + " (sem thinking: igual ao normal)"  # o modelo não aceita o parâmetro
     return av["modelo"] + (" (pensando)" if av["pensar"] else "")
 
 
@@ -193,7 +267,9 @@ def relatorio(avaliacoes: list[dict]) -> str:
     ambiente_txt = "ambiente completo (53 ferramentas)" if a0.get("producao") else "ambiente reduzido (agenda, memória e Orbit)"
     linhas = ["# Avaliação do Vision", "",
               f"Gerado em {tempo.agora():%d/%m/%Y %H:%M} · {len(ids)} casos × {reps} rodada(s) · canal voz · {ambiente_txt} · "
-              f"relógio avança {a0.get('avanco_min', 0):g} min por fala · memória com embeddinggemma real", ""]
+              f"relógio sintético avança {a0.get('avanco_min', 0):g} min por fala · memória com embeddinggemma real e "
+              "20 memórias neutras · confirmação: casos base em 'todas' (como a avaliação antiga), casos de ferramentas em "
+              "'sensiveis' (a de produção)", ""]
     linhas += ["## Resumo", "", "| Modelo | Acertos | Tempo médio | p90 | 1ª palavra (média) | Prefill (média) | Insistências | VRAM |",
                "|---|---|---|---|---|---|---|---|"]
     for av in avaliacoes:
@@ -259,7 +335,10 @@ async def main() -> int:
     sobrescrever = {}
     for item in args.sobrescrever:
         chave, _, valor = item.partition("=")
-        sobrescrever[chave] = json.loads(valor) if valor[:1] in "0123456789[{\"-tfn" else valor
+        try:
+            sobrescrever[chave] = json.loads(valor)
+        except ValueError:
+            sobrescrever[chave] = valor  # "-1m", "5m", "todas", texto puro
     producao = not args.antigo
     if args.antigo and args.suite != "base":
         print("--antigo só tem as ferramentas da suíte base: usando --suite base")
@@ -275,7 +354,10 @@ async def main() -> int:
         nome = modelo.replace(":", "-") + ("-pensando" if pensar else "")
 
         def salvar(av, nome=nome):
-            (saidas / f"{nome}.json").write_text(json.dumps(av, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+            """Atômico: uma noite interrompida no meio da escrita não deixa o JSON truncado."""
+            tmp = saidas / f"{nome}.json.tmp"
+            tmp.write_text(json.dumps(av, ensure_ascii=False, indent=1, default=str), encoding="utf-8")
+            os.replace(tmp, saidas / f"{nome}.json")
 
         try:
             av = await avaliar(modelo, pensar, so, args.repeticoes, args.suite, producao, args.avanco_min,

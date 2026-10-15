@@ -1,10 +1,14 @@
 """O conjunto COMPLETO de ferramentas do Vision, com aparelhos e serviços falsos, para avaliar o modelo como ele roda.
 
 A avaliação antiga só registrava agenda, memória e Orbit (cerca de um terço do que o Vision tem), então o prompt dela
-ficava bem menor que o de verdade e os tempos saíam otimistas. Aqui a ordem e os esquemas são os da `montagem.py`.
+ficava bem menor que o de verdade e os tempos saíam otimistas. Aqui a ordem e os esquemas são os da `montagem.py`
+(`tests/test_orcamento_prompt.py` confere que nenhuma ferramenta da montagem falta aqui).
 
-O que é falso: a TV (grava o que pediram), o Spotify, as luzes da Alexa, o PC (nada abre de verdade), o clima e a busca
-na web (respostas prontas), as reuniões do Wispr (um servidor MCP vazio: só os esquemas contam). Nada sai da máquina.
+ISOLAMENTO (revisão do PR 60): nada neste ambiente age no PC nem na internet de verdade. A TV grava o que pediram; o
+Spotify e a Alexa são falsos; no PC, abrir programa, site, volume, travar, fechar programa, tecla de mídia, energia e
+comando só registram em `abertos`; a busca de vídeo da TV, a busca na web, as notícias e a leitura de páginas usam
+respostas prontas (transporte HTTP simulado e DNS falso). Um teste roda as ferramentas de ação com `ctypes.windll`,
+`subprocess` e `socket` trocados por funções que levantam erro.
 """
 
 from __future__ import annotations
@@ -12,7 +16,6 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import timedelta
 from pathlib import Path
-from types import SimpleNamespace
 from typing import Any
 
 import httpx
@@ -27,6 +30,8 @@ from vision.tools.memoria import FerramentasMemoria
 
 LUZES = [{"nome": "Luz do Quarto", "entity_id": "e1"}, {"nome": "Abajur Sala", "entity_id": "e2"},
          {"nome": "Luz da Cozinha", "entity_id": "e3"}]
+APPS = ["YouTube", "Netflix", "Spotify", "Browser"]
+VOLUME_MAXIMO_TV = 50
 
 
 class TVFalsa:
@@ -90,6 +95,13 @@ def _open_meteo():
     return httpx.MockTransport(responder)
 
 
+def _web_falsa() -> httpx.MockTransport:
+    """Qualquer página lida pela web_ler: um texto pronto, sem rede."""
+    return httpx.MockTransport(lambda req: httpx.Response(
+        200, headers={"content-type": "text/html; charset=utf-8"},
+        text="<html><body><article><p>O Fusca 1600 tem motor boxer de 4 cilindros refrigerado a ar.</p></article></body></html>"))
+
+
 def _ddg(consulta: str, maximo: int) -> list[dict[str, str]]:
     return [{"title": "Motor do Fusca 1600: dados técnicos", "href": "https://www.exemplo.com.br/fusca",
              "body": "O Fusca 1600 usa um motor boxer de 4 cilindros refrigerado a ar, 1.584 cm³ e 60 cv."},
@@ -101,6 +113,12 @@ def _noticias(tema: str, maximo: int) -> list[dict[str, str]]:
              "date": "2026-10-14T09:00:00+00:00", "body": "O Copom decidiu manter a taxa."}]
 
 
+def _videos(consulta: str, maximo: int = 10) -> list[dict[str, Any]]:
+    """No lugar da busca no YouTube da TV: um clipe de 4 minutos, sem rede."""
+    return [{"content": "https://www.youtube.com/watch?v=dQw4w9WgXcQ", "title": consulta, "publisher": "YouTube",
+             "uploader": "Canal Oficial", "duration": "4:00", "statistics": {"viewCount": 1_000_000}}]
+
+
 @dataclass
 class Ambiente:
     registro: Registro
@@ -110,9 +128,37 @@ class Ambiente:
     alexa: AlexaFalsa
     spotify: SpotifyFalso
     timers: Timers
-    abertos: list = field(default_factory=list)   # o que o PC "abriu" (programas e sites)
+    abertos: list = field(default_factory=list)   # o que o PC "fez": programas, sites, travar, fechar, mídia...
     agenda: Agenda | None = None
     web: Any = None
+
+    def fechar(self) -> None:
+        """Os timers criados nos casos ficam tarefas asyncio acordando a cada 30 s: fecha ao fim de cada caso."""
+        self.timers.fechar()
+
+
+def _pc_isolado(pc, abertos: list) -> None:
+    """Troca no PC tudo que age de verdade (tela, processos, tecla de mídia, energia, PowerShell) por registro."""
+
+    def registra(nome: str, resposta):
+        async def feito(args=None):
+            abertos.append((nome, args))
+            return resposta(args) if callable(resposta) else resposta
+
+        return feito
+
+    pc.travar = registra("travar", "Travei o computador.")
+    pc.fechar_programa = registra("fechar", lambda a: f"Fechei {(a or {}).get('nome', 'o programa')}.")
+    pc.controlar_midia = registra("midia", lambda a: f"Feito: {(a or {}).get('acao', 'mídia')}.")
+    pc.energia = registra("energia", lambda a: f"Vou {(a or {}).get('acao', 'desligar')} o computador em 60 s.")
+    pc.cancelar_energia = registra("cancelar_energia", "Cancelei o desligamento.")
+    pc.rodar_comando = registra("comando", "Comando executado.")
+
+    async def sem_processo(*cmd, prazo=20):  # qualquer outro PowerShell/taskkill que ainda passe por aqui
+        abertos.append(("processo", cmd))
+        return 0, ""
+
+    pc._rodar = sem_processo
 
 
 def criar(cfg, host: HostMCP, memorias, pasta: Path) -> Ambiente:
@@ -138,12 +184,14 @@ def criar(cfg, host: HostMCP, memorias, pasta: Path) -> Ambiente:
     registro.adicionar(*agenda.ferramentas(), *FerramentasMemoria(memorias).ferramentas(),
                        *FerramentasOrbit(host).ferramentas(), *Reunioes(cfg, host).ferramentas())
     tv = TVFalsa()
-    controle_tv = TV(tv, apps=["YouTube", "Netflix", "Spotify", "Browser"], volume_maximo=50)
+    controle_tv = TV(tv, apps=list(cfg.get("tv.apps") or APPS), volume_maximo=int(cfg.get("tv.volume_maximo", VOLUME_MAXIMO_TV)),
+                     buscar=_videos)
     registro.adicionar(*controle_tv.ferramentas())
     atalhos.append(controle_tv.atalho)
     abertos: list = []
     pc = PC(pasta / "logs", abrir=lambda x: abertos.append(("abrir", x)), navegador=lambda u: abertos.append(("site", u)),
-            ler_volume=lambda: 40, mudar_volume=lambda *a, **k: None)
+            ler_volume=lambda: (40, False), mudar_volume=lambda acao, nivel=None, *a, **k: int(nivel or 40))
+    _pc_isolado(pc, abertos)
     pc._cache_apps.guardar("apps", [{"nome": "Spotify", "id": "spotify"}, {"nome": "Google Chrome", "id": "chrome"},
                                     {"nome": "Bloco de Notas", "id": "notepad"}, {"nome": "Calculadora", "id": "calc"}])
     registro.adicionar(*pc.ferramentas())
@@ -156,19 +204,19 @@ def criar(cfg, host: HostMCP, memorias, pasta: Path) -> Ambiente:
     atalhos.append(ferramentas_sistema.atalho)
     spotify = SpotifyFalso()
     musica = Musica(spotify)
-    pc.spotify = None
     registro.adicionar(*musica.ferramentas())
     atalhos.append(musica.atalho)
     alexa = AlexaFalsa()
-    casa = Casa(alexa, confirmar=False)
+    casa = Casa(alexa, confirmar=bool(cfg.get("alexa.confirmar_luzes", False)))
     registro.adicionar(*casa.ferramentas())
     atalhos.append(casa.atalho)
     clima = modulo_clima.Clima(pasta / "cache", "Cidade Exemplo", transporte=_open_meteo())
-    briefing = Briefing("Felipe", clima, agenda, timers)
+    briefing = Briefing(cfg.get("usuario.nome", "Felipe"), clima, agenda, timers)
     registro.adicionar(*briefing.ferramentas())
     atalhos.append(briefing.atalho)
-    web = Web(pasta / "cache", chave="", buscar_ddg=_ddg)
+    web = Web(pasta / "cache", chave="", buscar_ddg=_ddg, transporte=_web_falsa())
     web._noticias_ddg = _noticias
+    web._publico = lambda url: True  # sem DNS: os endereços de teste não existem
     registro.adicionar(*FerramentasWeb(web).ferramentas())
     ajuda = Ajuda(registro)
     registro.adicionar(*ajuda.ferramentas())
@@ -186,6 +234,3 @@ def host_completo(agenda_srv, orbit_srv) -> HostMCP:
         "orbit": ConexaoMCP("orbit", orbit_srv, 20),
         "wispr": ConexaoMCP("wispr", MCPServer("wispr-falso"), 20),
     })
-
-
-__all__ = ["Ambiente", "criar", "host_completo", "SimpleNamespace", "Any"]

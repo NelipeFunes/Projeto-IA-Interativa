@@ -23,7 +23,7 @@ import ambiente  # noqa: E402
 
 TETO_ESQUEMAS = 25_000  # caracteres do JSON das ferramentas (hoje ~21.700)
 TETO_SISTEMA = 6_000    # caracteres do prompt de sistema com todas as regras (hoje ~4.600)
-MIN_FERRAMENTAS = 45
+FERRAMENTAS = 53        # o conjunto completo de produção: ferramenta nova => sobe aqui de propósito (e no teto, se preciso)
 
 
 @pytest.fixture
@@ -35,8 +35,9 @@ async def completo(cfg, memorias, tmp_path):
 
 async def test_prompt_de_producao_cabe_no_orcamento(completo):
     registro = completo.registro
-    assert len(registro.ferramentas) >= MIN_FERRAMENTAS  # o ambiente de avaliação tem o conjunto completo
+    assert len(registro.ferramentas) == FERRAMENTAS  # o ambiente de avaliação tem o conjunto completo
     esquemas = len(json.dumps(registro.para_ollama(), ensure_ascii=False))
-    sistema = len(prompt.montar("Felipe", "voz", datetime.now(tempo.FUSO), "", "", set(registro.ferramentas)))
+    sistema = len(prompt.montar("Felipe", "voz", datetime.now(tempo.FUSO), "", "", set(registro.ferramentas),
+                               confirmacao="sensiveis"))  # o modo de produção
     assert esquemas <= TETO_ESQUEMAS, f"esquemas das ferramentas: {esquemas} caracteres (teto {TETO_ESQUEMAS})"
     assert sistema <= TETO_SISTEMA, f"prompt de sistema: {sistema} caracteres (teto {TETO_SISTEMA})"
