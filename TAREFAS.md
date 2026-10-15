@@ -8,7 +8,7 @@ Como usar:
 - Concluída leva a data e o PR (quando houver). Mudança neste arquivo também passa por branch e PR.
 - Este repositório é **público**: só tarefas técnicas aqui. Nada de dado pessoal, rotina ou credencial.
 
-Próximo código livre: **T-021**
+Próximo código livre: **T-031**
 
 ---
 
@@ -85,6 +85,33 @@ Próximo código livre: **T-021**
     - **Repositório público:** não versionar login, e-mail da conta, IP, ID de dispositivo, nome que identifique a casa, token nem captura de tráfego. Capturas ficam no scratchpad ou em `data/`, e relatório de captura é mascarado antes de ir ao PR.
   - **Passos de agora, do Felipe:** (1) dizer quando iniciar a etapa 1 (ele digita o login no Vision); (2) opcional, em paralelo: testar a skill da Alexa no app e pedir a API ao suporte da Tholz (contato no site da empresa).
 
+- [ ] **T-021** 🔴 **Pipeline de voz: menos espera entre o fim da sua fala e a resposta** (análise de 15/10; **PR [#64](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/64) aberto de propósito: o Felipe valida de ouvido** o bipe "entendi" sem esperar e o `silencio_fim_ms` 600 e, se gostar, mescla; os 4 bugs listados abaixo já estão nele, menos o último item desta tarefa). O que o levantamento achou, em ordem de ganho:
+  - o bipe "entendi" bloqueia ~450 ms antes de o modelo começar: tocar sem esperar (em paralelo à transcrição e ao modelo);
+  - `voz.silencio_fim_ms: 800` é quase um terço da espera: testar ~550 ms (risco: cortar pausas no meio da frase; validar de ouvido);
+  - abrir a saída de áudio antes (`latency="low"`, ~0,06 s) e dividir a primeira frase longa da resposta para começar a falar mais cedo;
+  - "Hey Vision, pedido" na mesma frase transcreve duas vezes (uma para achar a ativação, outra para o pedido): reaproveitar a primeira;
+  - **bugs achados no caminho:** `voice/loop.py` (~593-596) espera o `falador` dentro de um `finally`; `voice/falado.py` (~104) "1/2 litro" é lido como data; `voice/audio.py` descarta em silêncio quando a fila enche (`queue.Full`); o Piper (`Voz`) não tem trava para duas falas ao mesmo tempo.
+  - **Falta (achado do Opus no PR #64):** se o fone não abrir, o "Confirma?" não é falado e um "sim" em até 30 s ainda confirma a ação: nesse caso `cancelar_pendente("voz", "voz")` e avisar na tela (hoje só vai para o log).
+  - **Meta do Felipe:** atalhos sem modelo < 0,5 s; pedido simples pelo modelo ~1 s; complexo até ~2,5 s; para ações que mudam algo, começar a falar em gerúndio ("estou apagando…") enquanto a ação roda, nunca dizendo que deu certo antes da confirmação.
+- [ ] **T-022** 🟡 **Resposta pronta: pular a 2ª chamada ao modelo quando o resultado da ferramenta já é a frase** (análise de 15/10; **PR descartado por enquanto**, o Opus mandou refazer). Ganho medido: ~0,3 a 0,7 s em ação direta (luz, volume, timer, programa). A ideia vale, mas a 1ª versão (`RESPOSTA_PRONTA` + `_basta_o_resultado`) tinha furos que ficam como requisitos:
+  - não encerrar quando a fala é composta ("apaga a luz **e toca** uma música", "…e me diz que horas são") e só houve uma chamada; nem quando termina em "?"; ≥ 2 chamadas na 1ª volta pode encerrar;
+  - cobertura com irmãos (música↔pc, tv cobre pc) e `luzes_listar` como chamada silenciosa, senão quase nunca dispara em TV, música e luz;
+  - `site_abrir` fora da lista (devolve a URL, e a voz diz "Abrino navegador"); não encerrar se o resultado tem "Não consegui" (falha parcial com ok=True); `programa_fechar` fala o nome do executável, `midia` fala "Play/pausa.", `timer_cancelar` fala "timer(s)": ajustar as frases;
+  - montar a frase com o resultado inteiro (não `[:300]`), não falar duas vezes o texto que o modelo já transmitiu na volta ≥ 1, passar o texto por `_limpo` (texto de terceiros);
+  - testes com o registro completo (`evals/ambiente.criar`) e casos novos na avaliação ("apaga a luz do quarto e acende a da cozinha", "apaga a luz da cozinha e me diz que horas são", "abre o Chrome e pausa a música"); comparar `chamadas_llm` antes e depois.
+- [ ] **T-023** 🟡 **Modelo: decidir a troca (ou não) com o resultado do benchmark de 15/10** — ver `docs/melhorias/relatorio-2026-10-15.md`. Qualquer troca só entra com tempo **e** acerto na suíte de produção.
+- [ ] **T-024** 🟡 **Prompt: mais ganhos de preparo e de acerto**, um PR por item, cada um medido (tempo e acerto):
+  - **pré-aquecer** o início do prompt quando o "Hey Vision" acorda (o preparo do 1º pedido da conversa cai de ~3,5 s para ~0,6 s);
+  - limitar a resposta (`num_predict` ~400) e streaming já na volta 0; ferramentas de leitura em paralelo;
+  - o puxão (rede de segurança) só com ferramentas de leitura; revisar os falsos positivos da `intencao`;
+  - limiar de memória (0,25) e a busca de embedding duplicada em `Memorias.lembrar`;
+  - rever o texto das regras: o 4B erra `agenda_sem_data` ("marca uma consulta" sem data: devia perguntar) e escolhe `tarefas_criar` em vez de `agenda_criar` com 53 ferramentas.
+- [ ] **T-025** 🟢 **Mover o modelo principal (3,4 GB) do HD (D:) para o SSD (C:)**: no HD a carga leva de 4 a 29 s. Cuidado: o C: tem pouco espaço; só o modelo principal, o resto continua em `D:\Ollama\models`.
+- [ ] **T-026** 🟢 **Avaliação: pendências** (do PR 60 e do PR 63): migrar os casos base de `todas` para `sensiveis` (a confirmação de produção); casos para os canais Alexa e texto e **medir o custo de trocar de canal** (o estilo está no fim do sistema; a comparação de 15/10 só rodou a voz); casos de continuação depois de busca ("do segundo") e depois de leitura de página; um canário para o caso de a mensagem de sistema do meio deixar de ser renderizada em outro backend (`hora_do_relogio` já cobre o Ollama).
+- [ ] **T-027** 🟢 **Refatorações que sobraram da análise de 15/10** (cada uma com PR): `Atalho` como NamedTuple; gravação atômica de JSON repetida (`web.Cota`, spotify, wispr, timers, clima, conexoes, config, comandos) → `arquivos.gravar_json`; quebrar `montagem.montar` (~160 linhas, `AsyncExitStack`); `cli.main` com `set_defaults`; quebrar `Agente._pensar`; política de confirmação num lugar só (flags `escrita`, `confirmar`, `sempre_confirmar`, `sensivel`…); `HostMCP.chamar_json`; analisadores de data duplicados; dependências usadas e não declaradas no `pyproject` (aiohttp, yarl, scipy, comtypes, botocore); bug de `agenda._data` com "dd/mm" em dezembro; código morto.
+- [ ] **T-028** 🟢 **Separar serviços em outros servidores / nuvem**: estudo feito (hipotético) em `docs/melhorias/servicos-em-outros-servidores.md`; nada a implementar até existir o PC dedicado (liga com a T-012).
+- [ ] **T-029** 🟡 **Tirar os segredos do `os.environ`** (achado do Opus no PR 62): hoje a senha e o token do Orbit e a chave da Tavily ficam no ambiente do núcleo (`load_dotenv`) e qualquer filho que não passe por `vision/envs.py` os herda (`abrir_programa` via `os.startfile`). Ler o `.env` com `dotenv_values` num dicionário privado (lido por `web.py`, `conexoes.py` e pela resolução de `$NOME`) e nunca pôr no `os.environ`.
+
 ## Em andamento
 
 - [~] **T-018** 🟡 **Cache único para tudo que dá para guardar** (pedido de 13/10) — **etapas 1 (medir) e 2 (módulo único) prontas em 14/10; falta juntar alguns dias de uso normal (`vision medicao`) antes de escolher a ordem das fontes novas (etapa 3). O tempo de validade de cada fonte fica para uma etapa própria, depois de medir.**
@@ -136,6 +163,7 @@ Próximo código livre: **T-021**
 
 ## Concluídas
 
+- [x] **T-030** **Análise geral do Vision** (15/10, PRs [#60](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/60), [#61](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/61), [#62](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/62), [#63](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/63)): avaliação de produção com as 53 ferramentas, prompt estável (tempo por pedido 2,75 s → 1,21 s), segurança e robustez, refator de texto, estudo de servidores/nuvem e lições. Relatório em `docs/melhorias/relatorio-2026-10-15.md`; o que sobrou está nas T-021 a T-029.
 - [x] **T-014** **Pacote independente** (14/10, PR [#37](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/37)): `dist/Vision/Vision.exe` sem Python instalado (`scripts/empacotar.py`). Atualizado com a `main` em 14/10: conflitos em `nucleo.py` e `uv.lock` resolvidos, 1043 testes passam, o pacote foi gerado de novo (317 MB, sem modelos) e `Vision.exe medicao` e `Vision.exe tv-parear` rodaram; as bibliotecas da TV entraram no pacote. **Não testado:** voz, janela e Google Agenda a partir do pacote novo (precisam do PC com alguém por perto) e outro computador. **Limites:** o MCP do Orbit não sobe no pacote (chama o `.venv`; ver T-019) e pacote e projeto não rodam ao mesmo tempo (mutex único). Para gerar: `uv sync --no-default-groups --group empacotar` (com `UV_PROJECT_ENVIRONMENT=.venv-pacote`) e `scripts/empacotar.py`.
 - [x] **T-009** **Login do Orbit pela tela de Conexões, com o código do e-mail** (02/10, PR [#40](https://github.com/NelipeFunes/Projeto-IA-Interativa/pull/40)): estava pronta e a tarefa ficou desatualizada no quadro (conferido em 14/10: `conexoes.py` com o desafio do código, e os testes de `test_conexoes.py`).
 
