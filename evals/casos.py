@@ -18,6 +18,7 @@ class Contexto:
     agenda: Any                    # servidor de agenda falso (tem .eventos)
     orbit: Any                     # servidor Orbit falso (tem .lancados, .tarefas)
     memorias: Any
+    amb: Any = None                # ambiente completo (evals/ambiente.py), só com --producao: tv, alexa, spotify, timers...
 
     @property
     def ultima(self):
@@ -40,6 +41,8 @@ class Caso:
     checar: Callable[[Contexto], list[str]]
     memorias: list[str] = field(default_factory=list)
     sessao_nova_na_ultima: bool = False
+    confirmacao: str = "todas"     # `assistente.confirmacao` do caso: os antigos rodam em "todas"; os novos, no de produção
+    preparar: Callable[[Any], None] | None = None  # mexe no ambiente antes das falas (ex.: busca com texto malicioso)
 
 
 # ---------------------------------------------------------------- ajudantes
