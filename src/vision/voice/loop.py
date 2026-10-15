@@ -525,7 +525,7 @@ class LoopVoz:
             self.feitas += 1
             await self._bipe(subindo=True)
             return
-        await self._bipe(subindo=False)
+        self._bipe_sem_esperar(subindo=False)  # "entendi": toca enquanto o modelo já começa (antes esperava ~450 ms)
         await self._responder(texto, t_stt)
 
     async def _transcrever(self, pcm: np.ndarray) -> str:
@@ -584,6 +584,9 @@ class LoopVoz:
             # vai ouvir enquanto o próximo pedido espera (pendência antiga, 01/10).
             r = await self.agente.responder(texto, canal="voz", sessao="voz", ao_texto=ao_texto,
                                             parar=lambda: self.interrompido_por is not None)
+        except asyncio.CancelledError:
+            falador.cancel()  # desligando ou cancelado: não espera a resposta inteira ser falada
+            raise
         except Exception:  # noqa: BLE001 - Ollama fora do ar (ex.: logo depois de ligar o PC) não pode matar a voz
             log.exception("o agente falhou numa pergunta por voz")
             pendente[0] = ""
@@ -593,7 +596,10 @@ class LoopVoz:
             if pendente[0].strip():
                 fila.put_nowait(pendente[0])
             fila.put_nowait(None)
-            await falador
+            # Um erro do falador não pode mascarar o da pergunta; cancelado acima, só sai.
+            resultado = (await asyncio.gather(falador, return_exceptions=True))[0]
+            if isinstance(resultado, Exception):
+                log.error("o falador falhou", exc_info=resultado)
         await self._depois_de_interrompido()
         if r is None:
             self.historico.append({"felipe": texto, "vision": FALA_DE_ERRO, "erro": True})
@@ -875,6 +881,15 @@ class LoopVoz:
     async def _bipe(self, subindo: bool) -> None:
         if self.bipes:
             await asyncio.to_thread(self.saida.tocar, bipe(subindo), 22050)
+
+    def _bipe_sem_esperar(self, subindo: bool) -> None:
+        """O bipe não pode derrubar nem atrasar o pedido: falhou, só vira aviso no log."""
+        if not self.bipes:
+            return
+        try:
+            self.saida.tocar_sem_esperar(bipe(subindo), 22050)
+        except Exception:  # noqa: BLE001
+            log.warning("não consegui tocar o bipe de entendido", exc_info=True)
 
     # ------------------------------------------------------------------ modo jogo
 

@@ -788,3 +788,39 @@ async def test_ambos_com_a_conversa_aberta_o_modelo_nem_ouve_e_o_sim_confirma(pe
     assert laco.historico[0]["vision"].endswith("Confirma?")
     assert laco.historico[1]["vision"].startswith("Feito. Criei 'Barbeiro'")
     assert len(servidor_agenda.eventos) == antes + 1
+
+
+async def test_bipe_de_entendido_toca_sem_atrasar_a_resposta(pecas, registro, tmp_path):
+    """O bipe descendente ("entendi") não bloqueia mais ~450 ms antes de o modelo começar: sai junto da resposta."""
+    from vision.voice.audio import bipe
+
+    hoje = tempo.agora().date().isoformat()
+    llm = LLMFalso([chama("agenda_listar", data_inicio=hoje), fala("Hoje você tem aula de Cálculo às 19:30.")])
+    laco = _loop(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5),
+        _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),
+    ], tmp_path, bipes=True)
+    await laco.rodar()
+    assert np.array_equal(laco.saida.trechos[0], bipe(subindo=True))     # "Hey Vision"
+    assert np.array_equal(laco.saida.trechos[1], bipe(subindo=False))    # "entendi", tocado sem esperar
+    assert len(laco.historico) == 1 and laco.historico[0]["ferramentas"] == "agenda_listar"
+
+
+async def test_bipe_que_falha_nao_derruba_o_pedido(pecas, registro, tmp_path, caplog):
+    import logging
+
+    from vision.voice.audio import SaidaArquivo
+
+    class SaidaQuebrada(SaidaArquivo):
+        def tocar_sem_esperar(self, audio, taxa):
+            raise RuntimeError("fone desconectado")
+
+    hoje = tempo.agora().date().isoformat()
+    llm = LLMFalso([chama("agenda_listar", data_inicio=hoje), fala("Hoje você tem aula.")])
+    laco = _loop(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5),
+        _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),
+    ], tmp_path, bipes=True, saida=SaidaQuebrada())
+    with caplog.at_level(logging.WARNING, logger="vision.voice.loop"):
+        await laco.rodar()
+    assert len(laco.historico) == 1 and "bipe" in caplog.text

@@ -178,7 +178,7 @@ voz:
   # Com caixa de som em vez de headset, a própria voz pode vazar no microfone: se cortar sozinho, ponha false.
   interromper_por_voz: true
   interromper_apos_s: 0.5     # quanto tempo de voz sua antes de cortar (tosse e estalo não cortam)
-  silencio_fim_ms: 800        # quanto silêncio encerra a sua fala
+  silencio_fim_ms: 600        # quanto silêncio encerra a sua fala (15/10: 800 → 600, a validar de ouvido; se cortar a sua pausa no meio da frase, volte para 800)
   maximo_fala_s: 20
 
 wyoming:

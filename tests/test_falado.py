@@ -50,3 +50,15 @@ def test_corrige_jarvis_ouvido_errado():
 
 def test_frases():
     assert frases("Oi, Felipe. Hoje tem aula! E amanhã?") == ["Oi, Felipe.", "Hoje tem aula!", "E amanhã?"]
+
+
+@pytest.mark.parametrize("entrada,saida", [
+    ("Use 1/2 litro de leite.", "Use 1/2 litro de leite."),             # fração de quantidade, não 1º de fevereiro
+    ("Falta 3/4 de xícara de açúcar.", "Falta 3/4 de xícara de açúcar."),
+    ("Dê 1/2 hora de descanso.", "Dê 1/2 hora de descanso."),
+    ("A prova é dia 1/2.", "A prova é dia 1 de fevereiro."),            # com "dia" na frente é data
+    ("Reunião 5/10 às 14h.", "Reunião dia 5 de outubro às 14 horas."),
+    ("Nasceu em 1/2/2001.", "Nasceu em dia 1 de fevereiro."),            # com ano é data
+])
+def test_fracao_de_quantidade_nao_vira_data(entrada, saida):
+    assert para_fala(entrada) == saida
