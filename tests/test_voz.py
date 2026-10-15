@@ -788,3 +788,93 @@ async def test_ambos_com_a_conversa_aberta_o_modelo_nem_ouve_e_o_sim_confirma(pe
     assert laco.historico[0]["vision"].endswith("Confirma?")
     assert laco.historico[1]["vision"].startswith("Feito. Criei 'Barbeiro'")
     assert len(servidor_agenda.eventos) == antes + 1
+
+
+async def test_bipe_de_entendido_toca_sem_atrasar_a_resposta(pecas, registro, tmp_path):
+    """O bipe descendente ("entendi") não bloqueia mais ~450 ms antes de o modelo começar: sai junto da resposta."""
+    from vision.voice.audio import bipe
+
+    hoje = tempo.agora().date().isoformat()
+    from vision.voice.audio import SaidaArquivo
+
+    class SaidaQueNaoAceitaBloquear(SaidaArquivo):
+        def tocar(self, audio, taxa, _limpar=True):
+            assert not np.array_equal(audio, bipe(subindo=False)), "o bipe de entendido não pode bloquear (usar tocar_sem_esperar)"
+            return super().tocar(audio, taxa, _limpar)
+
+    llm = LLMFalso([chama("agenda_listar", data_inicio=hoje), fala("Hoje você tem aula de Cálculo às 19:30.")])
+    laco = _loop(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5),
+        _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),
+    ], tmp_path, bipes=True, saida=SaidaQueNaoAceitaBloquear())
+    await laco.rodar()
+    assert np.array_equal(laco.saida.trechos[0], bipe(subindo=True))     # "Hey Vision"
+    assert any(np.array_equal(t, bipe(subindo=False)) for t in laco.saida.trechos)    # "entendi", tocado sem esperar
+    assert len(laco.historico) == 1 and laco.historico[0]["ferramentas"] == "agenda_listar"
+
+
+async def test_bipe_que_falha_nao_derruba_o_pedido(pecas, registro, tmp_path, caplog):
+    import logging
+
+    from vision.voice.audio import SaidaArquivo
+
+    class SaidaQuebrada(SaidaArquivo):
+        def tocar_sem_esperar(self, audio, taxa):
+            raise RuntimeError("fone desconectado")
+
+    hoje = tempo.agora().date().isoformat()
+    llm = LLMFalso([chama("agenda_listar", data_inicio=hoje), fala("Hoje você tem aula.")])
+    laco = _loop(pecas, Agente(llm, registro, None), [
+        _silencio(0.5), _chama(pecas), _silencio(1.5),
+        _fala(pecas["pt"], "Qual é a minha agenda de hoje?"), _silencio(1.5),
+    ], tmp_path, bipes=True, saida=SaidaQuebrada())
+    with caplog.at_level(logging.WARNING, logger="vision.voice.loop"):
+        await laco.rodar()
+    assert len(laco.historico) == 1 and "bipe" in caplog.text
+
+
+async def test_cancelar_no_meio_da_fala_espera_a_escrita_antes_de_fechar_o_fone(pecas, registro, tmp_path):
+    """Achado do Opus no PR de voz: `falador.cancel()` fechava o fone (stop/close do PortAudio) com o `write` ainda rodando
+    em outra thread. Agora o falador pede para a escrita sair e a espera antes de fechar."""
+    import asyncio
+    import contextlib
+    import threading
+    import time
+
+    from vision.voice.audio import SaidaArquivo
+
+    eventos: list = []
+
+    class FluxoLento:
+        def __init__(self):
+            self.escrevendo = False
+            self.escrevendo_lock = threading.Lock()
+
+        def escrever(self, audio, taxa):
+            eventos.append("escrever:inicio")
+            self.escrevendo = True
+            time.sleep(0.4)
+            self.escrevendo = False
+            eventos.append("escrever:fim")
+            return True
+
+        def fechar(self, drenar=True):
+            eventos.append(("fechar", "com escrita em andamento" if self.escrevendo else "sem escrita"))
+
+    class SaidaDeFluxoLento(SaidaArquivo):
+        def abrir(self, _taxa):
+            return FluxoLento()
+
+    laco = _loop(pecas, Agente(LLMFalso([]), registro, None), [_silencio(0.1)], tmp_path, saida=SaidaDeFluxoLento())
+    fila: asyncio.Queue = asyncio.Queue()
+    fila.put_nowait("Olá, tudo bem com você hoje?")
+    tarefa = asyncio.create_task(laco._falador(fila, []))
+    for _ in range(300):
+        if "escrever:inicio" in eventos:
+            break
+        await asyncio.sleep(0.01)
+    assert "escrever:inicio" in eventos, "o falador nem começou a escrever"
+    tarefa.cancel()
+    with contextlib.suppress(asyncio.CancelledError):
+        await tarefa
+    assert eventos == ["escrever:inicio", "escrever:fim", ("fechar", "sem escrita")]

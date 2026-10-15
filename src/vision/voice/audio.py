@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 import queue
 import threading
 import time
@@ -12,6 +13,8 @@ from pathlib import Path
 import numpy as np
 
 from vision.config import Config
+
+log = logging.getLogger(__name__)
 
 TAXA = 16000
 BLOCO = 1280  # 80 ms: o tamanho que o openWakeWord espera
@@ -87,6 +90,14 @@ class Saida:
         return True
 
 
+    def tocar_sem_esperar(self, audio: np.ndarray, taxa: int) -> None:
+        """Começa a tocar e volta na hora (o bipe de "entendi" não pode atrasar o modelo em ~450 ms). Não mexe no
+        `interromper`: um corte por voz da fala em andamento continua valendo."""
+        import sounddevice as sd
+
+        if audio.size:
+            sd.play(audio, taxa, device=self.dispositivo)
+
     def abrir(self, taxa: int) -> FluxoSaida:
         """Uma resposta inteira num fluxo só: os pedaços do XTTS emendam sem buraco entre eles."""
         return FluxoSaida(self.dispositivo, taxa, self.interromper)
@@ -159,6 +170,11 @@ class SaidaArquivo:
                 if self.interromper.wait(0.01):
                     return False
         return True
+
+    def tocar_sem_esperar(self, audio: np.ndarray, taxa: int) -> None:
+        from vision.voice.stt import reamostrar
+
+        self.trechos.append(reamostrar(audio, taxa, self.taxa))
 
     def abrir(self, _taxa: int) -> SaidaArquivo:
         """O mesmo papel do `FluxoSaida`: cada pedaço escrito vira um trecho."""
@@ -268,6 +284,8 @@ class Microfone:
         self._relogio = relogio
         self.ao_trocar = None
         self._recebido_em = relogio()  # último bloco que o driver entregou (o callback roda na thread de áudio)
+        self.blocos_perdidos = 0
+        self._avisou_perda_em = -1e9
         self._vigia = VigiaMicrofone(relogio(), len(self.nomes) > 1, self._e_o_preferido())
         self._trava = threading.Lock()  # troca e fechamento nunca ao mesmo tempo (a vigia roda numa thread)
         self._encerrado = False
@@ -276,6 +294,16 @@ class Microfone:
 
     def _e_o_preferido(self) -> bool:
         return not self.nomes or str(self.nomes[0]).lower() in self.nome.lower()
+
+    def _perdeu_bloco(self) -> None:
+        """A fila encheu (o laço de voz parou de ler): conta o bloco perdido e avisa no máximo uma vez a cada 10 s."""
+        self.blocos_perdidos += 1
+        agora = self._relogio()
+        if agora - self._avisou_perda_em >= 10:
+            self._avisou_perda_em = agora
+            # Esperado quando ninguém lê o microfone (ele pensando ou falando por mais de 16 s, ou `interromper_por_voz:
+            # false`): INFO. Se aparecer com tudo parado, o laço de voz travou.
+            log.info("microfone: a fila de áudio encheu; %d bloco(s) descartado(s) até agora", self.blocos_perdidos)
 
     def __enter__(self) -> Microfone:
         self._stream = self._criar(self.dispositivo)
@@ -289,7 +317,7 @@ class Microfone:
             try:
                 self._fila.put_nowait(indata[:, 0].copy())
             except queue.Full:
-                pass
+                self._perdeu_bloco()
 
         fluxo = sd.InputStream(samplerate=TAXA, channels=1, dtype="int16", blocksize=BLOCO, device=disp, callback=cb)
         fluxo.start()

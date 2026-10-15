@@ -258,3 +258,18 @@ async def test_reabrir_sem_audio_espera_cada_vez_mais_e_loga_uma_vez(cfg, aparel
     await asyncio.wait_for(tarefa, 2)
     assert m._espera_reabrir == SEM_AUDIO_S  # chegou áudio: volta ao normal
     await gerador.aclose()
+
+
+def test_bloco_perdido_conta_e_avisa_no_maximo_a_cada_10_s(caplog):
+    import logging
+
+    m = object.__new__(audio.Microfone)
+    agora = [100.0]
+    m._relogio = lambda: agora[0]
+    m.blocos_perdidos, m._avisou_perda_em = 0, -1e9
+    with caplog.at_level(logging.INFO, logger="vision.voice.audio"):
+        m._perdeu_bloco()
+        m._perdeu_bloco()          # 2º no mesmo instante: conta, não repete o aviso
+        agora[0] += 11
+        m._perdeu_bloco()
+    assert m.blocos_perdidos == 3 and caplog.text.count("descartado") == 2

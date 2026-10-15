@@ -85,6 +85,7 @@ class Voz:
         if not arquivo_modelo.exists():
             raise FileNotFoundError(f"voz não encontrada: {arquivo_modelo} (rode scripts/baixar_modelos.py)")
         self.voz = PiperVoice.load(arquivo_modelo)
+        self._trava = threading.Lock()  # a síntese não é reentrante: a fala e o aviso de login podem chegar juntos
         self.taxa = self.voz.config.sample_rate
         # O Piper sorteia variações a cada síntese (mais natural); nos testes, o mesmo texto dá o mesmo áudio.
         if deterministico:
@@ -100,7 +101,8 @@ class Voz:
         texto = para_fala(texto) if normalizar else texto
         if not texto:
             return np.zeros(0, dtype=np.float32)
-        partes = [acabamento(c.audio_float_array, self.taxa) for c in self.voz.synthesize(texto, syn_config=self.cfg)]
+        with self._trava:
+            partes = [acabamento(c.audio_float_array, self.taxa) for c in self.voz.synthesize(texto, syn_config=self.cfg)]
         partes = [p for p in partes if p.size]
         if not partes:
             return np.zeros(0, dtype=np.float32)
