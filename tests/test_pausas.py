@@ -43,6 +43,29 @@ def test_virgulas_viram_nada_mas_numeros_ficam():
     assert preparar_texto("Pronto, acendi.", tirar_virgulas=False) == "Pronto, acendi"  # sem o pedido, mantém
 
 
+def test_virgula_da_primeira_palavra_fica_para_nao_mudar_o_sentido():
+    """Revisão do PR 67: 'Não, está tudo certo' sem a vírgula vira 'Não está tudo certo' (o contrário do que foi dito)."""
+    assert preparar_texto("Não, está tudo certo para amanhã.", tirar_virgulas=True) == "Não, está tudo certo para amanhã"
+    assert preparar_texto("Não, pode sair sem guarda-chuva.", tirar_virgulas=True) == "Não, pode sair sem guarda-chuva"
+    assert preparar_texto("Sim, pode deixar ligado.", tirar_virgulas=True) == "Sim, pode deixar ligado"
+    assert preparar_texto("Claro, vou abrir, já volto.", tirar_virgulas=True) == "Claro, vou abrir já volto"  # só a 1ª fica
+
+
+def test_ponto_de_abreviacao_fica_porque_o_xtts_so_expande_com_ele():
+    """'Dra.' vira 'doutora' no XTTS; sem o ponto ele lê 'dra'. O laço corta a frase depois de qualquer ponto."""
+    for abreviada in ("A consulta com a Dra.", "Fale com o Sr.", "Aqui é o Dr.", "É a Sra.", "Ele é o Jr."):
+        assert preparar_texto(abreviada) == abreviada
+    assert preparar_texto("Dra. Ana chegou.") == "Dra. Ana chegou"  # só o ponto do FIM de uma frase normal sai
+    assert preparar_texto("O Dr.  ") == "O Dr."
+
+
+def test_ponto_antes_de_aspas_ou_parenteses_tambem_sai():
+    assert preparar_texto('Ele disse "pronto."') == 'Ele disse "pronto"'
+    assert preparar_texto("(veja o item 3.)") == "(veja o item 3)"
+    assert preparar_texto('Ele disse "oi?"') == 'Ele disse "oi?"'
+    assert preparar_texto("Espera...") == "Espera..."
+
+
 # ---------- compressor ----------
 
 def test_corta_o_silencio_do_comeco_e_limita_cada_pausa():
@@ -98,6 +121,21 @@ def test_o_silencio_do_fim_completa_fim_s_sem_passar_dele():
         sinal = np.concatenate([_tom(0.3), _mudo(mudo_no_fim)]) if mudo_no_fim else _tom(0.3)
         saida = _comprimir(sinal, pedaco=4800)
         assert abs(len(saida) / TAXA - (0.3 + FIM_S)) <= 3 * QUADRO_S, mudo_no_fim
+
+
+def test_limiar_configuravel_para_o_ruido_nao_contar_como_fala():
+    ruido = (0.01 * np.random.default_rng(0).standard_normal(int(TAXA * 1.0))).astype(np.float32)  # RMS ~0,01
+    sinal = np.concatenate([_tom(0.3), ruido, _tom(0.3)])
+    sem_corte = _comprimir(sinal, pedaco=4800, limiar=0.006)  # ruído acima do limiar: é fala, nada é cortado
+    com_corte = _comprimir(sinal, pedaco=4800, limiar=0.02)
+    assert len(sem_corte) > len(com_corte) + int(TAXA * 0.5)
+
+
+def test_pausa_max_maior_que_o_fim_vale_tambem_para_o_silencio_do_fim():
+    """Documentado: o silêncio no fim da frase é o maior entre `fim_s` e `pausa_max_s` (o que já saiu não volta)."""
+    sinal = np.concatenate([_tom(0.3), _mudo(1.0)])
+    saida = _comprimir(sinal, pedaco=4800, pausa_max_s=0.5)
+    assert abs(len(saida) / TAXA - (0.3 + 0.5)) <= 3 * QUADRO_S
 
 
 def test_pausa_max_configuravel():

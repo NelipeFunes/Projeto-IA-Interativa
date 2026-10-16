@@ -113,9 +113,15 @@ class Voz:
         return np.concatenate([x for p in partes for x in (p, self.pausa)]).astype(np.float32)
 
 
-REFERENCIA_S = 30  # quanto da gravação de referência o XTTS usa (o padrão dele era só 6 s)
+# Quanto da gravação de referência o XTTS usa (o padrão dele é 6 s). Medido (docs/melhorias/voz-xtts.md): com a MESMA
+# gravação, 6 s e 30 s dão o mesmo timbre e o ritmo muda pouco; já uma gravação de 30 s dá timbre melhor que uma de 13 s.
+REFERENCIA_S = 30
 GANHO_XTTS = 0.5  # a saída do XTTS tem RMS ~0,15 e picos de 0,97; o Piper, depois do acabamento, 0,08 (mesmo volume)
 PICO_XTTS = 0.98
+# O compressor corta o que está abaixo desse nível e vem DEPOIS do ganho: o limiar acompanha o ganho (a fala crua do XTTS
+# tem RMS ~0,15 e o silêncio entre as palavras fica bem abaixo de 0,012). Com um limiar fixo, subir o ganho fazia o ruído
+# baixo contar como fala e as pausas voltavam.
+LIMIAR_CRU_XTTS = 0.012
 
 
 class VozXTTS:
@@ -212,7 +218,7 @@ class VozXTTS:
                                                   speed=self.velocidade, enable_text_splitting=False)
                     audio = self._volume(saida["wav"])
                     if self.pausa_max_s:
-                        compressor = CompressorDePausas(self.taxa, self.pausa_max_s)
+                        compressor = CompressorDePausas(self.taxa, self.pausa_max_s, limiar=LIMIAR_CRU_XTTS * self.ganho)
                         audio = np.concatenate([compressor.processar(audio), compressor.terminar()])
                     partes.append(audio)
         return np.concatenate(partes) if partes else np.zeros(0, dtype=np.float32)
@@ -233,7 +239,8 @@ class VozXTTS:
                 return
             with torch.inference_mode():
                 for trecho in self._trechos(texto):
-                    compressor = CompressorDePausas(self.taxa, self.pausa_max_s) if self.pausa_max_s else None
+                    compressor = (CompressorDePausas(self.taxa, self.pausa_max_s, limiar=LIMIAR_CRU_XTTS * self.ganho)
+                                  if self.pausa_max_s else None)
                     for pedaco in self.modelo.inference_stream(trecho, self.idioma, self.latente, self.timbre,
                                                                stream_chunk_size=self.pedaco_tokens,
                                                                speed=self.velocidade,
@@ -303,6 +310,8 @@ def referencia_do_config(cfg: Config) -> Path | None:
     if not nome:
         return None
     nome = str(nome)
+    if nome.lower().endswith(".wav"):  # quem escreve o nome do arquivo inteiro também é atendido
+        nome = nome[:-4]
     if any(c in nome for c in "/\\:") or ".." in nome:
         raise ValueError(f"voz.referencia inválida: {nome!r} (é só o nome do arquivo em data/voz)")
     return cfg.dados / "voz" / f"{nome}.wav"
