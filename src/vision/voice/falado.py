@@ -51,12 +51,57 @@ def _data(m: re.Match[str]) -> str:
     return f"dia {dia} de {MESES[mes - 1]}"
 
 
+_UNIDADES = ("zero", "um", "dois", "três", "quatro", "cinco", "seis", "sete", "oito", "nove", "dez", "onze", "doze", "treze",
+             "catorze", "quinze", "dezesseis", "dezessete", "dezoito", "dezenove")
+_DEZENAS = ("", "", "vinte", "trinta", "quarenta", "cinquenta", "sessenta", "setenta", "oitenta", "noventa")
+_CENTENAS = ("", "cento", "duzentos", "trezentos", "quatrocentos", "quinhentos", "seiscentos", "setecentos", "oitocentos",
+             "novecentos")
+_ESCALAS = ((10**9, "bilhão", "bilhões"), (10**6, "milhão", "milhões"), (10**3, "mil", "mil"))
+
+
+def _ate_999(n: int) -> str:
+    if n == 100:
+        return "cem"
+    c, resto = divmod(n, 100)
+    partes = [_CENTENAS[c]] if c else []
+    if resto:
+        d, u = divmod(resto, 10)
+        partes.append(_UNIDADES[resto] if resto < 20 else _DEZENAS[d] + (f" e {_UNIDADES[u]}" if u else ""))
+    return " e ".join(partes)
+
+
+def por_extenso(n: int) -> str:
+    """Número inteiro por extenso, no masculino ("um", "dois": é para valores em reais). Mil milhões em diante fica em
+    dígitos. 1234 → "mil duzentos e trinta e quatro"; 2500 → "dois mil e quinhentos"; 1000000 → "um milhão"."""
+    if n < 0 or n >= 10**12:
+        return str(n)
+    if n == 0:
+        return "zero"
+    partes: list[tuple[str, int]] = []
+    for valor, singular, plural in _ESCALAS:
+        grupo, n = divmod(n, valor)
+        if grupo:
+            partes.append(("mil" if valor == 1000 and grupo == 1 else f"{_ate_999(grupo)} {singular if grupo == 1 else plural}", grupo))
+    if n:
+        partes.append((_ate_999(n), n))
+    if len(partes) == 1:
+        return partes[0][0]
+    ultimo = partes[-1][1]
+    ligacao = " e " if ultimo < 100 or ultimo % 100 == 0 else " "  # "mil e cem", "mil duzentos e trinta e quatro"
+    return " ".join(t for t, _ in partes[:-1]) + ligacao + partes[-1][0]
+
+
 def _reais(m: re.Match[str]) -> str:
+    """"R$ 1.234,56" → "mil duzentos e trinta e quatro reais e cinquenta e seis centavos". Por extenso porque o Qwen3-TTS lia
+    números de 4 e 5 dígitos errado ("R$ 1.234,56" saía "R$ 134,56"); só valor em reais, que é sempre masculino."""
     n = int(m.group(1).replace(".", ""))
-    texto = "um real" if n == 1 else f"{n} reais"
-    if m.group(2) and int(m.group(2)):
-        texto += f" e {int(m.group(2))} centavos"
-    return texto
+    centavos = int(m.group(2)) if m.group(2) else 0
+    palavra = f"{por_extenso(centavos)} {'centavo' if centavos == 1 else 'centavos'}"
+    if n == 0 and centavos:
+        return palavra  # "R$ 0,50" → "cinquenta centavos"
+    de = "de " if n >= 10**6 and n % 10**6 == 0 else ""  # "um milhão de reais", mas "um milhão e cem reais"
+    texto = "um real" if n == 1 else f"{por_extenso(n)} {de}reais"
+    return f"{texto} e {palavra}" if centavos else texto
 
 
 # Unidades depois de um número (vêm muito em resposta de busca na web): (singular, plural). Ordem importa: km/h
