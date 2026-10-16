@@ -527,7 +527,7 @@ class Nucleo:
                     voz = self.laco.voz
                     if isinstance(voz, VozXTTS):  # a voz do Piper é só a reserva: não recarrega o XTTS (14 s)
                         voz.reserva = await asyncio.to_thread(carregar_piper, self.cfg)
-                        voz.velocidade = 1.0 / max(float(self.cfg.get("voz.velocidade_fala", 1.0)), 0.1)
+                        voz.definir_velocidade(float(self.cfg.get("voz.velocidade_fala", 1.0)))
                     else:
                         self.laco.voz = await asyncio.to_thread(carregar_voz, self.cfg)
         except Exception as e:  # noqa: BLE001

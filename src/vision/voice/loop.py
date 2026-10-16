@@ -654,7 +654,9 @@ class LoopVoz:
                 voz = self.voz  # uma vez por frase: a tela de ajustes pode trocar a voz no meio
                 fonte = voz
                 reserva = getattr(voz, "reserva", None)
-                if primeira and reserva is not None and len(frase.strip()) <= self.piper_ate_caracteres:
+                # Voz clonada: uma resposta curta pelo Piper seria OUTRA voz, e o clone é justamente para ser sempre a mesma.
+                if (primeira and reserva is not None and not getattr(voz, "clonada", False)
+                        and len(frase.strip()) <= self.piper_ate_caracteres):
                     if not fila.empty():
                         adiante.append(fila.get_nowait())
                     if adiante == [None]:  # é a resposta inteira: rapidez vale mais que a voz bonita aqui
