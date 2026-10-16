@@ -59,7 +59,7 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   motivos de cada valor e o que não funcionou: `docs/melhorias/voz-xtts.md`. Sem a gravação, sem placa de vídeo ou
   com o jogo aberto, cai no Piper. Licença do modelo: Coqui Public Model License, só uso não comercial.
 - **Voz clonada, alternativa Qwen3-TTS (`voz.motor: qwen3`):** roda num processo e num ambiente separados
-  (`uv sync --project servidor-voz` e `python scripts/baixar_modelos.py --qwen3tts`), porque exige `transformers` 5.15.1
+  (`uv sync --locked --project servidor-voz` e `python scripts/baixar_modelos.py --qwen3tts`), porque exige `transformers` 5.15.1
   e o XTTS exige menor que 5. Pede a gravação (`data/voz/<nome>.wav`, 3 a 15 s) e, ao lado, a transcrição exata dela
   (`data/voz/<nome>.txt`). No modo jogo o processo é encerrado e a placa volta inteira (~4 GB). Medidas e limites:
   `docs/melhorias/voz-xtts.md`.

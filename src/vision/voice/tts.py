@@ -369,7 +369,8 @@ def _carregar_qwen3(cfg: Config, piper: Voz):
             tirar_virgulas=bool(cfg.get("voz.qwen3_tirar_virgulas", False)),
             ganho=_numero_do_config(cfg, "voz.qwen3_ganho", 1.0, 0.1, 2.0),
             pedaco=int(_numero_do_config(cfg, "voz.qwen3_pedaco", 8, 2, 24)),
-            log_do_processo=cfg.dados / "logs" / "qwen3_tts.log")
+            log_do_processo=cfg.dados / "logs" / "qwen3_tts.log",
+            cwd=(cfg.raiz / "servidor-voz") if (cfg.raiz / "servidor-voz").is_dir() else None)
     except Exception as e:  # noqa: BLE001 - sem a voz boa, a robótica ainda serve
         log.warning("Qwen3-TTS indisponível (%s); falando com o Piper", e)
         return piper

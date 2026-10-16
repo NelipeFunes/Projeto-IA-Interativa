@@ -79,7 +79,9 @@ linha. O XTTS é a linha do padrão dele, para comparar:
 | Qwen3-TTS, sem vírgulas | 15,1 | 4,8 | 0,096 | 0,75 | 2,02 | 0 de 20 |
 | XTTS, padrão (velocidade 1,1) | 14,7 | 10,7 | 0,076 | 0,66 | 1,13 | 9 de 20 |
 
-Ele ganha em ritmo (sem acelerar), pausas, timbre, RTF e paradas (usa CUDA graphs) e perde um pouco no erro de palavras.
+Ele ganha em ritmo (sem acelerar), pausas, timbre, RTF e paradas (provavelmente pelos CUDA graphs; não foi medido sem
+eles) e perde um pouco no erro de palavras. As paradas são sem o modelo de linguagem gerando ao mesmo tempo (veja a
+seção seguinte).
 O 1º som sai em ~0,42 s, igual ao do XTTS. **Mas** exige `transformers` 5.15.1, e o XTTS exige `transformers` menor que 5:
 os dois não convivem no mesmo ambiente (as versões 5.18 e 5.20 não carregam o modelo). Por isso entrou como motor
 **opcional, num processo separado** (`voz.motor: qwen3`, PR seguinte ao do XTTS). Qual soa melhor é decisão de ouvido.
@@ -87,21 +89,28 @@ os dois não convivem no mesmo ambiente (as versões 5.18 e 5.20 não carregam o
 ### Como ficou (`vision/voice/tts_qwen.py` + `qwen_worker.py`, ambiente `servidor-voz/`)
 
 - O Vision sobe um processo com o Python do ambiente `servidor-voz/` (`uv sync --project servidor-voz`, versões fixas e
-  lock; criado do zero a partir do lock funcionou) e fala com ele **só por pipes** (stdin/stdout): sem rede, sem porta.
-  O processo acaba sozinho se o Vision morrer.
+  lock; criado do zero a partir do lock funcionou; documentado com `--locked`) e fala com ele **só por pipes**
+  (stdin/stdout): sem rede, sem porta. O processo acaba sozinho se o Vision morrer.
+- O processo recebe só o básico do Windows (nada de senha do Orbit nem chave da Tavily, como já era para os servidores MCP),
+  sem rede (`HF_HUB_OFFLINE`) e sem procurar programa na pasta atual (o pacote `sox` roda `cmd /c sox` ao importar). O
+  stdout é só o protocolo (o descritor 1 aponta para o stderr no processo, então `print`, código nativo e processos
+  filhos não estragam o fluxo); o Vision recusa quadro de tipo desconhecido, tamanho acima de 4 MB ou áudio fora de float32.
 - Mesma interface do `VozXTTS`; o texto, o ganho e o `CompressorDePausas` rodam no Vision, iguais aos do XTTS.
 - **Modo jogo:** o processo é encerrado e a placa volta inteira (liberou ~4 GB; o XTTS só consegue mover o modelo para
-  a RAM). Voltar leva ~12 s.
+  a RAM). Voltar leva 12 a 13 s (14 a 22 s na partida do Vision, com o modelo ainda fora do cache do Windows). **Subir o
+  processo nunca segura a fala**: depois de uma queda ou do jogo, o que for falado nesse tempo sai pela reserva (Piper) e
+  a voz volta sozinha quando o processo fica pronto.
 - **Volume:** o Qwen3-TTS fala no volume da gravação que clona (gravação com RMS 0,02 dava voz baixa). O processo nivela a
-  gravação para RMS 0,08 ao carregar (o mesmo do Piper); a fala saiu com RMS médio 0,075.
+  gravação para RMS 0,08 ao carregar (o mesmo do Piper); a fala saiu com RMS médio 0,075. A cópia nivelada fica ao lado
+  da gravação, em `data/voz/` (a mesma proteção: fora do git), e é sobrescrita a cada partida.
 - Falhas: erro num pedido volta como `ErroDaVoz` e o laço fala o resto com o Piper; processo que cai reinicia no pedido
   seguinte, com 30 s de espera para não reiniciar a cada frase; cancelar no meio da frase leva ~0,3 s.
 - Pede a gravação (3 a 15 s; 13 s funcionou bem) e, ao lado, a **transcrição exata** dela em `data/voz/<nome>.txt`.
 - Sobe em 14 a 22 s. Com o Ollama gerando ao mesmo tempo ele cai para RTF 0,58, como o XTTS (a disputa pela placa não é
   de um motor só).
 
-**Limite:** numa frase com valor em dinheiro ("R$ 1.234,56") o reconhecedor ouviu "R$ 234,56" no Qwen3 (no XTTS saiu
-certo); a conferência é de ouvido (T-036).
+**Limite:** numa frase com valor em dinheiro ("R$ 1.234,56") o reconhecedor ouviu "R$ 134,56" no Qwen3 (no XTTS saiu
+certo): números de 4 e 5 dígitos em dígito. Corrigido para valores em reais no PR #69 (por extenso); o resto é a T-036.
 
 ## Com o modelo de linguagem escrevendo ao mesmo tempo
 

@@ -1,6 +1,6 @@
 """Baixa os modelos de voz para `modelos/` (idempotente: pula o que já existe).
 
-Uso: uv run python scripts/baixar_modelos.py [--sem-ptbr] [--xtts]
+Uso: uv run python scripts/baixar_modelos.py [--sem-ptbr] [--xtts] [--qwen3tts]
 """
 
 from __future__ import annotations
@@ -77,7 +77,8 @@ def baixar_qwen3tts() -> None:
     # Voz clonada alternativa (voz.motor: qwen3), ~2,4 GB, Apache-2.0. Revisão fixa (a de 29/01/2026).
     # Roda num ambiente à parte: `uv sync --project servidor-voz` (ver docs/melhorias/voz-xtts.md).
     snapshot_download("Qwen/Qwen3-TTS-12Hz-0.6B-Base", revision="5d83992436eae1d760afd27aff78a71d676296fc",
-                      local_dir=MODELOS / "qwen3_tts_0.6b")
+                      local_dir=MODELOS / "qwen3_tts_0.6b",
+                      allow_patterns=["*.json", "*.safetensors", "*.txt", "speech_tokenizer/*"])  # só pesos e configuração
     print("qwen3-tts ok")
 
 

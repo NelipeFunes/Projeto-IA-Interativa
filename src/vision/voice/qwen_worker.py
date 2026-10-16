@@ -5,14 +5,16 @@ Fala com o Vision só por pipes (stdin/stdout): sem rede, sem porta. Este arquiv
 `import vision`): o outro ambiente não tem as dependências do Vision.
 
 Protocolo
-- Vision → processo (stdin), uma linha JSON por mensagem:
+- Vision → processo (stdin), uma linha JSON (ASCII) por mensagem:
     {"op": "falar", "id": 7, "texto": "...", "pedaco": 8}   gera e manda o áudio em pedaços
     {"op": "cancelar", "id": 7}                              para a geração do pedido 7 no próximo pedaço
     {"op": "sair"}                                           encerra (fechar o stdin também encerra)
 - processo → Vision (stdout), quadros binários `<tipo:1 byte><id:uint32><tamanho:uint32><carga>` (little-endian):
-    b"P" pronto (carga: JSON {"taxa": 24000})      b"A" áudio (carga: float32 mono)
+    b"P" pronto (carga: JSON {"taxa": 24000})      b"A" áudio (carga: float32 mono, tamanho múltiplo de 4)
     b"F" fim do pedido (sem carga)                  b"E" erro do pedido (carga: texto UTF-8)
-  Tudo o que a biblioteca imprimir vai para o stderr: o stdout é só o protocolo."""
+  O stdout (descritor 1) é SÓ o protocolo: logo no começo o descritor 1 passa a apontar para o stderr, e os quadros saem por
+  uma cópia dele. Assim `print`, código nativo (CUDA, C++) e processos filhos (o pacote `sox` chama `cmd /c sox` ao
+  importar) não conseguem estragar o fluxo. O Vision recusa o que não for um quadro válido."""
 
 from __future__ import annotations
 
@@ -22,7 +24,6 @@ import os
 import queue
 import struct
 import sys
-import tempfile
 import threading
 
 import numpy as np
@@ -30,6 +31,8 @@ import numpy as np
 CABECALHO = struct.Struct("<cII")
 NIVEL_DA_REFERENCIA = 0.08  # RMS: o mesmo volume do Piper depois do acabamento (vision/voice/tts.py)
 PICO_DA_REFERENCIA = 0.95
+PASSOS_POR_LETRA = 2.5  # fala normal: ~0,8 passo por letra (12 passos/s, ~15 letras/s); isto dá folga e corta a divagação
+PASSOS_FIXOS = 60
 
 
 def nivelar_referencia(entrada: str, saida: str, alvo: float = NIVEL_DA_REFERENCIA) -> bool:
@@ -50,19 +53,34 @@ def nivelar_referencia(entrada: str, saida: str, alvo: float = NIVEL_DA_REFERENC
     return True
 
 
+def passos_maximos(texto: str) -> int:
+    """Teto de passos de geração para um texto: sem ele o padrão da biblioteca é 2048 (~170 s de áudio)."""
+    return int(len(texto) * PASSOS_POR_LETRA) + PASSOS_FIXOS
+
+
+def proteger_stdout():
+    """Devolve o arquivo dos quadros (cópia do stdout) e manda o descritor 1 para o stderr."""
+    protocolo = os.fdopen(os.dup(1), "wb")
+    os.dup2(2, 1)
+    sys.stdout = sys.stderr
+    return protocolo
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--modelo", required=True, help="pasta do Qwen3-TTS-12Hz-0.6B-Base")
     ap.add_argument("--referencia", required=True, help="gravação de referência (.wav)")
     ap.add_argument("--texto-referencia", required=True, help="arquivo .txt com a transcrição exata da gravação")
-    ap.add_argument("--idioma", default="Portuguese")
-    ap.add_argument("--so-timbre", action="store_true", help="usa só o timbre da gravação (xvec): sem o sotaque dela")
+    ap.add_argument("--nivelada-em", default="",
+                    help="onde gravar a cópia nivelada da gravação (junto dela, em data/voz; sobrescrita a cada partida). "
+                         "Vazio: usa a gravação como veio")
     ap.add_argument("--nivel-referencia", type=float, default=NIVEL_DA_REFERENCIA,
                     help="RMS para o qual a gravação é ajustada antes de clonar (0 = não ajusta)")
+    ap.add_argument("--idioma", default="Portuguese")
+    ap.add_argument("--so-timbre", action="store_true", help="usa só o timbre da gravação (xvec): sem o sotaque dela")
     args = ap.parse_args()
 
-    saida = sys.stdout.buffer
-    sys.stdout = sys.stderr  # print() perdido da biblioteca não pode estragar o protocolo
+    saida = proteger_stdout()
     trava_saida = threading.Lock()
 
     def enviar(tipo: bytes, pedido: int, carga: bytes = b"") -> None:
@@ -75,17 +93,15 @@ def main() -> int:
 
         texto_ref = open(args.texto_referencia, encoding="utf-8").read().strip()
         referencia = args.referencia
-        if args.nivel_referencia > 0:
-            nivelada = os.path.join(tempfile.mkdtemp(prefix="vision-qwen3-"), "referencia.wav")
-            if nivelar_referencia(args.referencia, nivelada, args.nivel_referencia):
-                referencia = nivelada
+        if args.nivelada_em and args.nivel_referencia > 0 and nivelar_referencia(args.referencia, args.nivelada_em, args.nivel_referencia):
+            referencia = args.nivelada_em
         modelo = FasterQwen3TTS.from_pretrained(args.modelo)
         modelo.warmup()
 
         def gerar(texto: str, pedaco: int):
             return modelo.generate_voice_clone_streaming(
                 text=texto, language=args.idioma, ref_audio=referencia, ref_text=texto_ref,
-                chunk_size=pedaco, xvec_only=args.so_timbre)
+                chunk_size=pedaco, xvec_only=args.so_timbre, max_new_tokens=passos_maximos(texto))
 
         for _ in gerar("Oi.", 8):  # monta e guarda o prompt da gravação: o 1º pedido real não paga isso
             pass

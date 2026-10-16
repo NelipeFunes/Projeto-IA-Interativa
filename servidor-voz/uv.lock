@@ -8,6 +8,9 @@ supported-markers = [
     "sys_platform == 'win32'",
 ]
 
+[manifest]
+build-constraints = [{ name = "setuptools", specifier = "==84.0.0" }]
+
 [[package]]
 name = "accelerate"
 version = "1.12.0"
@@ -1125,7 +1128,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "faster-qwen3-tts", specifier = "==0.5.4" },
-    { name = "numpy", specifier = ">=2" },
+    { name = "numpy", specifier = "==2.5.4" },
     { name = "torch", specifier = "==2.8.0", index = "https://download.pytorch.org/whl/cu128" },
     { name = "torchaudio", specifier = "==2.8.0", index = "https://download.pytorch.org/whl/cu128" },
     { name = "transformers", specifier = "==5.15.1" },

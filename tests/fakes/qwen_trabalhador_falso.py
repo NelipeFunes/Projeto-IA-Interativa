@@ -1,6 +1,6 @@
 """Processo falso com o mesmo protocolo do vision/voice/qwen_worker.py (só biblioteca padrão), para testar o `VozQwen`.
-O comportamento vem de FAKE_MODO: normal | lento | nao_sobe (FAKE_RUIDO: chiado cru nas pausas); e do texto do pedido: "quebra" manda erro, "morre" derruba
-o processo no meio da fala. FAKE_LOG (arquivo) recebe uma linha JSON por mensagem recebida."""
+O comportamento vem de FAKE_MODO: normal | lento | nao_sobe (FAKE_RUIDO: chiado cru nas pausas; FAKE_PARTIDA_S: demora para ficar pronto); e do texto do pedido: "quebra" manda erro, "morre" derruba
+o processo no meio da fala; "lixo", "enorme" e "impar" estragam o fluxo. FAKE_LOG (arquivo) recebe uma linha JSON por mensagem recebida."""
 
 import json
 import math
@@ -45,9 +45,11 @@ def mudo(segundos: float) -> list[float]:
     return [sorteio.gauss(0, RUIDO) if RUIDO else 0.0 for _ in range(int(TAXA * segundos))]
 
 
+anotar({"op": "partida", "argv": sys.argv[1:], "cwd": os.getcwd(), "env": sorted(os.environ)})
 if modo == "nao_sobe":
     enviar(b"E", 0, b"RuntimeError: sem placa de video (simulado)")
     sys.exit(1)
+time.sleep(float(os.environ.get("FAKE_PARTIDA_S", "0")))  # partida lenta (o de verdade leva 14 a 22 s)
 enviar(b"P", 0, json.dumps({"taxa": TAXA}).encode())
 
 pedidos: queue.Queue = queue.Queue()
@@ -73,6 +75,13 @@ while (msg := pedidos.get()) is not None:
     if "quebra" in texto:
         enviar(b"E", pid, b"RuntimeError: falha simulada")
         continue
+    if "enorme" in texto:  # um cabeçalho com tamanho absurdo (código nativo que escreveu texto no stdout)
+        saida.write(CABECALHO.pack(b"A", pid, 540_698_478))
+        saida.flush()
+        time.sleep(1)
+    if "impar" in texto:  # áudio com tamanho que não é múltiplo de 4
+        enviar(b"A", pid, b"abc")
+        time.sleep(1)
     if modo == "lento":
         amostras = tom(0.25) * 40  # 10 s de som, em pedaços de 0,25 s, devagar
     else:  # 0,1 s mudo, fala, 1 s de pausa, fala, 0,5 s mudo
@@ -84,6 +93,9 @@ while (msg := pedidos.get()) is not None:
         enviar(b"A", pid, array("f", amostras[i:i + passo]).tobytes())
         if "morre" in texto:
             os._exit(3)
+        if "lixo" in texto:  # texto cru no stdout no meio do fluxo, como um "Warning:" nativo
+            os.write(1, b"Warning: CUDA graph capture failed, falling back to eager execution\n")
+            time.sleep(1)
         if modo == "lento":
             time.sleep(0.03)
     enviar(b"F", pid)
