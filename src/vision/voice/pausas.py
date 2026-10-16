@@ -4,8 +4,10 @@ Medido em 16/10 com uma voz de referência em português (docs/melhorias/voz-xtt
 ~15 letras/s, perto de uma voz natural (16–17), mas ~22% do tempo era pausa (mediana 0,54 s, de uma a três por frase),
 quase toda em vírgula, dois-pontos e ponto. É isso que dava a impressão de voz lenta e travada.
 
-- `preparar_texto`: o que o XTTS recebe. Tira o ponto final (sem isso ele falava "ponto" no fim de 58% das frases curtas)
-  e, se pedido, as vírgulas, que ele transforma em pausas de ~0,5 s.
+- `preparar_texto`: o que o XTTS recebe. Tira o ponto final (com ele, o XTTS falava a palavra "ponto" no fim: em 30 de
+  55 sorteios com uma referência em inglês e em 4 de 20, no fim, com uma em português) e, se pedido, as vírgulas, que ele
+  transforma em pausas de ~0,5 s. Não tira o ponto de abreviação ("Dra.": o XTTS só expande com ele) nem a vírgula depois
+  da 1ª palavra ("Não, está tudo certo" sem ela vira o contrário).
 - `CompressorDePausas`: no áudio que sai, em tempo real (pedaço a pedaço): descarta o silêncio antes da fala, corta
   qualquer pausa dentro da frase acima de `pausa_max_s` e deixa `fim_s` de silêncio no fim, para separar as frases."""
 
@@ -17,20 +19,44 @@ import numpy as np
 
 PAUSA_MAX_S = 0.15  # pausa mais longa DENTRO da frase: a voz natural de referência quase não tinha; o XTTS fazia ~0,55 s
 FIM_S = 0.25  # silêncio entre uma frase e a próxima (a voz de referência tinha ~0,25 s)
-LIMIAR_SILENCIO = 0.006  # RMS por quadro, com o áudio já no volume final (fala ~0,08): ~-22 dB abaixo da fala
+LIMIAR_SILENCIO = 0.006  # RMS por quadro, no nível em que o compressor recebe o áudio (fala ~0,08 a 0,1): ~-22 dB da fala
 QUADRO_S = 0.010
 FADE_S = 0.003  # entrada suave na 1ª fala depois de uma pausa cortada (sem estalo)
 
 # Vírgula, ponto e vírgula e dois-pontos fora de números ("1,5", "7:30" ficam como estão).
 _PAUSA_NO_TEXTO = re.compile(r"(?<!\d)[,;:]|[,;:](?!\d)")
+# "Não, está tudo certo" sem a vírgula vira "Não está tudo certo": a vírgula que fecha a 1ª palavra da frase fica.
+_PRIMEIRA_PALAVRA = re.compile(r"\w[\w'-]*,")
+# As abreviações que o próprio XTTS expande ("Dra." vira "doutora") só com o ponto: o `fatiar` do laço de voz corta a
+# frase depois de qualquer ponto, então "A consulta com a Dra." chega aqui como uma frase inteira.
+ABREVIACOES_COM_PONTO = frozenset({"sra", "sr", "dr", "dra", "st", "co", "jr", "ltd"})
+_PONTO_FINAL = re.compile(r"(?<![.])\.([\"'”’»)\]]*)\s*$")  # o ponto pode vir antes de aspas ou parênteses de fecho
+
+
+def _sem_pausas_no_texto(texto: str) -> str:
+    inicio = _PRIMEIRA_PALAVRA.match(texto)
+    cabeca = texto[: inicio.end()] if inicio else ""
+    return cabeca + _PAUSA_NO_TEXTO.sub("", texto[len(cabeca):])
+
+
+def _sem_ponto_final(texto: str) -> str:
+    achado = _PONTO_FINAL.search(texto)
+    if not achado:
+        return texto
+    antes = texto[: achado.start()]
+    ultima = re.search(r"(\w+)$", antes)
+    if ultima and ultima.group(1).lower() in ABREVIACOES_COM_PONTO:
+        return texto
+    return antes + achado.group(1)
 
 
 def preparar_texto(texto: str, tirar_virgulas: bool = False) -> str:
-    """O texto como o XTTS deve receber. `?`, `!` e reticências ficam (dão a entonação); só o `.` final sai."""
+    """O texto como o XTTS deve receber. `?`, `!` e reticências ficam (dão a entonação); só o `.` final sai, menos o de
+    abreviação ("Dra."). Com `tirar_virgulas`, saem também `,` `;` `:` (menos a da 1ª palavra e a de número)."""
     texto = " ".join(texto.split())
     if tirar_virgulas:
-        texto = " ".join(_PAUSA_NO_TEXTO.sub("", texto).split())
-    return re.sub(r"(?<![.])\.\s*$", "", texto)
+        texto = " ".join(_sem_pausas_no_texto(texto).split())
+    return _sem_ponto_final(texto)
 
 
 class CompressorDePausas:

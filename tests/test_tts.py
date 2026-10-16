@@ -172,7 +172,8 @@ async def test_voz_clonada_nunca_troca_para_o_piper_em_resposta_curta():
     voz, saida = XTTSFalso(), SaidaLenta(duracao_s=0)
     voz.clonada = True  # o clone é justamente para ser sempre a mesma voz
     await _falar(_laco(voz, saida), ["Acendi a luz do quarto."])
-    assert all(t[0] >= 10 for t in saida.tocadas) and voz.reserva.sintetizadas == []
+    assert len(saida.tocadas) == 3 and all(t[0] >= 10 for t in saida.tocadas)  # os 3 pedaços do XTTS, nenhum da reserva
+    assert voz.reserva.sintetizadas == []
 
 
 async def test_frase_curta_seguida_de_outra_fica_no_xtts():
@@ -404,6 +405,10 @@ def test_referencia_do_config_e_so_o_nome_de_um_arquivo_em_data_voz(cfg):
     assert referencia_do_config(cfg) is None
     cfg.bruto.setdefault("voz", {})["referencia"] = "jarvis"
     assert referencia_do_config(cfg) == cfg.dados / "voz" / "jarvis.wav"
+    for com_extensao in ("jarvis.wav", "JARVIS.WAV"):  # o nome do arquivo inteiro também vale (antes procurava jarvis.wav.wav)
+        cfg.bruto["voz"]["referencia"] = com_extensao
+        assert referencia_do_config(cfg).parent == cfg.dados / "voz" and referencia_do_config(cfg).suffix == ".wav"
+        assert ".wav.wav" not in referencia_do_config(cfg).name.lower()
     for ruim in ("../x", "a/b", "C:\\x", "..", "x\\y"):
         cfg.bruto["voz"]["referencia"] = ruim
         with pytest.raises(ValueError):
@@ -443,15 +448,17 @@ def test_referencia_invalida_cai_no_piper(monkeypatch, cfg):
 
 
 class _ModeloComPausa:
-    """Imita o Xtts falando: 0,1 s de silêncio, fala, pausa de 1 s, fala, 0,5 s de silêncio (pico 0,3)."""
+    """Imita o Xtts falando: 0,1 s de silêncio, fala, pausa de 1 s, fala, 0,5 s de silêncio (pico 0,3).
+    `ruido`: nível do chiado de fundo que fica nas pausas (o XTTS de verdade nunca fica em zero absoluto)."""
 
-    def __init__(self):
+    def __init__(self, ruido: float = 0.0):
         self.recebidos: list[str] = []
+        self.ruido = ruido
 
-    @staticmethod
-    def _som() -> np.ndarray:
+    def _som(self) -> np.ndarray:
         fala = (0.3 * np.sin(2 * np.pi * 220 * np.arange(9600) / 24000)).astype(np.float32)
-        mudo = lambda s: np.zeros(int(24000 * s), dtype=np.float32)  # noqa: E731
+        gerador = np.random.default_rng(0)
+        mudo = lambda s: (self.ruido * gerador.standard_normal(int(24000 * s))).astype(np.float32)  # noqa: E731
         return np.concatenate([mudo(0.1), fala, mudo(1.0), fala, mudo(0.5)])
 
     def inference(self, texto, idioma, latente, timbre, speed=1.0, enable_text_splitting=False):
@@ -468,10 +475,10 @@ class _ModeloComPausa:
             yield torch.from_numpy(som[i:i + 5000])
 
 
-def _xtts_com_modelo(**atributos):
+def _xtts_com_modelo(ruido: float = 0.0, **atributos):
     voz = _xtts_sem_modelo(_Reserva())
     voz.descansando = False
-    voz.modelo, voz.idioma, voz.latente, voz.timbre = _ModeloComPausa(), "pt", None, None
+    voz.modelo, voz.idioma, voz.latente, voz.timbre = _ModeloComPausa(ruido), "pt", None, None
     voz.velocidade, voz.pedaco_tokens = 1.0, 12
     for chave, valor in atributos.items():
         setattr(voz, chave, valor)
@@ -490,6 +497,137 @@ def test_xtts_recebe_o_texto_preparado_e_toca_sem_pausa_longa_e_no_volume_certo(
         assert voz.modelo.recebidos == ["Pronto, acendi as luzes do quarto"]  # o ponto final ficou de fora
         assert abs(saida.size / 24000 - esperado) < 0.05
         assert 0.3 * GANHO_XTTS * 0.95 < float(np.abs(saida).max()) <= 0.3 * GANHO_XTTS + 1e-4
+
+
+@pytest.mark.parametrize("ganho", [0.2, 0.5, 1.0, 2.0])
+def test_o_ganho_nao_muda_o_que_o_compressor_corta(ganho):
+    """Revisão do PR 67: o limiar do compressor era fixo e vinha depois do ganho; ganho alto fazia o chiado contar como fala."""
+    from vision.voice.pausas import FIM_S, PAUSA_MAX_S
+
+    voz = _xtts_com_modelo(ruido=0.008, ganho=ganho)  # chiado cru de 0,008 entre as palavras
+    saida = np.concatenate(list(voz.pedacos("Pronto, acendi as luzes do quarto.", normalizar=False)))
+    assert abs(saida.size / 24000 - (0.4 + PAUSA_MAX_S + 0.4 + FIM_S)) < 0.06
+
+
+def test_velocidade_do_xtts_combina_a_propria_com_a_da_tela_de_ajustes():
+    """nucleo.py: mudar o "ritmo da fala" não pode apagar o `xtts_velocidade` (antes escrevia 1/velocidade_fala direto)."""
+    voz = _xtts_sem_modelo(_Reserva())
+    voz.velocidade_base = 1.1  # voz.xtts_velocidade
+    voz.definir_velocidade(1.0)
+    assert voz.velocidade == pytest.approx(1.1)
+    voz.definir_velocidade(2.0)  # tela de Ajustes: >1 = mais devagar
+    assert voz.velocidade == pytest.approx(0.55)
+    voz.definir_velocidade(0.0)  # inválido não divide por zero
+    assert voz.velocidade == pytest.approx(11.0)
+
+
+class _XttsFalso:
+    """O Xtts do Coqui sem modelo: o que o `VozXTTS.__init__` chama, e anota como."""
+
+    ultimo = None
+
+    def __init__(self):
+        self.speaker_manager = type("S", (), {"speakers": {"Tanja Adelina": {"latente": "L-estudio", "timbre": "T-estudio"}}})()
+        self.condicionamentos: list[dict] = []
+        self.erro_no_condicionamento: str | None = None
+
+    @classmethod
+    def init_from_config(cls, _cfg):
+        cls.ultimo = cls()
+        return cls.ultimo
+
+    def load_checkpoint(self, *_a, **_k):
+        pass
+
+    def get_conditioning_latents(self, **kw):
+        self.condicionamentos.append(kw)
+        if self.erro_no_condicionamento:
+            raise RuntimeError(self.erro_no_condicionamento)
+        return "L-clonado", "T-clonado"
+
+    def cuda(self):
+        return self
+
+    def eval(self):
+        return self
+
+    def inference(self, *_a, **_k):
+        return {"wav": np.ones(10, dtype=np.float32)}
+
+
+@pytest.fixture
+def xtts_falso(monkeypatch, tmp_path):
+    """Troca o pacote TTS por um falso (sem modelo, sem placa) e devolve a pasta do modelo e a gravação."""
+    import sys
+    import types
+
+    import torch
+
+    for nome in ("TTS", "TTS.tts", "TTS.tts.configs", "TTS.tts.models"):
+        monkeypatch.setitem(sys.modules, nome, types.ModuleType(nome))
+    config_falsa = types.ModuleType("TTS.tts.configs.xtts_config")
+    config_falsa.XttsConfig = type("XttsConfig", (), {"load_json": lambda self, _caminho: None})
+    modelo_falso = types.ModuleType("TTS.tts.models.xtts")
+    modelo_falso.Xtts = _XttsFalso
+    monkeypatch.setitem(sys.modules, "TTS.tts.configs.xtts_config", config_falsa)
+    monkeypatch.setitem(sys.modules, "TTS.tts.models.xtts", modelo_falso)
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    pasta = tmp_path / "xtts_v2"
+    pasta.mkdir()
+    (pasta / "model.pth").write_bytes(b"x")
+    gravacao = tmp_path / "jarvis.wav"
+    gravacao.write_bytes(b"RIFF")
+    return pasta, gravacao
+
+
+def test_xtts_com_referencia_clona_a_gravacao_inteira_e_marca_como_clonada(xtts_falso):
+    from vision.voice.tts import REFERENCIA_S, VozXTTS
+
+    pasta, gravacao = xtts_falso
+    voz = VozXTTS(pasta, "Tanja Adelina", _Reserva(), referencia=gravacao)
+    assert voz.clonada is True and voz.falante == "jarvis"
+    assert (voz.latente, voz.timbre) == ("L-clonado", "T-clonado")
+    chamada = _XttsFalso.ultimo.condicionamentos[0]
+    assert chamada["audio_path"] == [str(gravacao)] and chamada["gpt_cond_len"] == REFERENCIA_S
+    assert chamada["max_ref_length"] == REFERENCIA_S
+
+
+def test_xtts_sem_referencia_segue_com_a_voz_de_estudio_e_nao_e_clonada(xtts_falso):
+    from vision.voice.tts import VozXTTS
+
+    pasta, _ = xtts_falso
+    voz = VozXTTS(pasta, "Tanja Adelina", _Reserva())
+    assert voz.clonada is False and voz.falante == "Tanja Adelina"
+    assert (voz.latente, voz.timbre) == ("L-estudio", "T-estudio") and _XttsFalso.ultimo.condicionamentos == []
+
+
+def test_xtts_com_gravacao_que_falta_ou_estragada_levanta_e_o_vision_cai_no_piper(xtts_falso, monkeypatch, cfg):
+    from vision.voice import tts
+    from vision.voice.tts import VozXTTS
+
+    pasta, gravacao = xtts_falso
+    with pytest.raises(FileNotFoundError, match="referência"):
+        VozXTTS(pasta, "Tanja Adelina", _Reserva(), referencia=pasta / "nao-existe.wav")
+    # o XTTS recusa gravação curta demais (< 0,33 s) e arquivo corrompido: a exceção chega ao carregar_voz
+    antes = _XttsFalso.init_from_config
+
+    def com_erro(cls, _cfg):
+        modelo = antes(_cfg)
+        modelo.erro_no_condicionamento = "Provided reference audio too short"
+        return modelo
+
+    monkeypatch.setattr(_XttsFalso, "init_from_config", classmethod(com_erro))
+    with pytest.raises(RuntimeError, match="too short"):
+        VozXTTS(pasta, "Tanja Adelina", _Reserva(), referencia=gravacao)
+
+    class Piper:
+        taxa = 22050
+
+    monkeypatch.setattr(tts, "carregar_piper", lambda _cfg, _nome=None: Piper())
+    monkeypatch.setattr(cfg, "modelos", pasta.parent)  # tem a pasta xtts_v2 do fixture
+    monkeypatch.setattr(cfg, "dados", gravacao.parent / "dados")  # sem data/voz/jarvis.wav aqui
+    cfg.bruto.setdefault("voz", {}).update(motor="xtts", referencia="jarvis")
+    assert isinstance(tts.carregar_voz(cfg), Piper)
 
 
 def test_xtts_sem_compressor_toca_tudo_como_veio_e_pode_tirar_as_virgulas():
