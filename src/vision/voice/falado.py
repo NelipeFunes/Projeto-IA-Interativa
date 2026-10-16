@@ -1,5 +1,5 @@
 """Deixa o texto do Vision bom de ouvir: '14:30' → '14 e 30', 'sex 02/10' → 'sexta, dia 2 de outubro',
-'R$ 52,90' → '52 reais e 90 centavos', tira markdown, emojis e ids."""
+'R$ 52,90' → 'cinquenta e dois reais e noventa centavos', tira markdown, emojis e ids."""
 
 from __future__ import annotations
 
@@ -71,8 +71,8 @@ def _ate_999(n: int) -> str:
 
 
 def por_extenso(n: int) -> str:
-    """Número inteiro por extenso, no masculino ("um", "dois": é para valores em reais). Mil milhões em diante fica em
-    dígitos. 1234 → "mil duzentos e trinta e quatro"; 2500 → "dois mil e quinhentos"; 1000000 → "um milhão"."""
+    """Número inteiro por extenso, no masculino ("um", "dois": é para valores em reais). De um trilhão (10**12) em diante
+    fica em dígitos. 1234 → "mil duzentos e trinta e quatro"; 2500 → "dois mil e quinhentos"; 1000000 → "um milhão"."""
     if n < 0 or n >= 10**12:
         return str(n)
     if n == 0:
@@ -91,17 +91,39 @@ def por_extenso(n: int) -> str:
     return " ".join(t for t, _ in partes[:-1]) + ligacao + partes[-1][0]
 
 
+# "R$ 1.234,56", "R$ 50", "-R$ 1.250,00": começa em dígito e só aceita ponto de milhar (o ponto final da frase, "R$ 50.", fica
+# fora; "R$." sozinho nem casa: antes levantava ValueError e calava o resto da resposta).
+# O sinal de menos só vale COLADO no R$ (como o Orbit escreve): "- R$ 50" com espaços é travessão, e "-" no começo da linha é
+# marcador de lista (os dois já eram tratados à parte).
+_DINHEIRO = re.compile(r"(?<![\w$])(-)?R\$\s*(\d+(?:\.\d{3})*)(?:,(\d{2}))?")
+# "R$ 120 mil", "R$ 1,5 milhão": o formato de valor grande em notícia.
+_DINHEIRO_COM_ESCALA = re.compile(r"(?<![\w$])(-)?R\$\s*(\d+)(?:,(\d{1,2}))?\s+(mil|milhão|milhões|bilhão|bilhões)\b", re.IGNORECASE)
+
+
 def _reais(m: re.Match[str]) -> str:
     """"R$ 1.234,56" → "mil duzentos e trinta e quatro reais e cinquenta e seis centavos". Por extenso porque o Qwen3-TTS lia
-    números de 4 e 5 dígitos errado ("R$ 1.234,56" saía "R$ 134,56"); só valor em reais, que é sempre masculino."""
-    n = int(m.group(1).replace(".", ""))
-    centavos = int(m.group(2)) if m.group(2) else 0
+    números de 4 e 5 dígitos errado ("R$ 1.234,56" saía "R$ 134,56"); só valor em reais, que é sempre masculino. O sinal de
+    menos vira "menos" (o espeak do Piper lia o "-" colado em "-mil", e um saldo negativo saía positivo)."""
+    menos = "menos " if m.group(1) else ""
+    n = int(m.group(2).replace(".", ""))
+    centavos = int(m.group(3)) if m.group(3) else 0
     palavra = f"{por_extenso(centavos)} {'centavo' if centavos == 1 else 'centavos'}"
     if n == 0 and centavos:
-        return palavra  # "R$ 0,50" → "cinquenta centavos"
+        return menos + palavra  # "R$ 0,50" → "cinquenta centavos"
     de = "de " if n >= 10**6 and n % 10**6 == 0 else ""  # "um milhão de reais", mas "um milhão e cem reais"
     texto = "um real" if n == 1 else f"{por_extenso(n)} {de}reais"
-    return f"{texto} e {palavra}" if centavos else texto
+    return menos + (f"{texto} e {palavra}" if centavos else texto)
+
+
+def _reais_com_escala(m: re.Match[str]) -> str:
+    """"R$ 120 mil" → "cento e vinte mil reais"; "R$ 1,5 milhão" → "um vírgula cinco milhão de reais"."""
+    menos = "menos " if m.group(1) else ""
+    valor = por_extenso(int(m.group(2)))
+    if m.group(3):
+        decimal = m.group(3)
+        valor += " vírgula " + ("zero " if decimal.startswith("0") and len(decimal) > 1 else "") + por_extenso(int(decimal))
+    escala = m.group(4).lower()
+    return f"{menos}{valor} {escala} {'' if escala == 'mil' else 'de '}reais"
 
 
 # Unidades depois de um número (vêm muito em resposta de busca na web): (singular, plural). Ordem importa: km/h
@@ -153,7 +175,9 @@ def para_fala(texto: str) -> str:
     t = re.sub(r"[*_`#>]+", "", t)                               # markdown
     t = EMOJIS.sub("", t)
     t = re.sub(r"^\s*[-•]\s*", "", t, flags=re.MULTILINE)         # marcadores de lista
-    t = re.sub(r"R\$\s*([\d.]+)(?:,(\d{2}))?", _reais, t)
+    t = re.sub(r"(\d)\s+[xX×]\s+(?=R\$)", r"\1 vezes ", t)  # "12 x R$ 83,25" (parcela): antes do R$ virar palavra
+    t = _DINHEIRO_COM_ESCALA.sub(_reais_com_escala, t)
+    t = _DINHEIRO.sub(_reais, t)
     t = unidades(t)
     t = re.sub(r"\b(seg|ter|qua|qui|sex|sáb|dom)\s+(?=\d{1,2}/\d{1,2})", lambda m: DIAS_POR_EXTENSO[m.group(1)] + ", ", t)
     t = re.sub(r"\b(?:dia\s+)?(\d{1,2})/(\d{1,2})(?:/\d{2,4})?\b", _data, t)

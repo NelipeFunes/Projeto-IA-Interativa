@@ -85,7 +85,8 @@ def test_numeros_por_extenso(n, esperado):
 
 
 def test_por_extenso_bate_com_o_num2words_em_milhares_de_numeros():
-    """Gabarito independente: o num2words (que o XTTS já traz) em português do Brasil, sem as vírgulas entre os grupos."""
+    """Gabarito independente: o num2words (que o XTTS já traz) em português do Brasil, sem as vírgulas entre os grupos.
+    Pulado (em silêncio) se o grupo xtts do projeto não estiver instalado: aí valem só os casos escritos à mão."""
     num2words = pytest.importorskip("num2words").num2words
     from vision.voice.falado import por_extenso
 
@@ -120,5 +121,39 @@ def test_valores_em_reais_vao_por_extenso(texto, esperado):
 
 
 def test_outros_numeros_ficam_em_digito():
-    """Hora, data, porcentagem e quantidade pequena já saíam certas nos dois motores; não mexe (o gênero de 'duas mil' poderia errar)."""
+    """Hora, porcentagem e número com ponto já saíam certos nos dois motores; não mexe (o gênero de 'duas mil' poderia errar)."""
     assert para_fala("às 14h30, dia 21, 18%, 22 graus, 2.000 pessoas") == "às 14 e 30, dia 21, 18 por cento, 22 graus, 2.000 pessoas"
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    # revisão do PR 69: a troca por palavras não pode derrubar o que vinha depois e dependia dos dígitos
+    ("Sai por 12 x R$ 83,25 sem juros.", "Sai por 12 vezes oitenta e três reais e vinte e cinco centavos sem juros."),
+    ("3 x R$ 1.000,00", "3 vezes mil reais"),
+    ("Seu saldo ficou em -R$ 1.250,00.", "Seu saldo ficou em menos mil duzentos e cinquenta reais."),
+    ("saldo de - R$ 50,00", "saldo de até cinquenta reais"),  # hífen com espaços é travessão (vira "até", como sempre), não menos
+    ("saldo de -R$ 0,50", "saldo de menos cinquenta centavos"),
+])
+def test_valores_com_parcela_e_sinal(texto, esperado):
+    assert para_fala(texto) == esperado
+
+
+@pytest.mark.parametrize("texto", ["Os preços estão em R$.", "convertido para R$.", "R$", "R$ ,50", "R$.5", "valores em R$ e US$."])
+def test_cifrao_sem_numero_nao_derruba_a_fala(texto):
+    """Antes: `R$.` levantava ValueError e o laço de voz não falava o resto da resposta."""
+    assert "R$" in para_fala(texto)  # não levanta, e o texto fica como estava
+
+
+def test_ponto_final_depois_do_valor_continua_la():
+    assert para_fala("Gastou R$ 50. Depois parou.") == "Gastou cinquenta reais. Depois parou."
+
+
+@pytest.mark.parametrize("texto, esperado", [
+    ("O carro custa R$ 120 mil", "O carro custa cento e vinte mil reais"),
+    ("R$ 1,5 milhão", "um vírgula cinco milhão de reais"),
+    ("R$ 1,05 milhão", "um vírgula zero cinco milhão de reais"),
+    ("R$ 2 milhões", "dois milhões de reais"),
+    ("R$ 3 bilhões", "três bilhões de reais"),
+    ("saldo -R$ 15 mil", "saldo menos quinze mil reais"),
+])
+def test_valor_grande_com_mil_milhao_bilhao(texto, esperado):
+    assert para_fala(texto) == esperado
