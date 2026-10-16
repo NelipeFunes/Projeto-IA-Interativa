@@ -70,10 +70,26 @@ Com a mesma referência (13 s e a transcrição dela), uma frase por vez, o mesm
 | sem vírgulas + pausa máxima 0,18 s | **16,0** | 1,2 | 0,102 | 0,73 | 1,84 | 0 |
 
 Ele empata com o XTTS no ritmo (16,0, sem precisar acelerar) e ganha em timbre, pausas, RTF e paradas (usa CUDA graphs);
-perde um pouco no erro de palavras.
-**Mas** exige `transformers` 5.15.1, e o XTTS exige `transformers` menor que 5: os dois não convivem no mesmo ambiente
-(as versões 5.18 e 5.20 não carregam o modelo). Entrar no Vision pediria um processo separado (T-033). Qual soa melhor
-é decisão de ouvido.
+perde um pouco no erro de palavras. **Mas** exige `transformers` 5.15.1, e o XTTS exige `transformers` menor que 5: os dois
+não convivem no mesmo ambiente (as versões 5.18 e 5.20 não carregam o modelo). Por isso entrou como motor **opcional, num
+processo separado** (`voz.motor: qwen3`, PR seguinte ao do XTTS). Qual soa melhor é decisão de ouvido.
+
+### Como ficou (`vision/voice/tts_qwen.py` + `qwen_worker.py`, ambiente `servidor-voz/`)
+
+- O Vision sobe um processo com o Python do ambiente `servidor-voz/` (`uv sync --project servidor-voz`, versões fixas e
+  lock) e fala com ele **só por pipes** (stdin/stdout): sem rede, sem porta. O processo acaba sozinho se o Vision morrer.
+- Mesma interface do `VozXTTS`; o texto, o ganho e o `CompressorDePausas` rodam no Vision, iguais aos do XTTS.
+- **Modo jogo:** o processo é encerrado e a placa volta inteira (liberou ~4 GB; o XTTS só consegue mover o modelo para
+  a RAM). Voltar leva ~12 s.
+- **Volume:** o Qwen3-TTS fala no volume da gravação que clona (gravação com RMS 0,02 dava voz baixa). O processo nivela a
+  gravação para RMS 0,08 ao carregar (o mesmo do Piper).
+- Falhas: erro num pedido volta como `ErroDaVoz` e o laço fala o resto com o Piper; processo que cai reinicia no pedido
+  seguinte, com 30 s de espera para não reiniciar a cada frase; cancelar no meio da frase leva ~0,3 s.
+- Pede a gravação (3 a 15 s; 13 s funcionou bem) e, ao lado, a **transcrição exata** dela em `data/voz/<nome>.txt`.
+
+Medido com o código de produção e o modelo real (sem alto-falante, 5 frases): sobe em 14 a 22 s, 1º som 0,44 s, RTF 1,8 a
+2,3, nenhuma parada, o reconhecedor entendeu todas. **Limite:** numa frase com valor em dinheiro ("R$ 1.234,56") o
+reconhecedor ouviu "R$ 234,56" no Qwen3 (no XTTS saiu certo). Números grandes em dígito pedem conferência de ouvido (T-036).
 
 ## Com o modelo de linguagem escrevendo ao mesmo tempo
 

@@ -73,11 +73,21 @@ def baixar_xtts() -> None:
     print("xtts-v2 ok")
 
 
+def baixar_qwen3tts() -> None:
+    # Voz clonada alternativa (voz.motor: qwen3), ~2,4 GB, Apache-2.0. Revisão fixa (a de 29/01/2026).
+    # Roda num ambiente à parte: `uv sync --project servidor-voz` (ver docs/melhorias/voz-xtts.md).
+    snapshot_download("Qwen/Qwen3-TTS-12Hz-0.6B-Base", revision="5d83992436eae1d760afd27aff78a71d676296fc",
+                      local_dir=MODELOS / "qwen3_tts_0.6b")
+    print("qwen3-tts ok")
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--sem-ptbr", action="store_true", help="não baixa o Parakeet PT-BR de 2,5 GB")
     ap.add_argument("--xtts", action="store_true",
                     help="baixa também o XTTS-v2 (1,9 GB; licença CPML, só uso não comercial)")
+    ap.add_argument("--qwen3tts", action="store_true",
+                    help="baixa também o Qwen3-TTS 0.6B (2,4 GB, Apache-2.0) para voz.motor: qwen3")
     args = ap.parse_args()
     MODELOS.mkdir(exist_ok=True)
     baixar_piper()
@@ -85,6 +95,8 @@ def main() -> int:
     baixar_parakeet(incluir_ptbr=not args.sem_ptbr)
     if args.xtts:
         baixar_xtts()
+    if args.qwen3tts:
+        baixar_qwen3tts()
     return 0
 
 

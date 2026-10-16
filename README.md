@@ -58,6 +58,11 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   sozinho fazia ~0,5 s de pausa a cada vírgula, e era isso que dava a impressão de voz lenta e travada. Medidas,
   motivos de cada valor e o que não funcionou: `docs/melhorias/voz-xtts.md`. Sem a gravação, sem placa de vídeo ou
   com o jogo aberto, cai no Piper. Licença do modelo: Coqui Public Model License, só uso não comercial.
+- **Voz clonada, alternativa Qwen3-TTS (`voz.motor: qwen3`):** roda num processo e num ambiente separados
+  (`uv sync --project servidor-voz` e `python scripts/baixar_modelos.py --qwen3tts`), porque exige `transformers` 5.15.1
+  e o XTTS exige menor que 5. Pede a gravação (`data/voz/<nome>.wav`, 3 a 15 s) e, ao lado, a transcrição exata dela
+  (`data/voz/<nome>.txt`). No modo jogo o processo é encerrado e a placa volta inteira (~4 GB). Medidas e limites:
+  `docs/melhorias/voz-xtts.md`.
 - **Microfone:** usa o primeiro da lista `voz.microfone` que tiver som. Se ele ficar mudo ou desligado por
   1 minuto (headset sem fio), passa para o próximo; quando o primeiro volta, volta para ele. Fica no log.
 - **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.

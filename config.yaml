@@ -150,6 +150,15 @@ voz:
   xtts_tirar_virgulas: true   # tira vírgula, ponto e vírgula e dois-pontos do texto: o resto das pausas e do tempo parado
   xtts_velocidade: 1.1        # >1 fala mais rápido. A "velocidade_fala" da tela de Ajustes vale por cima (>1 = mais devagar)
   xtts_ganho: 0.5             # volume do XTTS (a saída dele é bem mais alta que a do Piper)
+  # Qwen3-TTS (motor `qwen3`, alternativa ao XTTS, em outro processo e outro ambiente: `uv sync --project servidor-voz` e
+  # `python scripts/baixar_modelos.py --qwen3tts`). Pede a gravação e, ao lado, a transcrição exata dela: data/voz/<nome>.txt.
+  # O Python do ambiente só vale aqui (config.yaml): o arquivo local não escolhe o que o Vision executa.
+  qwen3_python: servidor-voz/.venv/Scripts/python.exe
+  qwen3_idioma: Portuguese
+  qwen3_pausa_max_s: 0.15     # como o xtts_pausa_max_s
+  qwen3_tirar_virgulas: true
+  qwen3_ganho: 1.0
+  qwen3_pedaco: 8             # passos por pedaço do streaming (menor = 1º som mais cedo, mais trabalho)
   piper_ate_caracteres: 45    # com o XTTS, resposta de uma frase só até esse tamanho sai pelo Piper, na hora (0 = nunca;
                               # com voz clonada nunca sai: seria outra voz)
   voz_piper: pt_BR-faber-medium

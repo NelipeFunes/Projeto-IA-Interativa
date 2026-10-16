@@ -181,6 +181,7 @@ class VozXTTS:
     ganho = GANHO_XTTS
     velocidade_base = 1.0
     clonada = False  # fala com uma gravação de referência (`voz.referencia`)
+    rotulo = "XTTS"
 
     def definir_velocidade(self, velocidade_fala: float) -> None:
         """`voz.velocidade_fala` (a da tela de Ajustes, >1 fala mais devagar, como no Piper) vezes a velocidade
@@ -323,8 +324,11 @@ def carregar_voz(cfg: Config, nome: str | None = None) -> Voz | VozXTTS:
     """A voz do `voz.motor`. Se o XTTS não carregar (sem torch, sem placa, sem o modelo, sem a gravação de
     referência), fala com o Piper."""
     piper = carregar_piper(cfg, nome)
-    if nome is not None or cfg.get("voz.motor", "piper") != "xtts":
+    motor = cfg.get("voz.motor", "piper")
+    if nome is not None or motor not in ("xtts", "qwen3"):
         return piper
+    if motor == "qwen3":
+        return _carregar_qwen3(cfg, piper)
     try:
         idioma = str(cfg.get("voz.idioma", "pt"))
         pausa = _numero_do_config(cfg, "voz.xtts_pausa_max_s", PAUSA_MAX_S, 0.0, 2.0)
@@ -339,8 +343,32 @@ def carregar_voz(cfg: Config, nome: str | None = None) -> Voz | VozXTTS:
         return piper
 
 
-def descrever(voz: Voz | VozXTTS, cfg: Config) -> str:
-    return f"XTTS ({voz.falante})" if isinstance(voz, VozXTTS) else f"Piper ({cfg.get('voz.voz_piper')})"
+def _carregar_qwen3(cfg: Config, piper: Voz):
+    """`voz.motor: qwen3`: o Qwen3-TTS num processo separado (ver vision/voice/tts_qwen.py). Se algo faltar (o ambiente
+    `servidor-voz`, o modelo, a gravação ou a transcrição dela), fala com o Piper."""
+    try:
+        from vision.voice.tts_qwen import VozQwen
+
+        referencia = referencia_do_config(cfg)
+        if referencia is None:
+            raise ValueError("falta voz.referencia (o nome da gravação em data/voz, com a transcrição ao lado em .txt)")
+        return VozQwen(
+            cfg.caminho(str(cfg.get("voz.qwen3_python", "servidor-voz/.venv/Scripts/python.exe"))),
+            cfg.modelos / "qwen3_tts_0.6b", referencia, piper,
+            idioma=str(cfg.get("voz.qwen3_idioma", "Portuguese")),
+            pausa_max_s=_numero_do_config(cfg, "voz.qwen3_pausa_max_s", PAUSA_MAX_S, 0.0, 2.0) or None,
+            tirar_virgulas=bool(cfg.get("voz.qwen3_tirar_virgulas", True)),
+            ganho=_numero_do_config(cfg, "voz.qwen3_ganho", 1.0, 0.1, 2.0),
+            pedaco=int(_numero_do_config(cfg, "voz.qwen3_pedaco", 8, 2, 24)),
+            log_do_processo=cfg.dados / "logs" / "qwen3_tts.log")
+    except Exception as e:  # noqa: BLE001 - sem a voz boa, a robótica ainda serve
+        log.warning("Qwen3-TTS indisponível (%s); falando com o Piper", e)
+        return piper
+
+
+def descrever(voz, cfg: Config) -> str:
+    rotulo = getattr(voz, "rotulo", None)
+    return f"{rotulo} ({voz.falante})" if rotulo else f"Piper ({cfg.get('voz.voz_piper')})"
 
 
 def falar_texto(cfg: Config, texto: str) -> None:

@@ -8,7 +8,7 @@ Como usar:
 - Concluída leva a data e o PR (quando houver). Mudança neste arquivo também passa por branch e PR.
 - Este repositório é **público**: só tarefas técnicas aqui. Nada de dado pessoal, rotina ou credencial.
 
-Próximo código livre: **T-036**
+Próximo código livre: **T-037**
 
 ---
 
@@ -118,9 +118,11 @@ Próximo código livre: **T-036**
   - **Achados do mesmo teste, fora da transcrição:** "pode desligar" virou `pc_energia` (devia ser standby; só o "Confirma?" evitou o desligamento); "Tem compromisso hoje às 16h?" foi inventado com a agenda sem login (a regra "ofereça o próximo passo" faz o 4B chutar); respondeu "Bom dia" às 15h49; a 1ª resposta levou ~8 s por carga do modelo e o Felipe falou por cima.
 
 - [~] **T-032** 🔴 **Voz clonada: XTTS mais natural, rápido e sem travar** (pedido de 15/10; PR de voz aberto para ele validar de ouvido). Estudo com números em `docs/melhorias/voz-xtts.md`: o XTTS puro falava a ~11 letras/s com 22% do tempo em pausa (mediana de 0,54 s por vírgula); com a referência inteira, o texto sem ponto final nem vírgulas e o corte de pausas em tempo real chega a 16 letras/s (a voz de referência tem 16) e ~6% de pausa. **Falta:** ele ouvir (a medida de timbre e de erro não diz se soa humano), escolher entre as variações (com ou sem vírgulas, velocidade 1,1) e decidir o idioma.
-- [ ] **T-033** 🟡 **Qwen3-TTS como motor de voz** (desafiante do XTTS, medido em 16/10): mesma referência e mesmo tratamento, empata no ritmo (16 letras/s), timbre 0,73 contra 0,68, ~1% de pausa, RTF 1,8 contra 1,2 e nenhuma parada simulada; perde um pouco no erro de palavras. **Bloqueio:** exige `transformers` 5.15.1 e o XTTS exige menor que 5, então só entra num processo separado (outro ambiente `uv`, falando com o núcleo por um canal local; a mesma forma resolveria a T-034). Só vale se ele preferir o som.
+- [~] **T-033** 🟡 **Qwen3-TTS como motor de voz** (desafiante do XTTS, medido em 16/10; PR de voz aberto para ele ouvir): mesma referência e mesmo tratamento, empata no ritmo (16 letras/s), timbre 0,73 contra 0,68, ~1% de pausa, RTF 1,8 contra 1,2 e nenhuma parada simulada; perde um pouco no erro de palavras. Entrou como motor opcional num **processo separado** (`servidor-voz/`, pipes, sem rede) porque exige `transformers` 5.15.1 e o XTTS exige menor que 5; no modo jogo o processo morre e a placa volta inteira (~4 GB). **Falta:** ele ouvir e decidir qual motor fica.
 - [ ] **T-034** 🟡 **XTTS em outro processo** (achado de 16/10): a placa fica em 26% de uso porque a CPU limita (lançar centenas de operações pequenas por passo); no núcleo, o XTTS divide o GIL com o microfone, o VAD e o servidor. Um processo só para a voz tiraria essa disputa e isolaria uma falha de CUDA (a de 01/10 derrubou o Ollama). Medir o RTF dentro do núcleo antes e depois.
 - [ ] **T-035** 🟢 **Idioma do Vision** (ideia dele em 15/10: trocar tudo para inglês se o português clonado ficasse ruim). Não existe camada de idioma: o português está escrito direto em ~30 arquivos (prompt, 15 regex de intenção, 25 de fala, ~36 atalhos, 53 descrições de ferramenta, 92 erros, ~100 textos da interface, 82 casos de avaliação). Só começar se ele pedir.
+
+- [ ] **T-036** 🟡 **Números por extenso antes da voz** (achado de 16/10): o Qwen3-TTS leu "R$ 1.234,56" de um jeito que o reconhecedor entendeu "R$ 234,56" (o XTTS saiu certo). `falado.para_fala` deixa números grandes em dígito; expandir para português por extenso (mil, milhão, um/uma) e conferir os dois motores com valores de dinheiro, hora e porcentagem, de ouvido.
 
 ## Em andamento
 

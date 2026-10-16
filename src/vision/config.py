@@ -26,7 +26,7 @@ CHAVES_AJUSTAVEIS |= CHAVES_LIGA_DESLIGA
 # Gravadas pela tela de Conexões (não pela de Ajustes). O IP da TV é da sua rede: só no arquivo local.
 CHAVES_DE_CONEXAO = {"tv.ip"}
 # A voz clonada fica só neste computador (data/voz/<nome>.wav, fora do git): quem escolhe é o arquivo local, sem tela.
-MOTORES_DE_VOZ = ("piper", "xtts")
+MOTORES_DE_VOZ = ("piper", "xtts", "qwen3")
 CHAVES_DE_VOZ_LOCAL = {"voz.motor", "voz.referencia"}
 
 
