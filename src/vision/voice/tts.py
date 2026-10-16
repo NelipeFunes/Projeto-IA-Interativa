@@ -366,7 +366,7 @@ def _carregar_qwen3(cfg: Config, piper: Voz):
             cfg.modelos / "qwen3_tts_0.6b", referencia, piper,
             idioma=str(cfg.get("voz.qwen3_idioma", "Portuguese")),
             pausa_max_s=_numero_do_config(cfg, "voz.qwen3_pausa_max_s", PAUSA_MAX_S, 0.0, 2.0) or None,
-            tirar_virgulas=bool(cfg.get("voz.qwen3_tirar_virgulas", True)),
+            tirar_virgulas=bool(cfg.get("voz.qwen3_tirar_virgulas", False)),
             ganho=_numero_do_config(cfg, "voz.qwen3_ganho", 1.0, 0.1, 2.0),
             pedaco=int(_numero_do_config(cfg, "voz.qwen3_pedaco", 8, 2, 24)),
             log_do_processo=cfg.dados / "logs" / "qwen3_tts.log")

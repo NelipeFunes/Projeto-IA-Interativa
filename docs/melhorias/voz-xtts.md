@@ -67,22 +67,41 @@ Durante a geração a placa fica em **26%** de uso (`rodadas/velocidade.json`). 
 ajudarem. Para ganhar velocidade de verdade, o caminho provável é outro processo (sem a disputa do GIL com o microfone e
 o resto do núcleo), CUDA graphs ou outro motor; nenhum dos três foi medido para o XTTS aqui.
 
-## Desafiante: Qwen3-TTS 0.6B (Apache-2.0)
+## Desafiante: Qwen3-TTS 0.6B (Apache-2.0), agora motor opcional
 
-Com o mesmo tratamento (uma frase por vez, mesmo preparo de texto, mesmo compressor), mas **com a gravação que ele pede**
-(13 s e a transcrição dela; o XTTS acima usa 30 s). Com 13 s, o XTTS fica com timbre 0,62 (rodada 8), então o Qwen3-TTS
-leva ainda mais vantagem nessa comparação:
+Medido **como roda no Vision** (`VozQwen`, processo real, gravação nivelada, configuração padrão do `config.yaml`), com a
+gravação que ele pede (13 s e a transcrição dela; o XTTS usa a de 30 s, e com 13 s ele fica em timbre 0,62), 20 áudios por
+linha. O XTTS é a linha do padrão dele, para comparar:
 
-| Configuração | letras/s | pausa % | erro | timbre | RTF | paradas |
+| Motor e configuração | letras/s | pausa % | erro | timbre | RTF | paradas |
 |---|---|---|---|---|---|---|
-| com vírgulas, sem compressor | 14,2 | 10,0 | 0,087 | 0,75 | 2,02 | 0 |
-| com vírgulas + pausa máxima 0,18 s | 15,3 | 2,5 | 0,097 | 0,74 | 1,81 | 0 |
-| sem vírgulas + pausa máxima 0,18 s | **16,0** | 1,2 | 0,102 | 0,73 | 1,84 | 0 |
+| Qwen3-TTS, padrão (vírgulas mantidas) | **15,2** | 6,7 | 0,095 | **0,76** | **1,96** | **0 de 20** |
+| Qwen3-TTS, sem vírgulas | 15,1 | 4,8 | 0,096 | 0,75 | 2,02 | 0 de 20 |
+| XTTS, padrão (velocidade 1,1) | 14,7 | 10,7 | 0,076 | 0,66 | 1,13 | 9 de 20 |
 
-Ele empata com o XTTS no ritmo e ganha em timbre, pausas, RTF e paradas (usa CUDA graphs); perde um pouco no erro de
-palavras. **Mas** exige `transformers` 5.15.1, e o XTTS exige `transformers` menor que 5: os dois não convivem no mesmo
-ambiente (as versões 5.18 e 5.20 não carregam o modelo). Entrar no Vision pede um processo separado (T-033). Qual soa
-melhor é decisão de ouvido.
+Ele ganha em ritmo (sem acelerar), pausas, timbre, RTF e paradas (usa CUDA graphs) e perde um pouco no erro de palavras.
+O 1º som sai em ~0,42 s, igual ao do XTTS. **Mas** exige `transformers` 5.15.1, e o XTTS exige `transformers` menor que 5:
+os dois não convivem no mesmo ambiente (as versões 5.18 e 5.20 não carregam o modelo). Por isso entrou como motor
+**opcional, num processo separado** (`voz.motor: qwen3`, PR seguinte ao do XTTS). Qual soa melhor é decisão de ouvido.
+
+### Como ficou (`vision/voice/tts_qwen.py` + `qwen_worker.py`, ambiente `servidor-voz/`)
+
+- O Vision sobe um processo com o Python do ambiente `servidor-voz/` (`uv sync --project servidor-voz`, versões fixas e
+  lock; criado do zero a partir do lock funcionou) e fala com ele **só por pipes** (stdin/stdout): sem rede, sem porta.
+  O processo acaba sozinho se o Vision morrer.
+- Mesma interface do `VozXTTS`; o texto, o ganho e o `CompressorDePausas` rodam no Vision, iguais aos do XTTS.
+- **Modo jogo:** o processo é encerrado e a placa volta inteira (liberou ~4 GB; o XTTS só consegue mover o modelo para
+  a RAM). Voltar leva ~12 s.
+- **Volume:** o Qwen3-TTS fala no volume da gravação que clona (gravação com RMS 0,02 dava voz baixa). O processo nivela a
+  gravação para RMS 0,08 ao carregar (o mesmo do Piper); a fala saiu com RMS médio 0,075.
+- Falhas: erro num pedido volta como `ErroDaVoz` e o laço fala o resto com o Piper; processo que cai reinicia no pedido
+  seguinte, com 30 s de espera para não reiniciar a cada frase; cancelar no meio da frase leva ~0,3 s.
+- Pede a gravação (3 a 15 s; 13 s funcionou bem) e, ao lado, a **transcrição exata** dela em `data/voz/<nome>.txt`.
+- Sobe em 14 a 22 s. Com o Ollama gerando ao mesmo tempo ele cai para RTF 0,58, como o XTTS (a disputa pela placa não é
+  de um motor só).
+
+**Limite:** numa frase com valor em dinheiro ("R$ 1.234,56") o reconhecedor ouviu "R$ 234,56" no Qwen3 (no XTTS saiu
+certo); a conferência é de ouvido (T-036).
 
 ## Com o modelo de linguagem escrevendo ao mesmo tempo
 

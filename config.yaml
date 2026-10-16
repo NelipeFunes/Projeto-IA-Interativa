@@ -158,7 +158,7 @@ voz:
   qwen3_python: servidor-voz/.venv/Scripts/python.exe
   qwen3_idioma: Portuguese
   qwen3_pausa_max_s: 0.15     # como o xtts_pausa_max_s
-  qwen3_tirar_virgulas: true
+  qwen3_tirar_virgulas: false # como o xtts_tirar_virgulas (desligado: rende pouco e pode mudar o sentido)
   qwen3_ganho: 1.0
   qwen3_pedaco: 8             # passos por pedaço do streaming (menor = 1º som mais cedo, mais trabalho)
   piper_ate_caracteres: 45    # com o XTTS, resposta de uma frase só até esse tamanho sai pelo Piper, na hora (0 = nunca;

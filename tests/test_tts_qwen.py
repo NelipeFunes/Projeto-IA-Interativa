@@ -77,10 +77,25 @@ def test_fala_em_pedacos_com_o_texto_preparado_e_sem_pausa_longa(fabrica):
     voz = fabrica()
     saida = np.concatenate(list(voz.pedacos("Pronto, acendi as luzes do quarto.", normalizar=False)))
     pedidos = [m for m in fabrica.recebido() if m["op"] == "falar"]
-    assert [m["texto"] for m in pedidos] == ["Pronto acendi as luzes do quarto"]  # sem ponto final e sem vírgula
+    assert [m["texto"] for m in pedidos] == ["Pronto, acendi as luzes do quarto"]  # sem o ponto final; a vírgula fica
     esperado = 0.4 + PAUSA_MAX_S + 0.4 + FIM_S  # começo cortado, pausa limitada, silêncio do fim = FIM_S
     assert abs(saida.size / 24000 - esperado) < 0.05
     assert 0.29 < float(np.abs(saida).max()) <= 0.3 + 1e-4
+
+
+def test_pode_tirar_as_virgulas_mas_a_da_primeira_palavra_fica(fabrica):
+    voz = fabrica(tirar_virgulas=True)
+    voz.sintetizar("Não, está tudo certo, pode sair.", normalizar=False)
+    assert [m["texto"] for m in fabrica.recebido() if m["op"] == "falar"] == ["Não, está tudo certo pode sair"]
+
+
+@pytest.mark.parametrize("ganho", [0.5, 1.0, 2.0])
+def test_o_limiar_do_compressor_acompanha_o_ganho(ganho, fabrica, monkeypatch):
+    """Chiado cru de 0,004 nas pausas não pode virar fala só porque o ganho subiu (o compressor vem depois do ganho)."""
+    monkeypatch.setenv("FAKE_RUIDO", "0.004")
+    voz = fabrica(ganho=ganho)
+    saida = voz.sintetizar("Oi.", normalizar=False)
+    assert abs(saida.size / 24000 - (0.4 + PAUSA_MAX_S + 0.4 + FIM_S)) < 0.06
 
 
 def test_sintetizar_junta_os_pedacos(fabrica):
@@ -214,13 +229,13 @@ def test_carregar_voz_qwen3_passa_o_que_o_config_diz(monkeypatch, cfg):
 
     monkeypatch.setattr(tts, "carregar_piper", lambda _cfg, _nome=None: Piper())
     monkeypatch.setattr(tts_qwen, "VozQwen", Capturada)
-    cfg.bruto.setdefault("voz", {}).update(motor="qwen3", referencia="jarvis", qwen3_pausa_max_s=0.2, qwen3_tirar_virgulas=False,
+    cfg.bruto.setdefault("voz", {}).update(motor="qwen3", referencia="jarvis", qwen3_pausa_max_s=0.2, qwen3_tirar_virgulas=True,
                                           qwen3_ganho="1,5", qwen3_pedaco=4)
     tts.carregar_voz(cfg)
     assert recebido["referencia"] == cfg.dados / "voz" / "jarvis.wav"
     assert recebido["modelo"] == cfg.modelos / "qwen3_tts_0.6b"
     assert recebido["python"] == cfg.raiz / "servidor-voz" / ".venv" / "Scripts" / "python.exe"
-    assert (recebido["pausa_max_s"], recebido["tirar_virgulas"], recebido["ganho"], recebido["pedaco"]) == (0.2, False, 1.5, 4)
+    assert (recebido["pausa_max_s"], recebido["tirar_virgulas"], recebido["ganho"], recebido["pedaco"]) == (0.2, True, 1.5, 4)
     assert recebido["log_do_processo"] == cfg.dados / "logs" / "qwen3_tts.log"
 
 

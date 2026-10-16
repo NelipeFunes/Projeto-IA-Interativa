@@ -1,11 +1,12 @@
 """Processo falso com o mesmo protocolo do vision/voice/qwen_worker.py (só biblioteca padrão), para testar o `VozQwen`.
-O comportamento vem de FAKE_MODO: normal | lento | nao_sobe; e do texto do pedido: "quebra" manda erro, "morre" derruba
+O comportamento vem de FAKE_MODO: normal | lento | nao_sobe (FAKE_RUIDO: chiado cru nas pausas); e do texto do pedido: "quebra" manda erro, "morre" derruba
 o processo no meio da fala. FAKE_LOG (arquivo) recebe uma linha JSON por mensagem recebida."""
 
 import json
 import math
 import os
 import queue
+import random
 import struct
 import sys
 import threading
@@ -36,8 +37,12 @@ def tom(segundos: float) -> list[float]:
     return [0.3 * math.sin(2 * math.pi * 220 * i / TAXA) for i in range(int(TAXA * segundos))]
 
 
+RUIDO = float(os.environ.get("FAKE_RUIDO", "0"))
+sorteio = random.Random(0)
+
+
 def mudo(segundos: float) -> list[float]:
-    return [0.0] * int(TAXA * segundos)
+    return [sorteio.gauss(0, RUIDO) if RUIDO else 0.0 for _ in range(int(TAXA * segundos))]
 
 
 if modo == "nao_sobe":

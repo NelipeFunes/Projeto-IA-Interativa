@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 
 from vision.voice.falado import para_fala
-from vision.voice.pausas import PAUSA_MAX_S, CompressorDePausas, preparar_texto
+from vision.voice.pausas import LIMIAR_SILENCIO, PAUSA_MAX_S, CompressorDePausas, preparar_texto
 from vision.voice.tts import LIMITE_XTTS, dividir
 
 log = logging.getLogger(__name__)
@@ -54,7 +54,7 @@ class VozQwen:
     rotulo = "Qwen3-TTS"
 
     def __init__(self, python: Path, modelo: Path, referencia: Path, reserva, *, idioma: str = "Portuguese",
-                 pausa_max_s: float | None = PAUSA_MAX_S, tirar_virgulas: bool = True, ganho: float = 1.0,
+                 pausa_max_s: float | None = PAUSA_MAX_S, tirar_virgulas: bool = False, ganho: float = 1.0,
                  pedaco: int = 8, so_timbre: bool = False, log_do_processo: Path | None = None,
                  partida_max_s: float = 180.0, prazo_s: float = 30.0, espera_reinicio_s: float = 30.0,
                  trabalhador: Path = TRABALHADOR):
@@ -245,7 +245,10 @@ class VozQwen:
                 return
             self._garantir_processo()
             for trecho in self._trechos(texto):
-                compressor = CompressorDePausas(self.taxa, self.pausa_max_s) if self.pausa_max_s else None
+                # O limiar acompanha o ganho (o compressor vem depois dele): a fala crua do Qwen3-TTS, com a gravação nivelada
+                # em RMS 0,08, fica perto do nível em que o limiar padrão foi medido.
+                compressor = (CompressorDePausas(self.taxa, self.pausa_max_s, limiar=LIMIAR_SILENCIO * self.ganho)
+                              if self.pausa_max_s else None)
                 for pedaco in self._pedir(trecho):
                     audio = self._volume(pedaco)
                     if compressor:
