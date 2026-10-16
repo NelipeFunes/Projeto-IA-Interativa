@@ -522,10 +522,10 @@ class Nucleo:
             if self.laco is not None:
                 self.laco.ajustar_silencio(float(self.cfg.get("voz.conversa_silencio_max_s", 120)))
                 if (self.cfg.get("voz.voz_piper"), self.cfg.get("voz.velocidade_fala")) != voz_antes:
-                    from vision.voice.tts import VozXTTS, carregar_piper, carregar_voz
+                    from vision.voice.tts import carregar_piper, carregar_voz
 
                     voz = self.laco.voz
-                    if isinstance(voz, VozXTTS):  # a voz do Piper é só a reserva: não recarrega o XTTS (14 s)
+                    if hasattr(voz, "definir_velocidade"):  # XTTS ou Qwen3: o Piper é só a reserva, não recarrega (14 s)
                         voz.reserva = await asyncio.to_thread(carregar_piper, self.cfg)
                         voz.definir_velocidade(float(self.cfg.get("voz.velocidade_fala", 1.0)))
                     else:

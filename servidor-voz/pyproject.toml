@@ -1,0 +1,32 @@
+[project]
+name = "vision-servidor-voz"
+version = "0.1.0"
+description = "Ambiente separado do Qwen3-TTS (voz.motor: qwen3): ele exige transformers 5.15.1 e o XTTS do Vision, menor que 5."
+requires-python = ">=3.12,<3.13"
+# Versões fixas: o faster-qwen3-tts só carregou o modelo com o transformers 5.15.1 (a 5.18 e a 5.20 falham em
+# MimiConfig.rope_theta). Se mexer aqui, rode `.venv\Scripts\python.exe` e confira com `vision falar` antes de mesclar.
+dependencies = [
+    "faster-qwen3-tts==0.5.4",
+    "transformers==5.15.1",
+    "torch==2.8.0",
+    "torchaudio==2.8.0",
+    "numpy==2.5.4",
+]
+
+[tool.uv]
+# Só Windows, como o projeto principal.
+environments = ["sys_platform == 'win32'"]
+# Este projeto só serve de ambiente: não é um pacote.
+package = false
+# O `sox` só tem código-fonte (sdist): ele é COMPILADO na instalação e rodaria com o setuptools que estivesse na hora.
+# Fixo, igual ao do lock (o torch já exige setuptools).
+build-constraint-dependencies = ["setuptools==84.0.0"]
+
+[[tool.uv.index]]
+name = "pytorch-cu128"  # RTX 50xx (Blackwell) precisa do CUDA 12.8
+url = "https://download.pytorch.org/whl/cu128"
+explicit = true
+
+[tool.uv.sources]
+torch = { index = "pytorch-cu128" }
+torchaudio = { index = "pytorch-cu128" }

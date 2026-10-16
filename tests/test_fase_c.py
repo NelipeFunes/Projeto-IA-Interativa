@@ -281,6 +281,20 @@ def test_arquivo_local_recusa_motor_e_referencia_invalidos(conteudo, monkeypatch
     assert cfg.get("voz.motor") == "piper" and not cfg.get("voz.referencia")
 
 
+def test_arquivo_local_aceita_o_motor_qwen3(monkeypatch, tmp_path):
+    cfg = _carregar_com_local("voz.motor: qwen3\nvoz.referencia: jarvis-13s\n", monkeypatch, tmp_path)
+    assert cfg.get("voz.motor") == "qwen3" and cfg.get("voz.referencia") == "jarvis-13s"
+
+
+def test_arquivo_local_nao_escolhe_o_executavel_nem_os_ajustes_do_qwen3(monkeypatch, tmp_path):
+    """A invariante de segurança do PR 68: `voz.qwen3_python` é o programa que o Vision EXECUTA; só o config.yaml (do repositório)
+    decide. O arquivo local (que a tela e a API alteram) só escolhe o motor e o nome da gravação."""
+    cfg = _carregar_com_local("voz.qwen3_python: C:/x/outro.exe\nvoz.qwen3_pedaco: 4\nvoz.qwen3_idioma: English\n",
+                              monkeypatch, tmp_path)
+    assert cfg.get("voz.qwen3_python") == "servidor-voz/.venv/Scripts/python.exe"
+    assert cfg.get("voz.qwen3_pedaco") == 8 and cfg.get("voz.qwen3_idioma") == "Portuguese"
+
+
 def test_trocar_de_microfone_nao_empilha_a_lista(cfg_ajustes):
     cfg_ajustes.bruto.setdefault("voz", {})["microfone"] = ["Microfone (C920)", "HyperX", "C920"]
     m = ajustes.validar(cfg_ajustes, {"voz.microfone": "Microfone (HyperX Cloud)"})
