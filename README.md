@@ -1,7 +1,8 @@
 # Vision
 
 Assistente pessoal local do Felipe (comando `vision`): agenda (Google), finanças e tarefas (Orbit) e memória, por texto ou voz,
-100% no PC, sem pagar tokens. Cérebro: Qwen3.5 no Ollama (GPU). Ouvido: Parakeet (CPU). Voz: Piper (CPU).
+100% no PC, sem pagar tokens. Cérebro: Qwen3.5 no Ollama (GPU). Ouvido: Parakeet (CPU). Voz: Piper (CPU) ou, mais
+natural, o XTTS-v2 clonando uma gravação (GPU).
 
 ## Instalação (Windows)
 
@@ -50,6 +51,13 @@ vision nucleo            # o mesmo núcleo, com log no console (para ver o que a
   sotaque e corta a TV) e mostra as notas para escolher `voz.limiar_ativacao` (que também está na tela de Ajustes, como "Sensibilidade da ativação", de 0,15 a 0,95; vale ao reiniciar). As gravações ficam em
   `data/ativacao/minha_voz/` e não saem do PC (o Colab só recebe as vozes sintéticas). Sem o modelo, fica só a
   transcrição, como antes.
+- **Voz clonada (XTTS):** o Piper é instantâneo, mas soa robótico. O XTTS-v2 clona a voz de uma gravação sua de
+  10 a 30 s (`data/voz/<nome>.wav`, fora do git) e fala bem mais natural. Instale o modelo com
+  `python scripts/baixar_modelos.py --xtts` e, em `data/config-local.yaml`, ponha `voz.motor: xtts` e
+  `voz.referencia: <nome>`. O texto e o áudio passam por um tratamento de pausas (`vision/voice/pausas.py`): o XTTS
+  sozinho fazia ~0,5 s de pausa a cada vírgula, e era isso que dava a impressão de voz lenta e travada. Medidas,
+  motivos de cada valor e o que não funcionou: `docs/melhorias/voz-xtts.md`. Sem a gravação, sem placa de vídeo ou
+  com o jogo aberto, cai no Piper. Licença do modelo: Coqui Public Model License, só uso não comercial.
 - **Microfone:** usa o primeiro da lista `voz.microfone` que tiver som. Se ele ficar mudo ou desligado por
   1 minuto (headset sem fio), passa para o próximo; quando o primeiro volta, volta para ele. Fica no log.
 - **Atalhos:** `ctrl+alt+j` fala com ele; `ctrl+alt+k` abre a janela.

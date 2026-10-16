@@ -1,6 +1,7 @@
 """Texto → voz. Dois motores (`voz.motor`):
 - `xtts`: XTTS-v2 na placa de vídeo (~2 GB de VRAM), voz natural, ~1 s por frase curta. Licença do modelo: Coqui
-  Public Model License (só uso não comercial). No modo jogo ela sai da VRAM e quem fala é o Piper.
+  Public Model License (só uso não comercial). Com `voz.referencia` ele clona uma gravação (data/voz/<nome>.wav,
+  fora do git). No modo jogo ela sai da VRAM e quem fala é o Piper.
 - `piper`: Piper (ONNX, CPU, vozes pt_BR), instantâneo, mais robótico. É também a reserva do XTTS."""
 
 from __future__ import annotations
@@ -16,6 +17,7 @@ import numpy as np
 
 from vision.config import Config
 from vision.voice.falado import para_fala
+from vision.voice.pausas import PAUSA_MAX_S, CompressorDePausas, preparar_texto
 
 log = logging.getLogger(__name__)
 
@@ -111,15 +113,32 @@ class Voz:
         return np.concatenate([x for p in partes for x in (p, self.pausa)]).astype(np.float32)
 
 
+# Quanto da gravação de referência o XTTS usa (o padrão dele é 6 s). Medido (docs/melhorias/voz-xtts.md): com a MESMA
+# gravação, 6 s e 30 s dão o mesmo timbre e o ritmo muda pouco; já uma gravação de 30 s dá timbre melhor que uma de 13 s.
+REFERENCIA_S = 30
+GANHO_XTTS = 0.5  # a saída do XTTS tem RMS ~0,15 e picos de 0,97; o Piper, depois do acabamento, 0,08 (mesmo volume)
+PICO_XTTS = 0.98
+# O compressor corta o que está abaixo desse nível e vem DEPOIS do ganho: o limiar acompanha o ganho (a fala crua do XTTS
+# tem RMS ~0,15 e o silêncio entre as palavras fica bem abaixo de 0,012). Com um limiar fixo, subir o ganho fazia o ruído
+# baixo contar como fala e as pausas voltavam.
+LIMIAR_CRU_XTTS = 0.012
+
+
 class VozXTTS:
-    """XTTS-v2 com uma das vozes de estúdio que vêm com o modelo (`voz.xtts_falante`).
+    """XTTS-v2, clonando uma gravação de referência (`voz.referencia`) ou, sem ela, com uma das vozes de estúdio
+    que vêm com o modelo (`voz.xtts_falante`).
+
+    O XTTS sozinho fala devagar e trava: ~22% do tempo era pausa, quase toda em vírgula e dois-pontos. Por isso o
+    texto passa por `preparar_texto` e o áudio por `CompressorDePausas` (ver vision/voice/pausas.py).
 
     `descansar()` (modo jogo) tira o modelo da VRAM e passa a falar com a `reserva` (Piper); `acordar()` volta.
     O áudio sai sempre a 24 kHz, mesmo o da reserva, para a taxa não mudar no meio de uma resposta."""
 
     taxa = 24000
 
-    def __init__(self, pasta: Path, falante: str, reserva: Voz, velocidade: float = 1.0, idioma: str = "pt"):
+    def __init__(self, pasta: Path, falante: str, reserva: Voz, velocidade: float = 1.0, idioma: str = "pt", *,
+                 referencia: Path | None = None, pausa_max_s: float | None = PAUSA_MAX_S, tirar_virgulas: bool = False,
+                 ganho: float = GANHO_XTTS, velocidade_base: float = 1.0):
         import torch
         from TTS.tts.configs.xtts_config import XttsConfig
         from TTS.tts.models.xtts import Xtts
@@ -128,18 +147,32 @@ class VozXTTS:
             raise FileNotFoundError(f"XTTS-v2 não encontrado em {pasta} (rode scripts/baixar_modelos.py --xtts)")
         if not torch.cuda.is_available():
             raise RuntimeError("sem placa de vídeo com CUDA para o XTTS")
+        if referencia is not None and not referencia.is_file():
+            raise FileNotFoundError(f"gravação de referência não encontrada: {referencia}")
         cfg = XttsConfig()
         cfg.load_json(str(pasta / "config.json"))
         self.modelo = Xtts.init_from_config(cfg)
         self.modelo.load_checkpoint(cfg, checkpoint_dir=str(pasta), use_deepspeed=False)
-        falantes = self.modelo.speaker_manager.speakers
-        if falante not in falantes:
-            raise ValueError(f"voz '{falante}' não existe no XTTS (opções: {', '.join(sorted(falantes))})")
-        self.latente, self.timbre = falantes[falante].values()
+        if referencia is not None:
+            with torch.inference_mode():
+                self.latente, self.timbre = self.modelo.get_conditioning_latents(
+                    audio_path=[str(referencia)], gpt_cond_len=REFERENCIA_S, gpt_cond_chunk_len=6,
+                    max_ref_length=REFERENCIA_S)
+            falante = referencia.stem
+            self.clonada = True
+        else:
+            falantes = self.modelo.speaker_manager.speakers
+            if falante not in falantes:
+                raise ValueError(f"voz '{falante}' não existe no XTTS (opções: {', '.join(sorted(falantes))})")
+            self.latente, self.timbre = falantes[falante].values()
         self.falante = falante
         self.reserva = reserva
         self.idioma = idioma
-        self.velocidade = 1.0 / max(velocidade, 0.1)  # no config, >1 fala mais devagar (como no Piper)
+        self.pausa_max_s = pausa_max_s
+        self.tirar_virgulas = tirar_virgulas
+        self.ganho = ganho
+        self.velocidade_base = velocidade_base
+        self.definir_velocidade(velocidade)
         self._trava = threading.Lock()  # uma síntese por vez; descansar/acordar esperam a frase terminar
         self.descansando = False
         # Tokens por pedaço do streaming. Medido em 01/10 (1ª palavra / resposta de 6 s): 20 → 0,67 s; 12 → 0,40 s;
@@ -147,6 +180,25 @@ class VozXTTS:
         self.pedaco_tokens = 12
         self.modelo.cuda().eval()
         self.sintetizar("Oi.")  # a primeira síntese compila os kernels: melhor aqui do que na 1ª resposta
+
+    # Padrões de classe: quem monta a voz sem o `__init__` (os testes) ainda funciona.
+    pausa_max_s: float | None = PAUSA_MAX_S
+    tirar_virgulas = False
+    ganho = GANHO_XTTS
+    velocidade_base = 1.0
+    clonada = False  # fala com uma gravação de referência (`voz.referencia`)
+
+    def definir_velocidade(self, velocidade_fala: float) -> None:
+        """`voz.velocidade_fala` (a da tela de Ajustes, >1 fala mais devagar, como no Piper) vezes a velocidade
+        própria do XTTS (`voz.xtts_velocidade`, >1 fala mais rápido)."""
+        self.velocidade = self.velocidade_base / max(velocidade_fala, 0.1)
+
+    def _trechos(self, texto: str) -> list[str]:
+        """O texto como o XTTS deve receber, em pedaços de até `LIMITE_XTTS` caracteres."""
+        return [t for t in (preparar_texto(p, self.tirar_virgulas) for p in dividir(texto)) if t]
+
+    def _volume(self, audio) -> np.ndarray:
+        return np.clip(np.asarray(audio, dtype=np.float32) * self.ganho, -PICO_XTTS, PICO_XTTS)
 
     def sintetizar(self, texto: str, normalizar: bool = True) -> np.ndarray:
         import torch
@@ -161,10 +213,14 @@ class VozXTTS:
                 return reamostrar(self.reserva.sintetizar(texto, normalizar=False), self.reserva.taxa, self.taxa)
             partes = []
             with torch.inference_mode():
-                for pedaco in dividir(texto):
-                    saida = self.modelo.inference(pedaco, self.idioma, self.latente, self.timbre,
+                for trecho in self._trechos(texto):
+                    saida = self.modelo.inference(trecho, self.idioma, self.latente, self.timbre,
                                                   speed=self.velocidade, enable_text_splitting=False)
-                    partes.append(np.asarray(saida["wav"], dtype=np.float32))
+                    audio = self._volume(saida["wav"])
+                    if self.pausa_max_s:
+                        compressor = CompressorDePausas(self.taxa, self.pausa_max_s, limiar=LIMIAR_CRU_XTTS * self.ganho)
+                        audio = np.concatenate([compressor.processar(audio), compressor.terminar()])
+                    partes.append(audio)
         return np.concatenate(partes) if partes else np.zeros(0, dtype=np.float32)
 
     def pedacos(self, texto: str, normalizar: bool = True) -> Iterator[np.ndarray]:
@@ -182,12 +238,22 @@ class VozXTTS:
                 yield reamostrar(self.reserva.sintetizar(texto, normalizar=False), self.reserva.taxa, self.taxa)
                 return
             with torch.inference_mode():
-                for trecho in dividir(texto):
+                for trecho in self._trechos(texto):
+                    compressor = (CompressorDePausas(self.taxa, self.pausa_max_s, limiar=LIMIAR_CRU_XTTS * self.ganho)
+                                  if self.pausa_max_s else None)
                     for pedaco in self.modelo.inference_stream(trecho, self.idioma, self.latente, self.timbre,
                                                                stream_chunk_size=self.pedaco_tokens,
                                                                speed=self.velocidade,
                                                                enable_text_splitting=False):
-                        yield pedaco.cpu().numpy().astype(np.float32)
+                        audio = self._volume(pedaco.cpu().numpy())
+                        if compressor:
+                            audio = compressor.processar(audio)
+                        if audio.size:
+                            yield audio
+                    if compressor:
+                        resto = compressor.terminar()
+                        if resto.size:
+                            yield resto
 
     def descansar(self) -> None:
         import torch
@@ -235,14 +301,48 @@ def carregar_piper(cfg: Config, nome: str | None = None) -> Voz:
                pausa_s=numero("voz.pausa_entre_frases_s", 0.0, 1.0))
 
 
+IDIOMAS_XTTS = ("en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "ar", "zh-cn", "hu", "ko", "ja", "hi")
+
+
+def referencia_do_config(cfg: Config) -> Path | None:
+    """`voz.referencia` é só o nome: a gravação fica em data/voz/<nome>.wav (fora do git, é uma voz de pessoa)."""
+    nome = cfg.get("voz.referencia")
+    if not nome:
+        return None
+    nome = str(nome)
+    if nome.lower().endswith(".wav"):  # quem escreve o nome do arquivo inteiro também é atendido
+        nome = nome[:-4]
+    if any(c in nome for c in "/\\:") or ".." in nome:
+        raise ValueError(f"voz.referencia inválida: {nome!r} (é só o nome do arquivo em data/voz)")
+    return cfg.dados / "voz" / f"{nome}.wav"
+
+
+def _numero_do_config(cfg: Config, chave: str, padrao: float, minimo: float, maximo: float) -> float:
+    valor = cfg.get(chave)
+    if valor is None or valor == "":
+        return padrao
+    try:
+        return min(max(float(str(valor).replace(",", ".")), minimo), maximo)
+    except ValueError:
+        log.warning("%s inválido no config (%r): usando %s", chave, valor, padrao)
+        return padrao
+
+
 def carregar_voz(cfg: Config, nome: str | None = None) -> Voz | VozXTTS:
-    """A voz do `voz.motor`. Se o XTTS não carregar (sem torch, sem placa, sem o modelo), fala com o Piper."""
+    """A voz do `voz.motor`. Se o XTTS não carregar (sem torch, sem placa, sem o modelo, sem a gravação de
+    referência), fala com o Piper."""
     piper = carregar_piper(cfg, nome)
     if nome is not None or cfg.get("voz.motor", "piper") != "xtts":
         return piper
     try:
+        idioma = str(cfg.get("voz.idioma", "pt"))
+        pausa = _numero_do_config(cfg, "voz.xtts_pausa_max_s", PAUSA_MAX_S, 0.0, 2.0)
         return VozXTTS(cfg.modelos / "xtts_v2", str(cfg.get("voz.xtts_falante", "Tanja Adelina")), piper,
-                       float(cfg.get("voz.velocidade_fala", 1.0)))
+                       float(cfg.get("voz.velocidade_fala", 1.0)), idioma if idioma in IDIOMAS_XTTS else "pt",
+                       referencia=referencia_do_config(cfg), pausa_max_s=pausa or None,
+                       tirar_virgulas=bool(cfg.get("voz.xtts_tirar_virgulas", False)),
+                       ganho=_numero_do_config(cfg, "voz.xtts_ganho", GANHO_XTTS, 0.1, 2.0),
+                       velocidade_base=_numero_do_config(cfg, "voz.xtts_velocidade", 1.0, 0.5, 1.5))
     except Exception as e:  # noqa: BLE001 - sem a voz boa, a robótica ainda serve
         log.warning("XTTS indisponível (%s); falando com o Piper", e)
         return piper

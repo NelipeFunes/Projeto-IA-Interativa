@@ -141,7 +141,19 @@ voz:
   # 02/10: o Felipe preferiu voltar ao Piper (a Tanja do XTTS não agradou). O XTTS continua disponível.
   motor: piper
   xtts_falante: Tanja Adelina # vozes de estúdio do XTTS-v2 (amostras de 01/10)
-  piper_ate_caracteres: 45    # com o XTTS, resposta de uma frase só até esse tamanho sai pelo Piper, na hora (0 = nunca)
+  # Voz clonada (16/10): 10 a 30 s de fala limpa, no idioma em que ela vai falar, em data/voz/<nome>.wav (fora do git:
+  # é a voz de uma pessoa). Depois, em data/config-local.yaml: `voz.motor: xtts` e `voz.referencia: <nome>`.
+  # Sem a gravação, o Vision cai no Piper. Medidas e motivos dos valores abaixo: docs/melhorias/voz-xtts.md.
+  referencia:                 # nome do arquivo em data/voz, sem a extensão (vazio = voz de estúdio do xtts_falante)
+  idioma: pt                  # idioma do XTTS
+  xtts_pausa_max_s: 0.15      # pausa mais longa DENTRO da frase (0 = não corta; acima de 0,25 vale também para o fim da frase).
+                              # O XTTS sozinho fazia ~0,55 s por vírgula
+  xtts_tirar_virgulas: false  # true tira vírgula, ponto e vírgula e dois-pontos do texto (fica a da 1ª palavra e a de número):
+                              # +0,5 letras/s, mas muda a entonação e, em frase com lista, pode mudar o sentido
+  xtts_velocidade: 1.1        # >1 fala mais rápido. A "velocidade_fala" da tela de Ajustes vale por cima (>1 = mais devagar)
+  xtts_ganho: 0.5             # volume do XTTS (a saída dele é bem mais alta que a do Piper)
+  piper_ate_caracteres: 45    # com o XTTS, resposta de uma frase só até esse tamanho sai pelo Piper, na hora (0 = nunca;
+                              # com voz clonada nunca sai: seria outra voz)
   voz_piper: pt_BR-faber-medium
   velocidade_fala: 1.0        # >1 fala mais devagar
   # Acabamento do Piper (02/10): pausa entre frases e variação da entonação/ritmo (vazio = padrão do modelo,

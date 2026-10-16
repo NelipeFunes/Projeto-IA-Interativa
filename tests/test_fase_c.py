@@ -257,6 +257,30 @@ def test_arquivo_local_so_muda_as_chaves_da_tela(cfg, monkeypatch, tmp_path):
         assert original.get(chave) == base.get(chave)
 
 
+def _carregar_com_local(conteudo, monkeypatch, tmp_path):
+    (tmp_path / "raiz" / "data").mkdir(parents=True, exist_ok=True)
+    (tmp_path / "raiz" / "data" / config.AJUSTES_LOCAIS).write_text(conteudo, encoding="utf-8")
+    monkeypatch.setattr(config, "RAIZ", tmp_path / "raiz")
+    monkeypatch.delenv("VISION_SEM_AJUSTES")
+    return config.carregar(config.Path(__file__).resolve().parents[1] / "config.yaml")
+
+
+def test_arquivo_local_escolhe_o_motor_e_a_voz_de_referencia(monkeypatch, tmp_path):
+    cfg = _carregar_com_local("voz.motor: xtts\nvoz.referencia: jarvis\n", monkeypatch, tmp_path)
+    assert cfg.get("voz.motor") == "xtts" and cfg.get("voz.referencia") == "jarvis"
+
+
+@pytest.mark.parametrize("conteudo", [
+    "voz.motor: elevenlabs\n",  # só os motores que existem
+    "voz.referencia: ../../segredo\n",  # só o nome de um arquivo em data/voz, nunca um caminho
+    "voz.referencia: C:\\\\Users\\\\x\\\\voz\n",
+    "voz.referencia: [a, b]\n",
+])
+def test_arquivo_local_recusa_motor_e_referencia_invalidos(conteudo, monkeypatch, tmp_path):
+    cfg = _carregar_com_local(conteudo, monkeypatch, tmp_path)
+    assert cfg.get("voz.motor") == "piper" and not cfg.get("voz.referencia")
+
+
 def test_trocar_de_microfone_nao_empilha_a_lista(cfg_ajustes):
     cfg_ajustes.bruto.setdefault("voz", {})["microfone"] = ["Microfone (C920)", "HyperX", "C920"]
     m = ajustes.validar(cfg_ajustes, {"voz.microfone": "Microfone (HyperX Cloud)"})

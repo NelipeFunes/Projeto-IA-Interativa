@@ -96,3 +96,26 @@ Cada item tem o que aconteceu, o que custou e a regra que sobrou. Atualize quand
 26. **Encurtar o histórico quebra a continuação.** Cortar todo resultado de ferramenta em 1.000 caracteres ao gravar o turno
     estabilizou o cache, mas tirava os links 2 a 5 da busca e o "quero detalhes do segundo" deixava de funcionar. Limite por
     ferramenta (busca, página, reunião, agenda) e um teto de caracteres para o histórico inteiro; teste de continuação.
+
+## Voz
+
+27. **Traduza a queixa em número antes de mexer.** "Lenta e travada" virou letras por segundo, % de pausa dentro da fala, pausa
+    máxima e paradas simuladas no alto-falante, medidas na própria voz de referência (o alvo). Foi o que mostrou que o ritmo da
+    fala em si já estava bom (14,7 letras/s) e que 22% do tempo era pausa em vírgula: sem isso, o palpite seria acelerar.
+28. **Modelo que sorteia não se compara com um áudio por ajuste.** O XTTS deu 11,9 s e 15,7 s para a mesma frase com a mesma
+    configuração. Mesmas sementes em todos os ajustes, vários sorteios por linha, e a mediana (não o melhor) vai para o ouvido.
+29. **Teste a hipótese barata antes de construir em volta dela, e meça de novo depois de cada correção.** Limitar os códigos de
+    silêncio na geração parecia a solução elegante (economiza cálculo) e não mudou nada: o modelo troca por outros códigos quase
+    mudos. Tirar as vírgulas do texto derrubou a pausa pela metade, mas só até o compressor entrar: com ele rendeu +0,3 a +0,5
+    letras/s e, sem a vírgula, "Não, está tudo certo" virava "Não está tudo certo" (achado da revisão: a métrica de erro de
+    palavras não pega isso, porque as palavras são as mesmas). Ficou desligado por padrão.
+30. **Cortar o áudio depois não é de graça em tempo real.** Encurtar o áudio sem encurtar o cálculo derruba o RTF (1,4 → 1,2) e
+    pode fazer o som acabar antes de o próximo pedaço chegar. Medir as paradas simulando o alto-falante, não só a duração.
+31. **Placa a 26% indica gargalo de CPU.** Depois de ver o uso da placa durante a geração, TF32 e fp16 deixaram de ser opção
+    (o fp16 piorou). O ganho provável está em menos passos (outro motor, CUDA graphs) ou em tirar a disputa do GIL (outro
+    processo); só uma leitura de uso, então "indica" e não "prova".
+32. **Uma dependência nova pode brigar com a que já está.** O Qwen3-TTS exige `transformers` 5.15.1 (a 5.18 e a 5.20 não carregam
+    o modelo) e o XTTS exige menor que 5. Antes de prometer o motor, confira o que ele puxa (`uv pip install --dry-run`).
+33. **Teste de estresse mostra o limite, não o uso.** Com o Ollama gerando sem parar, as duas vozes caíam para metade da velocidade
+    da fala e pareciam condenadas. No fluxo real (o modelo termina o resto da resposta em 1 a 4 s) a 1ª frase já deixa folga e
+    as paradas ficaram em 0,2 s no máximo. Antes de mudar a arquitetura por causa de um número de estresse, meça o fluxo de verdade.

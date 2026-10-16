@@ -25,6 +25,9 @@ CHAVES_LIGA_DESLIGA = {"mcp.google-calendar.ativo", "spotify.ativo", "alexa.ativ
 CHAVES_AJUSTAVEIS |= CHAVES_LIGA_DESLIGA
 # Gravadas pela tela de Conexões (não pela de Ajustes). O IP da TV é da sua rede: só no arquivo local.
 CHAVES_DE_CONEXAO = {"tv.ip"}
+# A voz clonada fica só neste computador (data/voz/<nome>.wav, fora do git): quem escolhe é o arquivo local, sem tela.
+MOTORES_DE_VOZ = ("piper", "xtts")
+CHAVES_DE_VOZ_LOCAL = {"voz.motor", "voz.referencia"}
 
 
 @dataclass
@@ -74,8 +77,10 @@ def carregar(arquivo: Path | None = None, sobrescrever: dict[str, Any] | None = 
                 continue
             if chave in CHAVES_LIGA_DESLIGA and not isinstance(valor, bool):
                 continue
-            valido = not (chave == "voz.voz_piper" and not _nome_de_arquivo(valor))
-            if (chave in CHAVES_AJUSTAVEIS or chave in CHAVES_DE_CONEXAO) and valido:
+            if chave == "voz.motor" and valor not in MOTORES_DE_VOZ:
+                continue
+            valido = not (chave in ("voz.voz_piper", "voz.referencia") and not _nome_de_arquivo(valor))
+            if (chave in CHAVES_AJUSTAVEIS or chave in CHAVES_DE_CONEXAO or chave in CHAVES_DE_VOZ_LOCAL) and valido:
                 _definir(bruto, chave, valor)
     for chave, valor in (sobrescrever or {}).items():
         _definir(bruto, chave, valor)
